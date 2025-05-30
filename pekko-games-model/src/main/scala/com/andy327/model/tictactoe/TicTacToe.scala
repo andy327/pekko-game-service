@@ -14,8 +14,8 @@ object TicTacToe {
   private def checkWinner(board: Board): Option[Mark] = {
     val rows = board
     val cols = (0 until 2).map(i => board.map(_(i)))
-    val diag1 = (0 until 2).map(i => board(i)(i))
-    val diag2 = (0 until 2).map(i => board(i)(2 - i))
+    val diag1 = (0 to 2).map(i => board(i)(i))
+    val diag2 = (0 to 2).map(i => board(i)(2 - i))
 
     (rows ++ cols :+ diag1 :+ diag2)
       .find(line => line.forall(_.isDefined) && line.distinct.size == 1)
@@ -38,7 +38,7 @@ case class TicTacToe(
     case O => X
   }
 
-  def play(move: Location): Either[String, Game[Location, TicTacToe, Mark, GameStatus]] = {
+  def play(move: Location): Either[String, TicTacToe] = {
     if (status != InProgress) Left("Game is already finished.")
     else if (board(move.row)(move.col).isDefined) Left("Cell already occupied.")
     else {

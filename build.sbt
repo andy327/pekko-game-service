@@ -5,8 +5,11 @@ ThisBuild / scalaVersion := "2.13.16"
 
 val baseName = "pekko-games"
 
-val pekkoVersion = "1.1.3"
-val pekkoHttpVersion = "1.2.0"
+val versions: Map[String, String] = Map(
+  "pekko" -> "1.1.3",
+  "pekko-http" -> "1.2.0",
+  "scalatest" -> "3.2.19"
+)
 
 lazy val commonSettings = Seq(
   scalacOptions += "-deprecation"
@@ -15,7 +18,10 @@ lazy val commonSettings = Seq(
 lazy val model = (project in file(s"$baseName-model"))
   .settings(
     commonSettings,
-    name := s"$baseName-model"
+    name := s"$baseName-model",
+    libraryDependencies ++= Seq(
+      "org.scalatest" %% "scalatest" % versions("scalatest") % Test
+    )
   )
 
 lazy val server = (project in file(s"$baseName-server"))
@@ -24,10 +30,13 @@ lazy val server = (project in file(s"$baseName-server"))
     commonSettings,
     name := s"$baseName-server",
     libraryDependencies ++= Seq(
-      "org.apache.pekko" %% "pekko-actor-typed"     % pekkoVersion,
-      "org.apache.pekko" %% "pekko-http"            % pekkoHttpVersion,
-      "org.apache.pekko" %% "pekko-stream"          % pekkoVersion,
-      "org.apache.pekko" %% "pekko-http-spray-json" % pekkoHttpVersion
+      "org.apache.pekko" %% "pekko-actor-typed"         % versions("pekko"),
+      "org.apache.pekko" %% "pekko-http"                % versions("pekko-http"),
+      "org.apache.pekko" %% "pekko-stream"              % versions("pekko"),
+      "org.apache.pekko" %% "pekko-http-spray-json"     % versions("pekko-http"),
+      "org.scalatest"    %% "scalatest"                 % versions("scalatest") % Test,
+      "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
+      "org.apache.pekko" %% "pekko-http-testkit"        % versions("pekko-http") % Test
     )
   )
 

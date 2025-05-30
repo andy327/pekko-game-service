@@ -6,7 +6,7 @@ trait Game[Move, State, Player, Status] {
   def gameStatus: Status
 
   /** Applies a move and returns the updated game or an error message */
-  def play(move: Move): Either[String, Game[Move, State, Player, Status]]
+  def play(move: Move): Either[String, State]
 }
 
 trait Renderable {
