@@ -42,7 +42,8 @@ lazy val server = (project in file(s"$baseName-server"))
 
 lazy val root = (project in file("."))
   .aggregate(model, server)
+  .dependsOn(server)
   .settings(
-    commonSettings,
-    name := baseName
+    name := baseName,
+    Compile / run / mainClass := Some("com.andy327.server.GameServer")
   )
