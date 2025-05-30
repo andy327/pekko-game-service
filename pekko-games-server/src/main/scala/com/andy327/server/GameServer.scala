@@ -6,7 +6,8 @@ import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.concurrent.{Await, ExecutionContextExecutor, Future}
+import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 object GameServer extends App {
@@ -32,6 +33,12 @@ object GameServer extends App {
       system.terminate()
   }
 
+  // graceful shutdown on Ctrl+C
+  sys.addShutdownHook {
+    println("Shutting down server...")
+    system.classicSystem.terminate()
+  }
+
   // Keep the application alive
-  system.whenTerminated
+  Await.result(system.whenTerminated, Duration.Inf)
 }
