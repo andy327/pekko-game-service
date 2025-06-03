@@ -15,7 +15,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
 
     "allow a player to make a move" in {
       val game = TicTacToe.empty("alice", "bob")
-      val result = game.play(Location(0, 0))
+      val result = game.play(X, Location(0, 0))
       result.isRight shouldBe true
       val newState = result.toOption.get
       newState.board(0)(0) shouldBe Some(X)
@@ -24,47 +24,47 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     }
 
     "not allow a move on an occupied space" in {
-      val game = TicTacToe.empty("alice", "bob").play(Location(0, 0)).toOption.get
-      val result = game.play(Location(0, 0))
+      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
+      val result = game.play(X, Location(0, 0))
       result.isLeft shouldBe true
     }
 
     "detect a winning condition" in {
       val game = TicTacToe.empty("alice", "bob")
-        .play(Location(0, 0)).toOption.get // X
-        .play(Location(1, 0)).toOption.get // O
-        .play(Location(0, 1)).toOption.get // X
-        .play(Location(1, 1)).toOption.get // O
-        .play(Location(0, 2)).toOption.get // X wins
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 0)).toOption.get
+        .play(X, Location(0, 1)).toOption.get
+        .play(O, Location(1, 1)).toOption.get
+        .play(X, Location(0, 2)).toOption.get // X wins
 
       game.gameStatus shouldBe Won(X)
     }
 
     "detect a draw" in {
       val game = TicTacToe.empty("alice", "bob")
-        .play(Location(1, 1)).toOption.get // X
-        .play(Location(0, 0)).toOption.get // O
-        .play(Location(1, 0)).toOption.get // X
-        .play(Location(1, 2)).toOption.get // O
-        .play(Location(2, 1)).toOption.get // X
-        .play(Location(0, 1)).toOption.get // O
-        .play(Location(0, 2)).toOption.get // X
-        .play(Location(2, 0)).toOption.get // O
-        .play(Location(2, 2)).toOption.get // X draw
+        .play(X, Location(1, 1)).toOption.get
+        .play(O, Location(0, 0)).toOption.get
+        .play(X, Location(1, 0)).toOption.get
+        .play(O, Location(1, 2)).toOption.get
+        .play(X, Location(2, 1)).toOption.get
+        .play(O, Location(0, 1)).toOption.get
+        .play(X, Location(0, 2)).toOption.get
+        .play(O, Location(2, 0)).toOption.get
+        .play(X, Location(2, 2)).toOption.get // X draw
 
       game.gameStatus shouldBe Draw
     }
 
     "not allow a move after the game is won" in {
       val game = TicTacToe.empty("alice", "bob")
-        .play(Location(0, 0)).toOption.get // X
-        .play(Location(1, 0)).toOption.get // O
-        .play(Location(0, 1)).toOption.get // X
-        .play(Location(1, 1)).toOption.get // O
-        .play(Location(0, 2)).toOption.get // X wins
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 0)).toOption.get
+        .play(X, Location(0, 1)).toOption.get
+        .play(O, Location(1, 1)).toOption.get
+        .play(X, Location(0, 2)).toOption.get // X wins
 
       game.gameStatus shouldBe Won(X)
-      val result = game.play(Location(1, 2)) // O
+      val result = game.play(O, Location(1, 2))
       result.isLeft shouldBe true
     }
   }
