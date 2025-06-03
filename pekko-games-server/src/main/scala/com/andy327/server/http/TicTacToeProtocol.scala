@@ -1,4 +1,4 @@
-package com.andy327.server.protocol
+package com.andy327.server.http
 
 import spray.json._
 

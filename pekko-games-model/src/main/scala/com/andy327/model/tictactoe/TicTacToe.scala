@@ -1,19 +1,24 @@
 package com.andy327.model.tictactoe
 
 import com.andy327.model.{Game, Renderable}
+import com.andy327.model.tictactoe._
 
 object TicTacToe {
-  def empty: TicTacToe = TicTacToe(
-    Vector.fill(3, 3)(Option.empty[Mark]),
+  def empty(playerX: String, playerO: String): TicTacToe = TicTacToe(
+    playerX = playerX,
+    playerO = playerO,
+    board = Vector.fill(3, 3)(Option.empty[Mark]),
     currentPlayer = X,
-    status = InProgress
+    winner = None,
+    isDraw = false
   )
 
-  private def isFull(board: Board): Boolean = board.flatten.forall(_.isDefined)
+  private def isFull(board: Board): Boolean =
+    board.flatten.forall(_.isDefined)
 
   private def checkWinner(board: Board): Option[Mark] = {
     val rows = board
-    val cols = (0 until 2).map(i => board.map(_(i)))
+    val cols = (0 until 3).map(i => board.map(_(i)))
     val diag1 = (0 to 2).map(i => board(i)(i))
     val diag2 = (0 to 2).map(i => board(i)(2 - i))
 
@@ -23,15 +28,20 @@ object TicTacToe {
   }
 }
 
-case class TicTacToe(
+final case class TicTacToe(
+    playerX: String,
+    playerO: String,
     board: Board,
     currentPlayer: Mark,
-    status: GameStatus
+    winner: Option[Mark],
+    isDraw: Boolean
 ) extends Game[Location, TicTacToe, Mark, GameStatus]
     with Renderable {
 
   def currentState: TicTacToe = this
-  def gameStatus: GameStatus = status
+
+  def gameStatus: GameStatus =
+    winner.map(Won).getOrElse(if (isDraw) Draw else InProgress)
 
   private def nextPlayer: Mark = currentPlayer match {
     case X => O
@@ -39,18 +49,23 @@ case class TicTacToe(
   }
 
   def play(move: Location): Either[String, TicTacToe] = {
-    if (status != InProgress) Left("Game is already finished.")
+    if (winner.isDefined || isDraw) Left("Game is already finished.")
     else if (board(move.row)(move.col).isDefined) Left("Cell already occupied.")
     else {
-      val updatedBoard = board.updated(move.row,
-        board(move.row).updated(move.col, Some(currentPlayer)))
+      val updatedBoard = board.updated(
+        move.row,
+        board(move.row).updated(move.col, Some(currentPlayer))
+      )
 
-      val newStatus = TicTacToe.checkWinner(updatedBoard).map(Won).getOrElse {
-        if (TicTacToe.isFull(updatedBoard)) Draw
-        else InProgress
-      }
+      val maybeWinner = TicTacToe.checkWinner(updatedBoard)
+      val draw = maybeWinner.isEmpty && TicTacToe.isFull(updatedBoard)
 
-      Right(copy(board = updatedBoard, currentPlayer = nextPlayer, status = newStatus))
+      Right(copy(
+        board = updatedBoard,
+        currentPlayer = nextPlayer,
+        winner = maybeWinner,
+        isDraw = draw
+      ))
     }
   }
 

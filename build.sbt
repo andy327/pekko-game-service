@@ -6,6 +6,8 @@ ThisBuild / scalaVersion := "2.13.16"
 val baseName = "pekko-games"
 
 val versions: Map[String, String] = Map(
+  "circe" -> "0.14.6",
+  "doobie" -> "1.0.0-RC8",
   "pekko" -> "1.1.3",
   "pekko-http" -> "1.2.0",
   "scalatest" -> "3.2.19",
@@ -36,6 +38,13 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.apache.pekko" %% "pekko-stream"              % versions("pekko"),
       "org.apache.pekko" %% "pekko-http-spray-json"     % versions("pekko-http"),
       "org.slf4j"         % "slf4j-simple"              % versions("slf4j"),
+      "org.tpolecat"     %% "doobie-core"               % versions("doobie"),
+      "org.tpolecat"     %% "doobie-postgres"           % versions("doobie"),
+      "org.tpolecat"     %% "doobie-postgres-circe"     % versions("doobie"),
+      "org.tpolecat"     %% "doobie-hikari"             % versions("doobie"),
+      "io.circe"         %% "circe-core"                % versions("circe"),
+      "io.circe"         %% "circe-generic"             % versions("circe"),
+      "io.circe"         %% "circe-parser"              % versions("circe"),
       "org.scalatest"    %% "scalatest"                 % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
       "org.apache.pekko" %% "pekko-http-testkit"        % versions("pekko-http") % Test
