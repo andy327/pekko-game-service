@@ -1,8 +1,8 @@
 package com.andy327.model.tictactoe
 
 import com.andy327.model.{Game, Renderable}
-import com.andy327.model.tictactoe._
-import com.andy327.model.tictactoe.GameError._
+
+import GameError._
 
 object TicTacToe {
   def empty(playerX: String, playerO: String): TicTacToe = TicTacToe(
@@ -49,7 +49,7 @@ final case class TicTacToe(
     case O => X
   }
 
-  def play(player: Mark, loc: Location): Either[GameError, TicTacToe] = {
+  def play(player: Mark, loc: Location): Either[GameError, TicTacToe] =
     if (gameStatus != InProgress)
       Left(GameOver)
     else if (player != currentPlayer)
@@ -67,14 +67,15 @@ final case class TicTacToe(
       val maybeWinner = TicTacToe.checkWinner(updatedBoard)
       val draw = maybeWinner.isEmpty && TicTacToe.isFull(updatedBoard)
 
-      Right(copy(
-        board = updatedBoard,
-        currentPlayer = nextPlayer,
-        winner = maybeWinner,
-        isDraw = draw
-      ))
+      Right(
+        copy(
+          board = updatedBoard,
+          currentPlayer = nextPlayer,
+          winner = maybeWinner,
+          isDraw = draw
+        )
+      )
     }
-  }
 
   def render: String = {
     val border = "-" * 7

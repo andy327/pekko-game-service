@@ -1,7 +1,8 @@
 package com.andy327.model.tictactoe
 
-import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
+
 import com.andy327.model.tictactoe._
 
 class TicTacToeSpec extends AnyWordSpec with Matchers {

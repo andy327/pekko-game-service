@@ -1,24 +1,28 @@
 package com.andy327.server.actors
 
-import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
-import com.andy327.server.db.GameRepository
-import com.andy327.server.http.TicTacToeStatus
+import java.util.UUID
+
+import scala.util.{Failure, Success}
+
+import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import java.util.UUID
-import scala.util.{Failure, Success}
-import cats.effect.unsafe.IORuntime
-import cats.effect.IO
+import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
+import com.andy327.server.db.GameRepository
+import com.andy327.server.http.TicTacToeStatus
 
 object GameManager {
   sealed trait Command
   case class CreateTicTacToe(playerX: String, playerO: String, replyTo: ActorRef[String]) extends Command
-  case class ForwardMove(gameId: String, playerId: String, loc: Location, replyTo: ActorRef[GameResponse]) extends Command
+  case class ForwardMove(gameId: String, playerId: String, loc: Location, replyTo: ActorRef[GameResponse])
+      extends Command
   case class ForwardGetStatus(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   private case class RestoreGames(games: Map[String, TicTacToe]) extends Command
-  private case class WrappedGameResponse(response: Either[GameError, TicTacToeStatus], replyTo: ActorRef[GameResponse]) extends Command
+  private case class WrappedGameResponse(response: Either[GameError, TicTacToeStatus], replyTo: ActorRef[GameResponse])
+      extends Command
 
   sealed trait GameResponse
   case class GameState(status: TicTacToeStatus) extends GameResponse
@@ -72,8 +76,10 @@ object GameManager {
     * Running state: main loop handling live operations.
     * Accepts new game creation and forwards commands to existing game actors.
     */
-  private def running(games: Map[String, ActorRef[TicTacToeActor.Command]],
-                      gameRepo: GameRepository): Behavior[Command] =
+  private def running(
+      games: Map[String, ActorRef[TicTacToeActor.Command]],
+      gameRepo: GameRepository
+  ): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
         case CreateTicTacToe(playerX, playerO, replyTo) =>
@@ -86,7 +92,9 @@ object GameManager {
         case ForwardMove(gameId, playerId, loc, replyTo) =>
           games.get(gameId) match {
             case Some(gameActorRef) =>
-              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped => WrappedGameResponse(wrapped, replyTo))
+              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped =>
+                WrappedGameResponse(wrapped, replyTo)
+              )
               gameActorRef ! TicTacToeActor.MakeMove(playerId, loc, adapter)
             case None =>
               replyTo ! ErrorResponse(s"No game found with gameId $gameId")
@@ -96,7 +104,9 @@ object GameManager {
         case ForwardGetStatus(gameId, replyTo) =>
           games.get(gameId) match {
             case Some(gameActorRef) =>
-              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped => WrappedGameResponse(wrapped, replyTo))
+              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped =>
+                WrappedGameResponse(wrapped, replyTo)
+              )
               gameActorRef ! TicTacToeActor.GetStatus(adapter)
             case None =>
               replyTo ! ErrorResponse(s"No game found with gameId $gameId")

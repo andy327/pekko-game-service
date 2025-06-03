@@ -3,6 +3,16 @@ ThisBuild / organization := "com.andy327"
 ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "2.13.16"
 
+// Required for Scalafix semantic rules
+ThisBuild / semanticdbEnabled := true
+ThisBuild / semanticdbVersion := scalafixSemanticdb.revision
+
+ThisBuild / scalacOptions ++= Seq(
+  "-deprecation",
+  "-Wunused",        // For RemoveUnused rule
+  "-Wunused:imports" // For OrganizeImports.removeUnused = true
+)
+
 val baseName = "pekko-games"
 
 val versions: Map[String, String] = Map(
@@ -14,13 +24,8 @@ val versions: Map[String, String] = Map(
   "slf4j" -> "2.0.17"
 )
 
-lazy val commonSettings = Seq(
-  scalacOptions += "-deprecation"
-)
-
 lazy val model = (project in file(s"$baseName-model"))
   .settings(
-    commonSettings,
     name := s"$baseName-model",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test
@@ -30,7 +35,6 @@ lazy val model = (project in file(s"$baseName-model"))
 lazy val server = (project in file(s"$baseName-server"))
   .dependsOn(model)
   .settings(
-    commonSettings,
     name := s"$baseName-server",
     libraryDependencies ++= Seq(
       "org.apache.pekko" %% "pekko-actor-typed"         % versions("pekko"),

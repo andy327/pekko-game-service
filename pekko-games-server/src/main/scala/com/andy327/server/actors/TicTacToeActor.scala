@@ -1,25 +1,25 @@
 package com.andy327.server.actors
 
-import com.andy327.model.tictactoe._
-import com.andy327.server.db.GameRepository
-import com.andy327.server.http.{Move, TicTacToeStatus}
-import GameManager.{ErrorResponse, GameResponse, GameState}
+import scala.util.{Failure, Success}
 
 import cats.effect.unsafe.IORuntime
-import cats.effect.IO
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
 
-import scala.util.{Failure, Success}
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+
+import com.andy327.model.tictactoe._
+import com.andy327.server.db.GameRepository
+import com.andy327.server.http.TicTacToeStatus
 
 object TicTacToeActor {
   sealed trait Command
-  case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeStatus]]) extends Command
+  case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeStatus]])
+      extends Command
   case class GetStatus(replyTo: ActorRef[Either[GameError, TicTacToeStatus]]) extends Command
   private case class InternalLoadedState(maybeGame: Option[TicTacToe]) extends Command
   private case class InternalSaveResult(success: Boolean) extends Command
 
-  private implicit val runtime: IORuntime = IORuntime.global // required for DB interaction
+  implicit private val runtime: IORuntime = IORuntime.global // required for DB interaction
 
   private def markForPlayer(playerId: String, playerX: String, playerO: String): Option[Mark] =
     if (playerId == playerX) Some(X)
@@ -70,8 +70,13 @@ object TicTacToeActor {
    * Main actor behavior.
    * Processes game logic and player interactions.
    */
-  private def active(game: TicTacToe, playerX: String, playerO: String,
-                     gameId: String, gameRepo: GameRepository): Behavior[Command] = Behaviors.receive { (context, msg) =>
+  private def active(
+      game: TicTacToe,
+      playerX: String,
+      playerO: String,
+      gameId: String,
+      gameRepo: GameRepository
+  ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
       case MakeMove(playerId, loc, replyTo) if game.gameStatus == InProgress =>
         markForPlayer(playerId, playerX, playerO) match {
@@ -80,7 +85,7 @@ object TicTacToeActor {
               case Right(nextState) =>
                 context.log.info(s"Game $gameId updated:\n${nextState.render}")
                 context.pipeToSelf(gameRepo.saveGame(gameId, nextState).unsafeToFuture()) {
-                  case Success(_) => InternalSaveResult(true)
+                  case Success(_)  => InternalSaveResult(true)
                   case Failure(ex) =>
                     context.log.error(s"Error saving game $gameId", ex)
                     InternalSaveResult(false)
@@ -94,7 +99,7 @@ object TicTacToeActor {
                 Behaviors.same
             }
 
-          case Some(mark) =>
+          case Some(_) =>
             // Player is part of game, but it's not their turn
             replyTo ! Left(GameError.InvalidTurn)
             Behaviors.same

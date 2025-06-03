@@ -1,8 +1,8 @@
 package com.andy327.server.db
 
-import com.andy327.model.tictactoe.TicTacToe
-
 import cats.effect.IO
+
+import com.andy327.model.tictactoe.TicTacToe
 
 trait GameRepository {
   def saveGame(gameId: String, game: TicTacToe): IO[Unit]

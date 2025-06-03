@@ -1,17 +1,18 @@
 package com.andy327.server.db.postgres
 
-import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.server.db.GameRepository
+import org.slf4j.LoggerFactory
 
-import cats.effect._
+import cats.effect.IO
 import cats.implicits._
+
 import doobie._
 import doobie.implicits._
 import io.circe.generic.auto._
-import io.circe.syntax._
 import io.circe.parser.decode
+import io.circe.syntax._
 
-import org.slf4j.LoggerFactory
+import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.server.db.GameRepository
 
 /**
  * GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states.
@@ -35,7 +36,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads the game state for a given gameId.
    * If the game exists, it is deserialized from JSON into a TicTacToe object.
    */
-  override def loadGame(gameId: String): IO[Option[TicTacToe]] = {
+  override def loadGame(gameId: String): IO[Option[TicTacToe]] =
     sql"SELECT game_state FROM games WHERE game_id = $gameId"
       .query[String]
       .option
@@ -50,29 +51,26 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
             }
         case None => IO.pure(None)
       }
-  }
 
   /**
    * Loads all games stored in the database and returns them as a Map from gameId to game state.
    * If any games fail to decode from JSON, their errors are logged and we proceed with loading.
    */
-  override def loadAllGames(): IO[Map[String, TicTacToe]] = {
+  override def loadAllGames(): IO[Map[String, TicTacToe]] =
     sql"SELECT game_id, game_state FROM games"
       .query[(String, String)]
       .to[List]
       .transact(xa)
       .flatMap { rows =>
-        rows.flatTraverse {
-          case (id, jsonStr) =>
-            decode[TicTacToe](jsonStr) match {
-              case Right(game) => IO.pure(List(id -> game))
-              case Left(err) =>
-                IO {
-                  logger.warn(s"Skipping corrupted game $id: ${err.getMessage}")
-                  Nil
-                }
-            }
+        rows.flatTraverse { case (id, jsonStr) =>
+          decode[TicTacToe](jsonStr) match {
+            case Right(game) => IO.pure(List(id -> game))
+            case Left(err)   =>
+              IO {
+                logger.warn(s"Skipping corrupted game $id: ${err.getMessage}")
+                Nil
+              }
+          }
         }.map(_.toMap)
       }
-  }
 }

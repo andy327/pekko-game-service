@@ -1,10 +1,11 @@
 package com.andy327.server.db.postgres
 
+import com.typesafe.config.ConfigFactory
+
 import cats.effect._
+
 import doobie.hikari._
 import doobie.util.ExecutionContexts
-
-import com.typesafe.config.ConfigFactory
 
 object DatabaseTransactor {
   private val config = ConfigFactory.load()
@@ -13,7 +14,6 @@ object DatabaseTransactor {
   private val url = dbConfig.getString("url")
   private val user = dbConfig.getString("user")
   private val pass = dbConfig.getString("pass")
-  private val poolSize = dbConfig.getInt("poolSize")
 
   /**
    * Creates a Resource that manages a Doobie HikariTransactor.

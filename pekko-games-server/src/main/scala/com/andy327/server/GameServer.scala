@@ -1,18 +1,20 @@
 package com.andy327.server
 
-import actors.GameManager
-import db.postgres.{DatabaseTransactor, PostgresGameRepository}
-import routes.TicTacToeRoutes
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContextExecutor, Future}
+import scala.util.{Failure, Success}
 
-import cats.effect.{IO, Resource}
+import com.typesafe.config.{Config, ConfigFactory}
+
 import cats.effect.unsafe.IORuntime
-import com.typesafe.config.ConfigFactory
+import cats.effect.{IO, Resource}
+
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 
-import scala.concurrent.{Await, ExecutionContextExecutor, Future}
-import scala.concurrent.duration._
-import scala.util.{Failure, Success}
+import actors.GameManager
+import db.postgres.{DatabaseTransactor, PostgresGameRepository}
+import routes.TicTacToeRoutes
 
 /**
  * GameServer is the main entry point of the Tic-Tac-Toe backend service.
@@ -20,9 +22,9 @@ import scala.util.{Failure, Success}
  */
 object GameServer extends App {
   // Load configuration from application.conf
-  val config = ConfigFactory.load()
-  val host = config.getString("pekko-games.http.host")
-  val port = config.getInt("pekko-games.http.port")
+  val config: Config = ConfigFactory.load()
+  val host: String = config.getString("pekko-games.http.host")
+  val port: Int = config.getInt("pekko-games.http.port")
 
   implicit val runtime: IORuntime = cats.effect.unsafe.IORuntime.global
 
@@ -35,7 +37,8 @@ object GameServer extends App {
     val gameRepository = new PostgresGameRepository(xa)
 
     // Pekko actor system
-    implicit val system: ActorSystem[GameManager.Command] = ActorSystem(GameManager(gameRepository), "GameManagerSystem")
+    implicit val system: ActorSystem[GameManager.Command] =
+      ActorSystem(GameManager(gameRepository), "GameManagerSystem")
     implicit val ec: ExecutionContextExecutor = system.executionContext
 
     // HTTP routes

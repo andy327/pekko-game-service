@@ -5,7 +5,7 @@ sealed trait GameError {
 }
 object GameError {
   case class InvalidPlayer(player: String) extends GameError {
-    val message = s"Unknown player: $player"
+    val message: String = s"Unknown player: $player"
   }
   case object InvalidTurn extends GameError {
     val message = "It's not your turn."

@@ -1,22 +1,20 @@
 package com.andy327.server.routes
 
-import com.andy327.model.tictactoe.Location
-import com.andy327.server.actors.GameManager
-import com.andy327.server.actors.GameManager.{ForwardMove, ForwardGetStatus, GameResponse, GameState, ErrorResponse}
-import com.andy327.server.http.{TicTacToeStatus, Move}
-import com.andy327.server.http.JsonProtocol._
+import scala.concurrent.duration._
 
-import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
+import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
-import spray.json._
 
-import scala.concurrent.duration._
-import scala.concurrent.ExecutionContext
+import com.andy327.model.tictactoe.Location
+import com.andy327.server.actors.GameManager
+import com.andy327.server.actors.GameManager.{ErrorResponse, ForwardGetStatus, ForwardMove, GameResponse, GameState}
+import com.andy327.server.http.JsonProtocol._
+import com.andy327.server.http.Move
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.
@@ -24,11 +22,12 @@ import scala.concurrent.ExecutionContext
  * This class defines endpoints for creating games, making moves, and querying game status.
  * Requests are forwarded to the GameManager actor, which handles routing to individual game actors.
  */
-class TicTacToeRoutes(system: ActorSystem[GameManager.Command])(implicit ec: ExecutionContext) {
+class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
 
   val routes: Route = pathPrefix("game") {
+
     /**
      * @route POST /game
      * @queryParam playerX Player ID for player X
@@ -58,9 +57,9 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command])(implicit ec: Exe
     path(Segment / "move") { gameId =>
       post {
         entity(as[Move]) { case Move(playerId, row, col) =>
-          onSuccess(system.ask[GameResponse](senderRef =>
-            ForwardMove(gameId, playerId, Location(row, col), senderRef)
-          )) {
+          onSuccess(
+            system.ask[GameResponse](senderRef => ForwardMove(gameId, playerId, Location(row, col), senderRef))
+          ) {
             case GameState(status)    => complete(status)
             case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
           }
@@ -77,9 +76,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command])(implicit ec: Exe
      */
     path(Segment / "status") { gameId =>
       get {
-        onSuccess(system.ask[GameResponse](senderRef =>
-          ForwardGetStatus(gameId, senderRef)
-        )) {
+        onSuccess(system.ask[GameResponse](senderRef => ForwardGetStatus(gameId, senderRef))) {
           case GameState(status)    => complete(status)
           case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
         }
