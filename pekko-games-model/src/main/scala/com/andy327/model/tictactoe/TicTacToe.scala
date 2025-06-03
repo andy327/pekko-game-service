@@ -2,6 +2,7 @@ package com.andy327.model.tictactoe
 
 import com.andy327.model.{Game, Renderable}
 import com.andy327.model.tictactoe._
+import com.andy327.model.tictactoe.GameError._
 
 object TicTacToe {
   def empty(playerX: String, playerO: String): TicTacToe = TicTacToe(
@@ -35,7 +36,7 @@ final case class TicTacToe(
     currentPlayer: Mark,
     winner: Option[Mark],
     isDraw: Boolean
-) extends Game[Location, TicTacToe, Mark, GameStatus]
+) extends Game[Location, TicTacToe, Mark, GameStatus, GameError]
     with Renderable {
 
   def currentState: TicTacToe = this
@@ -48,13 +49,19 @@ final case class TicTacToe(
     case O => X
   }
 
-  def play(move: Location): Either[String, TicTacToe] = {
-    if (winner.isDefined || isDraw) Left("Game is already finished.")
-    else if (board(move.row)(move.col).isDefined) Left("Cell already occupied.")
+  def play(player: Mark, loc: Location): Either[GameError, TicTacToe] = {
+    if (gameStatus != InProgress)
+      Left(GameOver)
+    else if (player != currentPlayer)
+      Left(InvalidTurn)
+    else if (loc.row < 0 || loc.row > 2 || loc.col < 0 || loc.col > 2)
+      Left(OutOfBounds)
+    else if (board(loc.row)(loc.col).isDefined)
+      Left(CellOccupied)
     else {
       val updatedBoard = board.updated(
-        move.row,
-        board(move.row).updated(move.col, Some(currentPlayer))
+        loc.row,
+        board(loc.row).updated(loc.col, Some(currentPlayer))
       )
 
       val maybeWinner = TicTacToe.checkWinner(updatedBoard)
