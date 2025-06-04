@@ -1,4 +1,4 @@
-package com.andy327.server.db.postgres
+package com.andy327.persistence.db.postgres
 
 import com.typesafe.config.ConfigFactory
 

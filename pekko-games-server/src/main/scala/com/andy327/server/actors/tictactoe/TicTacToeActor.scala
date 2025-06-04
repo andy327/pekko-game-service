@@ -1,4 +1,4 @@
-package com.andy327.server.actors
+package com.andy327.server.actors.tictactoe
 
 import scala.util.{Failure, Success}
 
@@ -8,8 +8,8 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.tictactoe._
-import com.andy327.server.db.GameRepository
-import com.andy327.server.http.TicTacToeStatus
+import com.andy327.persistence.db.GameRepository
+import com.andy327.server.http.json.TicTacToeStatus
 
 object TicTacToeActor {
   sealed trait Command

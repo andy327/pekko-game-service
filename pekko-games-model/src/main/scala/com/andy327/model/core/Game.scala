@@ -1,4 +1,4 @@
-package com.andy327.model
+package com.andy327.model.core
 
 trait Game[Move, State, Player, Status, Error] {
   def currentState: State
@@ -7,9 +7,4 @@ trait Game[Move, State, Player, Status, Error] {
 
   /** Applies a move and returns the updated game or an error message */
   def play(player: Player, move: Move): Either[Error, State]
-}
-
-trait Renderable {
-  def render: String
-  override def toString: String = render
 }

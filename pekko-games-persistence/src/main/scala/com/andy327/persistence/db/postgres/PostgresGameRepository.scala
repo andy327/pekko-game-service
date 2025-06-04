@@ -1,4 +1,4 @@
-package com.andy327.server.db.postgres
+package com.andy327.persistence.db.postgres
 
 import org.slf4j.LoggerFactory
 
@@ -12,7 +12,7 @@ import io.circe.parser.decode
 import io.circe.syntax._
 
 import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.server.db.GameRepository
+import com.andy327.persistence.db.GameRepository
 
 /**
  * GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states.

@@ -1,4 +1,4 @@
-package com.andy327.server.db
+package com.andy327.persistence.db
 
 import cats.effect.IO
 

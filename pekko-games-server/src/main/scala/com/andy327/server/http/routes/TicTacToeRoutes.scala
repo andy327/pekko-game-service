@@ -1,4 +1,4 @@
-package com.andy327.server.routes
+package com.andy327.server.http.routes
 
 import scala.concurrent.duration._
 
@@ -11,10 +11,16 @@ import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
 import com.andy327.model.tictactoe.Location
-import com.andy327.server.actors.GameManager
-import com.andy327.server.actors.GameManager.{ErrorResponse, ForwardGetStatus, ForwardMove, GameResponse, GameState}
-import com.andy327.server.http.JsonProtocol._
-import com.andy327.server.http.Move
+import com.andy327.server.actors.core.GameManager
+import com.andy327.server.actors.core.GameManager.{
+  ErrorResponse,
+  ForwardGetStatus,
+  ForwardMove,
+  GameResponse,
+  GameState
+}
+import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.json.Move
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.

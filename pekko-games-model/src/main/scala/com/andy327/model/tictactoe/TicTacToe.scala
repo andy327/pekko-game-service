@@ -1,6 +1,6 @@
 package com.andy327.model.tictactoe
 
-import com.andy327.model.{Game, Renderable}
+import com.andy327.model.core.{Game, Renderable}
 
 import GameError._
 
