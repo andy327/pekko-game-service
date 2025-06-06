@@ -73,7 +73,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       case ttt: TicTacToe => active(ttt, ttt.playerX, ttt.playerO, gameId, repo)
       case _              =>
         ctx.log.error(s"Unexpected snapshot type for game $gameId: $game")
-        Behaviors.stopped // TODO: does a corrupt game kill the actor's behavior?
+        Behaviors.stopped
     }
 
   /**
