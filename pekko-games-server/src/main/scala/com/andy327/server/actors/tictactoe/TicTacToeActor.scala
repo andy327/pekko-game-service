@@ -4,12 +4,11 @@ import scala.util.{Failure, Success}
 
 import cats.effect.unsafe.IORuntime
 
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.actor.typed.scaladsl.ActorContext
 
-import com.andy327.model.tictactoe._
 import com.andy327.model.core.Game
+import com.andy327.model.tictactoe._
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.http.json.{GameState, TicTacToeState}
@@ -46,7 +45,9 @@ object TicTacToeActor extends GameActor[TicTacToe] {
    * Initializes a new TicTacToeActor.
    * Attempts to load existing state from DB; otherwise starts fresh.
    */
-  override def create(gameId: String, players: Seq[String], gameRepo: GameRepository)(implicit ctx: ActorContext[_]): Behavior[Command] = {
+  override def create(gameId: String, players: Seq[String], gameRepo: GameRepository)(implicit
+      ctx: ActorContext[_]
+  ): Behavior[Command] = {
     require(players.length == 2, "TicTacToe requires exactly 2 players")
     val (playerX, playerO) = (players(0), players(1))
 
@@ -65,14 +66,15 @@ object TicTacToeActor extends GameActor[TicTacToe] {
    * Creates a TicTacToeActor from a preloaded game snapshot.
    * This is used during recovery of games from persistent storage.
    */
-  override def fromSnapshot(gameId: String, game: Game[_, _, _, _, _], repo: GameRepository)(implicit ctx: ActorContext[_]): Behavior[Command] = {
+  override def fromSnapshot(gameId: String, game: Game[_, _, _, _, _], repo: GameRepository)(implicit
+      ctx: ActorContext[_]
+  ): Behavior[Command] =
     game match {
       case ttt: TicTacToe => active(ttt, ttt.playerX, ttt.playerO, gameId, repo)
-      case _ =>
+      case _              =>
         ctx.log.error(s"Unexpected snapshot type for game $gameId: $game")
         Behaviors.stopped // TODO: does a corrupt game kill the actor's behavior?
     }
-  }
 
   /**
    * Temporary behavior while game state is being loaded.

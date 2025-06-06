@@ -61,7 +61,10 @@ object GameManager {
           val restoredActors = games.map { case (id, (gameType, game)) =>
             val actor = gameType match {
               case GameType.TicTacToe =>
-                context.spawn(TicTacToeActor.fromSnapshot(id, game.asInstanceOf[TicTacToe], gameRepo), s"game-$id").unsafeUpcast[GameCommand]
+                context.spawn(
+                  TicTacToeActor.fromSnapshot(id, game.asInstanceOf[TicTacToe], gameRepo),
+                  s"game-$id"
+                ).unsafeUpcast[GameCommand]
             }
             id -> actor
           }
@@ -86,52 +89,52 @@ object GameManager {
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
-          case CreateGame(gameType, players, replyTo) =>
-            val id = UUID.randomUUID().toString
-            val actor = gameType match {
-              case GameType.TicTacToe =>
-                context.spawn(TicTacToeActor.create(id, players, gameRepo), s"game-$id").unsafeUpcast[GameCommand]
-            }
-            context.log.info(s"Created new game with id: $id")
-            replyTo ! id
-            running(games + (id -> actor), gameRepo)
+        case CreateGame(gameType, players, replyTo) =>
+          val id = UUID.randomUUID().toString
+          val actor = gameType match {
+            case GameType.TicTacToe =>
+              context.spawn(TicTacToeActor.create(id, players, gameRepo), s"game-$id").unsafeUpcast[GameCommand]
+          }
+          context.log.info(s"Created new game with id: $id")
+          replyTo ! id
+          running(games + (id -> actor), gameRepo)
 
-          case ForwardToGame(gameId, msg, replyToOpt) =>
-            games.get(gameId) match {
-              case Some(gameActorRef) =>
-                replyToOpt.foreach { replyTo =>
-                  // TODO: push this reply adapter up to the caller and remove specific message-handling from here
-                  val adaptedRef: ActorRef[Either[GameError, GameState]] =
-                    context.messageAdapter { response =>
-                      WrappedGameResponse(response, replyTo)
-                    }
-
-                  val actualCommand = msg match {
-                    case TicTacToeActor.MakeMove(p, l, _) =>
-                      TicTacToeActor.MakeMove(p, l, adaptedRef)
-                    case TicTacToeActor.GetState(_) =>
-                      TicTacToeActor.GetState(adaptedRef)
+        case ForwardToGame(gameId, msg, replyToOpt) =>
+          games.get(gameId) match {
+            case Some(gameActorRef) =>
+              replyToOpt.foreach { replyTo =>
+                // TODO: push this reply adapter up to the caller and remove specific message-handling from here
+                val adaptedRef: ActorRef[Either[GameError, GameState]] =
+                  context.messageAdapter { response =>
+                    WrappedGameResponse(response, replyTo)
                   }
 
-                  gameActorRef ! actualCommand
+                val actualCommand = msg match {
+                  case TicTacToeActor.MakeMove(p, l, _) =>
+                    TicTacToeActor.MakeMove(p, l, adaptedRef)
+                  case TicTacToeActor.GetState(_) =>
+                    TicTacToeActor.GetState(adaptedRef)
                 }
 
-              case None =>
-                context.log.warn(s"No game found with gameId $gameId to forward message $msg")
-                replyToOpt.foreach(_ ! ErrorResponse(s"No game found with gameId $gameId"))
-            }
-            Behaviors.same
+                gameActorRef ! actualCommand
+              }
 
-          case WrappedGameResponse(response, replyTo) =>
-            response match {
-              case Right(state) => replyTo ! GameStatus(state)
-              case Left(error)  => replyTo ! ErrorResponse(error.message)
-            }
-            Behaviors.same
+            case None =>
+              context.log.warn(s"No game found with gameId $gameId to forward message $msg")
+              replyToOpt.foreach(_ ! ErrorResponse(s"No game found with gameId $gameId"))
+          }
+          Behaviors.same
 
-          case other =>
-            context.log.warn(s"Unhandled message in running state: $other")
-            Behaviors.same
+        case WrappedGameResponse(response, replyTo) =>
+          response match {
+            case Right(state) => replyTo ! GameStatus(state)
+            case Left(error)  => replyTo ! ErrorResponse(error.message)
+          }
+          Behaviors.same
+
+        case other =>
+          context.log.warn(s"Unhandled message in running state: $other")
+          Behaviors.same
       }
     }
 }

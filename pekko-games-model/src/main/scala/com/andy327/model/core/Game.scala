@@ -15,6 +15,7 @@ package com.andy327.model.core
  *  - Error:  type that describes what can go wrong during play (e.g., invalid move)
  */
 trait Game[Move, State, Player, Status, Error] {
+
   /** The current state of the game (e.g., the board, or the object itself). */
   def currentState: State
 

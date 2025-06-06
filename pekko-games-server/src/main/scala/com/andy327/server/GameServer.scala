@@ -11,10 +11,10 @@ import cats.effect.{IO, Resource}
 
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
-
 import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.persistence.db.postgres.{DatabaseTransactor, PostgresGameRepository}
+
 import actors.core.GameManager
 import http.routes.TicTacToeRoutes
 

@@ -10,11 +10,11 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
-import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.{GameError, Location}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameResponse, GameStatus}
+import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{GameState, TicTacToeMove}
 

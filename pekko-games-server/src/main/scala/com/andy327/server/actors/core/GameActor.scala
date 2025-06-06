@@ -1,13 +1,14 @@
 package com.andy327.server.actors.core
 
-import org.apache.pekko.actor.typed.{Behavior}
+import org.apache.pekko.actor.typed.Behavior
 import org.apache.pekko.actor.typed.scaladsl.ActorContext
 
-import com.andy327.persistence.db.GameRepository
 import com.andy327.model.core.{Game, GameType, GameTypeTag}
+import com.andy327.persistence.db.GameRepository
 import com.andy327.server.http.json.GameState
 
 object GameActor {
+
   /**
    * Super-type for all concrete commands that a game-specific actor understands.
    *
@@ -20,6 +21,7 @@ object GameActor {
  * Type-class factory and helper interface implemented by every game-specific actor.
  */
 trait GameActor[G <: Game[_, _, _, _, _]] {
+
   /** Resolves to the compile-time `GameType` matching `G` via an implicit tag. */
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
 
@@ -30,5 +32,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
   def create(gameId: String, players: Seq[String], repo: GameRepository)(implicit ctx: ActorContext[_]): Behavior[_]
 
   /** Re-hydrate an actor from a snapshot already loaded from the database. */
-  def fromSnapshot(gameId: String, snapshot: Game[_, _, _, _, _], repo: GameRepository)(implicit ctx: ActorContext[_]): Behavior[_]
+  def fromSnapshot(gameId: String, snapshot: Game[_, _, _, _, _], repo: GameRepository)(implicit
+      ctx: ActorContext[_]
+  ): Behavior[_]
 }

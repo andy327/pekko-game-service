@@ -48,12 +48,11 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
     """.update.run.transact(xa).void
   }
 
-
   /**
    * Loads the game state for a given gameId and gameType.
    * If the game exists, it is deserialized from JSON into a TicTacToe object.
    */
-  override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = {
+  override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
     sql"SELECT game_state FROM games WHERE game_id = $gameId"
       .query[String]
       .option
@@ -68,7 +67,6 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
             }
         case None => IO.pure(None)
       }
-  }
 
   /**
    * Loads all games stored in the database and returns them as a Map from gameId to game state.
@@ -80,24 +78,23 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       .to[List]
       .transact(xa)
       .flatMap { rows =>
-        rows.flatTraverse {
-          case (id, gameTypeStr, jsonStr) =>
-            parseGameType(gameTypeStr) match {
-              case Right(gameType) =>
-                GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
-                  case Right(game) => IO.pure(List(id -> (gameType, game)))
-                  case Left(err) =>
-                    IO {
-                      logger.warn(s"Skipping corrupted $gameType game $id: ${err.getMessage}")
-                      Nil
-                    }
-                }
-              case Left(err) =>
-                IO {
-                  logger.warn(s"Failed to decode GameType for game $id: ${err.getMessage}")
-                  Nil
-                }
-            }
+        rows.flatTraverse { case (id, gameTypeStr, jsonStr) =>
+          parseGameType(gameTypeStr) match {
+            case Right(gameType) =>
+              GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
+                case Right(game) => IO.pure(List(id -> (gameType, game)))
+                case Left(err)   =>
+                  IO {
+                    logger.warn(s"Skipping corrupted $gameType game $id: ${err.getMessage}")
+                    Nil
+                  }
+              }
+            case Left(err) =>
+              IO {
+                logger.warn(s"Failed to decode GameType for game $id: ${err.getMessage}")
+                Nil
+              }
+          }
         }.map(_.toMap)
       }
 }

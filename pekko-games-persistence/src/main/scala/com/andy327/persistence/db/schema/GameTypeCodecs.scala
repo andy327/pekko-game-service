@@ -1,8 +1,8 @@
 package com.andy327.persistence.db.schema
 
-import io.circe.{Codec, Decoder, Encoder}
-import io.circe.parser.decode
 import io.circe.generic.auto._
+import io.circe.parser.decode
+import io.circe.{Codec, Decoder, Encoder}
 
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.TicTacToe
@@ -20,8 +20,8 @@ object GameTypeCodecs {
       case "TicTacToe" => Right(GameType.TicTacToe)
       case other       => Left(s"Unknown GameType: $other")
     },
-    Encoder.encodeString.contramap {
-      case GameType.TicTacToe => "TicTacToe"
+    Encoder.encodeString.contramap { case GameType.TicTacToe =>
+      "TicTacToe"
     }
   )
 

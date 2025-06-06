@@ -10,6 +10,7 @@ import com.andy327.model.core.{Game, GameType}
  * This is a generic, type-erased abstraction designed to work across multiple game types. Concrete implementations are responsible for encoding/decoding the actual game instances
  */
 trait GameRepository {
+
   /** Persist the current state of a game to the database. */
   def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
