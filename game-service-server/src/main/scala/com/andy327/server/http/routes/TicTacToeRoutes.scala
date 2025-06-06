@@ -28,7 +28,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
 
-  val routes: Route = pathPrefix("game") {
+  val routes: Route = pathPrefix("tictactoe") {
 
     /**
      * @route POST /game
