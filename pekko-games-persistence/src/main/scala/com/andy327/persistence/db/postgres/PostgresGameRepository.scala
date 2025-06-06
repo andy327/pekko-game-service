@@ -8,13 +8,12 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 import io.circe.generic.auto._
-import io.circe.parser.decode
 import io.circe.syntax._
 
-import com.andy327.model.core.Game
+import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.persistence.db.schema.GameType
 import com.andy327.persistence.db.GameRepository
+import com.andy327.persistence.db.schema.GameTypeCodecs
 
 /**
  * GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states.
@@ -22,6 +21,12 @@ import com.andy327.persistence.db.GameRepository
  */
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
   private val logger = LoggerFactory.getLogger(getClass)
+
+  private def parseGameType(str: String): Either[Throwable, GameType] =
+    str match {
+      case "TicTacToe" => Right(GameType.TicTacToe)
+      case other       => Left(new Exception(s"Unknown GameType: $other"))
+    }
 
   /**
    * Saves the current state of a game of the given gameType into the database.
@@ -55,7 +60,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       .transact(xa)
       .flatMap {
         case Some(jsonStr) =>
-          IO.fromEither(GameType.deserializeGame(gameType, jsonStr))
+          IO.fromEither(GameTypeCodecs.deserializeGame(gameType, jsonStr))
             .map(Some(_))
             .handleErrorWith { err =>
               logger.warn(s"Failed to decode $gameType game $gameId: ${err.getMessage}")
@@ -77,9 +82,9 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       .flatMap { rows =>
         rows.flatTraverse {
           case (id, gameTypeStr, jsonStr) =>
-            decode[GameType](gameTypeStr) match {
+            parseGameType(gameTypeStr) match {
               case Right(gameType) =>
-                GameType.deserializeGame(gameType, jsonStr) match {
+                GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
                   case Right(game) => IO.pure(List(id -> (gameType, game)))
                   case Left(err) =>
                     IO {
