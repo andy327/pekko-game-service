@@ -1,1 +1,1 @@
-# pekko-games
+# pekko-game-service

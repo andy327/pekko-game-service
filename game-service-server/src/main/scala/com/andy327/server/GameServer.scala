@@ -25,8 +25,8 @@ import http.routes.TicTacToeRoutes
 object GameServer extends App {
   // Load configuration from application.conf
   val config: Config = ConfigFactory.load()
-  val host: String = config.getString("pekko-games.http.host")
-  val port: Int = config.getInt("pekko-games.http.port")
+  val host: String = config.getString("pekko-game-service.http.host")
+  val port: Int = config.getInt("pekko-game-service.http.port")
 
   implicit val runtime: IORuntime = cats.effect.unsafe.IORuntime.global
 

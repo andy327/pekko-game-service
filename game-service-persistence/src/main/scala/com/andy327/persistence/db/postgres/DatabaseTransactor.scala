@@ -9,7 +9,7 @@ import doobie.util.ExecutionContexts
 
 object DatabaseTransactor {
   private val config = ConfigFactory.load()
-  private val dbConfig = config.getConfig("pekko-games.db")
+  private val dbConfig = config.getConfig("pekko-game-service.db")
 
   private val url = dbConfig.getString("url")
   private val user = dbConfig.getString("user")

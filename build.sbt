@@ -13,7 +13,7 @@ ThisBuild / scalacOptions ++= Seq(
   "-Wunused:imports" // For OrganizeImports.removeUnused = true
 )
 
-val baseName = "pekko-games"
+val baseName = "game-service"
 
 val versions: Map[String, String] = Map(
   "circe" -> "0.14.6",
@@ -33,7 +33,7 @@ lazy val model = (project in file(s"$baseName-model"))
     )
   )
 
-lazy val persistence = (project in file (s"$baseName-persistence"))
+lazy val persistence = (project in file(s"$baseName-persistence"))
   .dependsOn(model)
   .settings(
     name := s"$baseName-persistence",
