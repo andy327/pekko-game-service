@@ -8,11 +8,12 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 import io.circe.generic.auto._
-import io.circe.parser.decode
 import io.circe.syntax._
 
+import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
+import com.andy327.persistence.db.schema.GameTypeCodecs
 
 /**
  * GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states.
@@ -21,32 +22,47 @@ import com.andy327.persistence.db.GameRepository
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
   private val logger = LoggerFactory.getLogger(getClass)
 
+  private def parseGameType(str: String): Either[Throwable, GameType] =
+    str match {
+      case "TicTacToe" => Right(GameType.TicTacToe)
+      case other       => Left(new Exception(s"Unknown GameType: $other"))
+    }
+
   /**
-   * Saves the current state of a game into the database.
+   * Saves the current state of a game of the given gameType into the database.
    * If the gameId already exists, the existing row is updated.
    */
-  override def saveGame(gameId: String, game: TicTacToe): IO[Unit] = {
-    val jsonStr = game.asJson.noSpaces
-    sql"""INSERT INTO games (game_id, game_state) VALUES ($gameId, $jsonStr)
-          ON CONFLICT (game_id) DO UPDATE SET game_state = EXCLUDED.game_state"""
-      .update.run.transact(xa).void
+  override def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
+    val (jsonStr, gameTypeStr) = gameType match {
+      case GameType.TicTacToe =>
+        val typedGame = game.asInstanceOf[TicTacToe]
+        (typedGame.asJson.noSpaces, "TicTacToe")
+    }
+
+    sql"""
+      INSERT INTO games (game_id, game_type, game_state)
+      VALUES ($gameId, $gameTypeStr, $jsonStr)
+      ON CONFLICT (game_id) DO UPDATE
+      SET game_type = EXCLUDED.game_type,
+          game_state = EXCLUDED.game_state
+    """.update.run.transact(xa).void
   }
 
   /**
-   * Loads the game state for a given gameId.
+   * Loads the game state for a given gameId and gameType.
    * If the game exists, it is deserialized from JSON into a TicTacToe object.
    */
-  override def loadGame(gameId: String): IO[Option[TicTacToe]] =
+  override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
     sql"SELECT game_state FROM games WHERE game_id = $gameId"
       .query[String]
       .option
       .transact(xa)
       .flatMap {
         case Some(jsonStr) =>
-          IO.fromEither(decode[TicTacToe](jsonStr).left.map(err => new Exception(err)))
+          IO.fromEither(GameTypeCodecs.deserializeGame(gameType, jsonStr))
             .map(Some(_))
             .handleErrorWith { err =>
-              logger.warn(s"Failed to decode game $gameId: ${err.getMessage}")
+              logger.warn(s"Failed to decode $gameType game $gameId: ${err.getMessage}")
               IO.pure(None)
             }
         case None => IO.pure(None)
@@ -56,18 +72,26 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads all games stored in the database and returns them as a Map from gameId to game state.
    * If any games fail to decode from JSON, their errors are logged and we proceed with loading.
    */
-  override def loadAllGames(): IO[Map[String, TicTacToe]] =
-    sql"SELECT game_id, game_state FROM games"
-      .query[(String, String)]
+  override def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
+    sql"SELECT game_id, game_type, game_state FROM games"
+      .query[(String, String, String)]
       .to[List]
       .transact(xa)
       .flatMap { rows =>
-        rows.flatTraverse { case (id, jsonStr) =>
-          decode[TicTacToe](jsonStr) match {
-            case Right(game) => IO.pure(List(id -> game))
-            case Left(err)   =>
+        rows.flatTraverse { case (id, gameTypeStr, jsonStr) =>
+          parseGameType(gameTypeStr) match {
+            case Right(gameType) =>
+              GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
+                case Right(game) => IO.pure(List(id -> (gameType, game)))
+                case Left(err)   =>
+                  IO {
+                    logger.warn(s"Skipping corrupted $gameType game $id: ${err.getMessage}")
+                    Nil
+                  }
+              }
+            case Left(err) =>
               IO {
-                logger.warn(s"Skipping corrupted game $id: ${err.getMessage}")
+                logger.warn(s"Failed to decode GameType for game $id: ${err.getMessage}")
                 Nil
               }
           }

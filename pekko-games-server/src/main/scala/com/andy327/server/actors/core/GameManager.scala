@@ -10,23 +10,23 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
+import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.tictactoe.{GameError, TicTacToe}
 import com.andy327.persistence.db.GameRepository
+import com.andy327.server.actors.core.GameActor.GameCommand
 import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.http.json.TicTacToeStatus
+import com.andy327.server.http.json.GameState
 
 object GameManager {
   sealed trait Command
-  case class CreateTicTacToe(playerX: String, playerO: String, replyTo: ActorRef[String]) extends Command
-  case class ForwardMove(gameId: String, playerId: String, loc: Location, replyTo: ActorRef[GameResponse])
-      extends Command
-  case class ForwardGetStatus(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
-  private case class RestoreGames(games: Map[String, TicTacToe]) extends Command
-  private case class WrappedGameResponse(response: Either[GameError, TicTacToeStatus], replyTo: ActorRef[GameResponse])
+  case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[String]) extends Command
+  case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
+  private case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
+  private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
-  case class GameState(status: TicTacToeStatus) extends GameResponse
+  case class GameStatus(state: GameState) extends GameResponse
   case class ErrorResponse(message: String) extends GameResponse
 
   def apply(gameRepo: GameRepository): Behavior[Command] =
@@ -55,11 +55,17 @@ object GameManager {
     * Transitions to running state once restoration is complete.
     */
   private def initializing(gameRepo: GameRepository): Behavior[Command] =
-    Behaviors.receive { (context, message) =>
-      message match {
+    Behaviors.setup { implicit context =>
+      Behaviors.receiveMessage {
         case RestoreGames(games) =>
-          val restoredActors = games.map { case (id, game) =>
-            val actor = context.spawn(TicTacToeActor.fromSnapshot(id, game, gameRepo), s"game-$id")
+          val restoredActors = games.map { case (id, (gameType, game)) =>
+            val actor = gameType match {
+              case GameType.TicTacToe =>
+                context.spawn(
+                  TicTacToeActor.fromSnapshot(id, game.asInstanceOf[TicTacToe], gameRepo),
+                  s"game-$id"
+                ).unsafeUpcast[GameCommand]
+            }
             id -> actor
           }
           context.log.info(s"Initialized ${games.size} game actors from snapshots")
@@ -78,46 +84,51 @@ object GameManager {
     * Accepts new game creation and forwards commands to existing game actors.
     */
   private def running(
-      games: Map[String, ActorRef[TicTacToeActor.Command]],
+      games: Map[String, ActorRef[GameCommand]],
       gameRepo: GameRepository
   ): Behavior[Command] =
-    Behaviors.receive { (context, message) =>
-      message match {
-        case CreateTicTacToe(playerX, playerO, replyTo) =>
+    Behaviors.setup { implicit context =>
+      Behaviors.receiveMessage {
+        case CreateGame(gameType, players, replyTo) =>
           val id = UUID.randomUUID().toString
-          val actor = context.spawn(TicTacToeActor(playerX, playerO, id, gameRepo), s"game-$id")
+          val actor = gameType match {
+            case GameType.TicTacToe =>
+              context.spawn(TicTacToeActor.create(id, players, gameRepo), s"game-$id").unsafeUpcast[GameCommand]
+          }
           context.log.info(s"Created new game with id: $id")
           replyTo ! id
           running(games + (id -> actor), gameRepo)
 
-        case ForwardMove(gameId, playerId, loc, replyTo) =>
+        case ForwardToGame(gameId, msg, replyToOpt) =>
           games.get(gameId) match {
             case Some(gameActorRef) =>
-              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped =>
-                WrappedGameResponse(wrapped, replyTo)
-              )
-              gameActorRef ! TicTacToeActor.MakeMove(playerId, loc, adapter)
-            case None =>
-              replyTo ! ErrorResponse(s"No game found with gameId $gameId")
-          }
-          Behaviors.same
+              replyToOpt.foreach { replyTo =>
+                // TODO: push this reply adapter up to the caller and remove specific message-handling from here
+                val adaptedRef: ActorRef[Either[GameError, GameState]] =
+                  context.messageAdapter { response =>
+                    WrappedGameResponse(response, replyTo)
+                  }
 
-        case ForwardGetStatus(gameId, replyTo) =>
-          games.get(gameId) match {
-            case Some(gameActorRef) =>
-              val adapter = context.messageAdapter[Either[GameError, TicTacToeStatus]](wrapped =>
-                WrappedGameResponse(wrapped, replyTo)
-              )
-              gameActorRef ! TicTacToeActor.GetStatus(adapter)
+                val actualCommand = msg match {
+                  case TicTacToeActor.MakeMove(p, l, _) =>
+                    TicTacToeActor.MakeMove(p, l, adaptedRef)
+                  case TicTacToeActor.GetState(_) =>
+                    TicTacToeActor.GetState(adaptedRef)
+                }
+
+                gameActorRef ! actualCommand
+              }
+
             case None =>
-              replyTo ! ErrorResponse(s"No game found with gameId $gameId")
+              context.log.warn(s"No game found with gameId $gameId to forward message $msg")
+              replyToOpt.foreach(_ ! ErrorResponse(s"No game found with gameId $gameId"))
           }
           Behaviors.same
 
         case WrappedGameResponse(response, replyTo) =>
           response match {
-            case Right(status) => replyTo ! GameState(status)
-            case Left(error)   => replyTo ! ErrorResponse(error.message)
+            case Right(state) => replyTo ! GameStatus(state)
+            case Left(error)  => replyTo ! ErrorResponse(error.message)
           }
           Behaviors.same
 

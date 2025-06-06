@@ -10,17 +10,13 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
-import com.andy327.model.tictactoe.Location
+import com.andy327.model.core.GameType
+import com.andy327.model.tictactoe.{GameError, Location}
 import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.core.GameManager.{
-  ErrorResponse,
-  ForwardGetStatus,
-  ForwardMove,
-  GameResponse,
-  GameState
-}
+import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameResponse, GameStatus}
+import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.http.json.Move
+import com.andy327.server.http.json.{GameState, TicTacToeMove}
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.
@@ -45,7 +41,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     pathEndOrSingleSlash {
       post {
         parameters("playerX", "playerO") { (p1, p2) =>
-          onSuccess(system.ask(GameManager.CreateTicTacToe(p1, p2, _))) { gameId =>
+          onSuccess(system.ask(GameManager.CreateGame(GameType.TicTacToe, Seq(p1, p2), _))) { gameId =>
             complete(gameId)
           }
         }
@@ -62,11 +58,15 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
      */
     path(Segment / "move") { gameId =>
       post {
-        entity(as[Move]) { case Move(playerId, row, col) =>
+        entity(as[TicTacToeMove]) { case TicTacToeMove(playerId, row, col) =>
           onSuccess(
-            system.ask[GameResponse](senderRef => ForwardMove(gameId, playerId, Location(row, col), senderRef))
+            system.ask[GameResponse] { replyTo =>
+              val dummyRef = system.ignoreRef[Either[GameError, GameState]]
+              val gameCmd = TicTacToeActor.MakeMove(playerId, Location(row, col), dummyRef)
+              GameManager.ForwardToGame(gameId, gameCmd, Some(replyTo))
+            }
           ) {
-            case GameState(status)    => complete(status)
+            case GameStatus(state)    => complete(state)
             case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
           }
         }
@@ -82,8 +82,14 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
      */
     path(Segment / "status") { gameId =>
       get {
-        onSuccess(system.ask[GameResponse](senderRef => ForwardGetStatus(gameId, senderRef))) {
-          case GameState(status)    => complete(status)
+        onSuccess(
+          system.ask[GameResponse] { replyTo =>
+            val dummyRef = system.ignoreRef[Either[GameError, GameState]]
+            val gameCmd = TicTacToeActor.GetState(dummyRef)
+            GameManager.ForwardToGame(gameId, gameCmd, Some(replyTo))
+          }
+        ) {
+          case GameStatus(state)    => complete(state)
           case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
         }
       }

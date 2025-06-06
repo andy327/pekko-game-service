@@ -11,6 +11,7 @@ import cats.effect.{IO, Resource}
 
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.persistence.db.postgres.{DatabaseTransactor, PostgresGameRepository}
 
@@ -18,7 +19,7 @@ import actors.core.GameManager
 import http.routes.TicTacToeRoutes
 
 /**
- * GameServer is the main entry point of the Tic-Tac-Toe backend service.
+ * GameServer is the main entry point of the game-service.
  * It initializes the database, actor system, and HTTP server.
  */
 object GameServer extends App {
@@ -43,7 +44,10 @@ object GameServer extends App {
     implicit val ec: ExecutionContextExecutor = system.executionContext
 
     // HTTP routes
-    val routes = new TicTacToeRoutes(system).routes
+    val allRoutes = List(
+      new TicTacToeRoutes(system).routes
+    )
+    val routes = allRoutes.reduce(_ ~ _)
 
     // Start HTTP server
     val bindingFuture: Future[Http.ServerBinding] =
