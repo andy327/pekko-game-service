@@ -10,10 +10,12 @@ import cats.effect.unsafe.IORuntime
 import cats.effect.{IO, Resource}
 
 import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.persistence.db.postgres.{DatabaseTransactor, PostgresGameRepository}
+import com.andy327.server.actors.persistence.PostgresActor
 
 import actors.core.GameManager
 import http.routes.TicTacToeRoutes
@@ -39,8 +41,14 @@ object GameServer extends App {
     val gameRepository = new PostgresGameRepository(xa)
 
     // Pekko actor system
-    implicit val system: ActorSystem[GameManager.Command] =
-      ActorSystem(GameManager(gameRepository), "GameManagerSystem")
+    implicit val system: ActorSystem[GameManager.Command] = {
+      val root = Behaviors.setup[GameManager.Command] { context =>
+        val persistActor = context.spawn(PostgresActor(gameRepository), "postgres-persistence")
+
+        GameManager(persistActor, gameRepository)
+      }
+      ActorSystem(root, "GameManagerSystem")
+    }
     implicit val ec: ExecutionContextExecutor = system.executionContext
 
     // HTTP routes

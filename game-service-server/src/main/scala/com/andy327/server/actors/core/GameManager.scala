@@ -13,7 +13,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.{GameError, TicTacToe}
 import com.andy327.persistence.db.GameRepository
-import com.andy327.server.actors.core.GameActor.GameCommand
+import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.GameState
 
@@ -29,7 +29,8 @@ object GameManager {
   case class GameStatus(state: GameState) extends GameResponse
   case class ErrorResponse(message: String) extends GameResponse
 
-  def apply(gameRepo: GameRepository): Behavior[Command] =
+  /** Factory used from GameServer */
+  def apply(persistActor: ActorRef[PersistenceProtocol.Command], gameRepo: GameRepository): Behavior[Command] =
     Behaviors.setup { context =>
       implicit val runtime: IORuntime = IORuntime.global
 
@@ -47,31 +48,31 @@ object GameManager {
       }
 
       // Enter initialization state while awaiting game restoration
-      initializing(gameRepo)
+      initializing(persistActor)
     }
 
   /**
     * Initialization state: waits for RestoreGames message after async DB load.
     * Transitions to running state once restoration is complete.
     */
-  private def initializing(gameRepo: GameRepository): Behavior[Command] =
+  private def initializing(persistActor: ActorRef[PersistenceProtocol.Command]): Behavior[Command] =
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
         case RestoreGames(games) =>
-          val restoredActors = games.map { case (id, (gameType, game)) =>
-            val actor = gameType match {
+          val restoredActors = games.map { case (gameId, (gameType, game)) =>
+            val gameActor = gameType match {
               case GameType.TicTacToe =>
                 context.spawn(
-                  TicTacToeActor.fromSnapshot(id, game.asInstanceOf[TicTacToe], gameRepo),
-                  s"game-$id"
-                ).unsafeUpcast[GameCommand]
+                  TicTacToeActor.fromSnapshot(gameId, game.asInstanceOf[TicTacToe], persistActor),
+                  s"game-$gameId"
+                ).unsafeUpcast[GameActor.GameCommand]
             }
-            id -> actor
+            gameId -> gameActor
           }
           context.log.info(s"Initialized ${games.size} game actors from snapshots")
 
           // Transition to running state after restoring all games
-          running(restoredActors, gameRepo)
+          running(restoredActors, persistActor)
 
         case other =>
           context.log.warn(s"Received unexpected message while initializing state: $other")
@@ -84,20 +85,21 @@ object GameManager {
     * Accepts new game creation and forwards commands to existing game actors.
     */
   private def running(
-      games: Map[String, ActorRef[GameCommand]],
-      gameRepo: GameRepository
+      games: Map[String, ActorRef[GameActor.GameCommand]],
+      persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
         case CreateGame(gameType, players, replyTo) =>
-          val id = UUID.randomUUID().toString
+          val gameId = UUID.randomUUID().toString
           val actor = gameType match {
             case GameType.TicTacToe =>
-              context.spawn(TicTacToeActor.create(id, players, gameRepo), s"game-$id").unsafeUpcast[GameCommand]
+              context.spawn(TicTacToeActor.create(gameId, players, persistActor), s"game-$gameId")
+                .unsafeUpcast[GameActor.GameCommand]
           }
-          context.log.info(s"Created new game with id: $id")
-          replyTo ! id
-          running(games + (id -> actor), gameRepo)
+          context.log.info(s"Created new game with gameId: $gameId")
+          replyTo ! gameId
+          running(games + (gameId -> actor), persistActor)
 
         case ForwardToGame(gameId, msg, replyToOpt) =>
           games.get(gameId) match {
