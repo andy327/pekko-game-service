@@ -47,16 +47,17 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       gameId: String,
       players: Seq[String],
       persist: ActorRef[PersistenceProtocol.Command]
-  ): Behavior[Command] = {
+  ): (TicTacToe, Behavior[Command]) = {
     require(players.size == 2, "Tic‑Tac‑Toe needs exactly two players")
     val (playerX, playerO) = (players(0), players(1))
 
-    val newGame = TicTacToe.empty(playerX, playerO)
-
-    Behaviors.setup { context =>
+    val game = TicTacToe.empty(playerX, playerO)
+    val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
-      active(newGame, gameId, persist)
+      active(game, gameId, persist)
     }
+
+    (game, behavior)
   }
 
   /**

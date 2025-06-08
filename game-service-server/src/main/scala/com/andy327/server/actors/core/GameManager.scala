@@ -99,18 +99,24 @@ object GameManager {
       Behaviors.receiveMessage {
         case CreateGame(gameType, players, replyTo) =>
           val gameId = UUID.randomUUID().toString
-          val actor = gameType match {
+          val (game, actor) = gameType match {
             case GameType.TicTacToe =>
-              context.spawn(TicTacToeActor.create(gameId, players, persistActor), s"game-$gameId")
-                .unsafeUpcast[GameActor.GameCommand]
+              val (game, behavior) = TicTacToeActor.create(gameId, players, persistActor)
+              val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+              (game, actor)
           }
-          context.log.info(s"Created new game with gameId: $gameId")
+
+          // Persist immediately after creation; no need to wait for acknowledgement
+          persistActor ! PersistenceProtocol.SaveSnapshot(gameId, gameType, game, replyTo = context.system.ignoreRef)
+
+          context.log.info(s"Created and persisted new game with gameId: $gameId")
           replyTo ! gameId
+
           running(games + (gameId -> actor), persistActor)
 
         case ForwardToGame(gameId, msg, replyToOpt) =>
           games.get(gameId) match {
-            case Some(gameActorRef) =>
+            case Some(gameActor) =>
               replyToOpt.foreach { replyTo =>
                 // TODO: push this reply adapter up to the caller and remove specific message-handling from here
                 val adaptedRef: ActorRef[Either[GameError, GameState]] =
@@ -125,7 +131,7 @@ object GameManager {
                     TicTacToeActor.GetState(adaptedRef)
                 }
 
-                gameActorRef ! actualCommand
+                gameActor ! actualCommand
               }
 
             case None =>

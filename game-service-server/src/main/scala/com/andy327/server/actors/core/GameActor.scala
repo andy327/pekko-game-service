@@ -29,7 +29,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
   def serializableGameState(game: G): GameState
 
   /** Spawn a fresh game actor given players, ids, etc. */
-  def create(gameId: String, players: Seq[String], persist: ActorRef[PersistenceProtocol.Command]): Behavior[_]
+  def create(gameId: String, players: Seq[String], persist: ActorRef[PersistenceProtocol.Command]): (G, Behavior[_])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database. */
   def fromSnapshot(
