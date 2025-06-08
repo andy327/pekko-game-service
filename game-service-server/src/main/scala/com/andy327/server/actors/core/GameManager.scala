@@ -17,6 +17,13 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.GameState
 
+/**
+ * A supervisor actor that handles creating and monitoring one child actor per game, provides an API for creating games
+ * and forwarding arbitrary game-specific commands, and restores persisted games at start-up through the GameRepository.
+ *
+ * The GameManager keeps the message-handling behavior of the game service game-agnostic, by pattern-matching on the
+ * GameType.
+ */
 object GameManager {
   sealed trait Command
   case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[String]) extends Command

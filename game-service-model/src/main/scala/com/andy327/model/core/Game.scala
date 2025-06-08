@@ -3,7 +3,8 @@ package com.andy327.model.core
 /**
  * A generic interface for modeling turn-based games.
  *
- * This trait abstracts over the concrete details of a specific game by parameterizing over the types involved: moves, players, game state, game status, and errors.
+ * This trait abstracts over the concrete details of a specific game by parameterizing over the types involved: moves,
+ * players, game state, game status, and errors.
  *
  * By implementing this trait, a game defines the basic mechanics for tracking state and applying moves
  *

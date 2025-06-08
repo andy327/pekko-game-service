@@ -26,8 +26,6 @@ object PersistenceProtocol {
       replyTo: ActorRef[SnapshotSaved]
   ) extends Command
 
-  // ---------- Replies --------------------------------------------------------
-
   /** Result of a LoadSnapshot request. */
   final case class SnapshotLoaded(result: Either[Throwable, Option[Game[_, _, _, _, _]]])
 

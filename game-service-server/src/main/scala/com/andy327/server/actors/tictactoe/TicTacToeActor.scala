@@ -41,8 +41,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
   }
 
   /**
-   * Initializes a new TicTacToeActor.
-   * Attempts to load existing state from DB; otherwise starts fresh.
+   * Initializes a new TicTacToeActor with an empty game.
    */
   override def create(
       gameId: String,

@@ -7,7 +7,8 @@ import com.andy327.model.core.{Game, GameType}
 /**
  * Trait representing a repository interface for saving and loading game state from a persistent database.
  *
- * This is a generic, type-erased abstraction designed to work across multiple game types. Concrete implementations are responsible for encoding/decoding the actual game instances
+ * This is a generic, type-erased abstraction designed to work across multiple game types. Concrete implementations are
+ * responsible for encoding/decoding the actual game instances
  */
 trait GameRepository {
 
