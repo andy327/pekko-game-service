@@ -2,11 +2,12 @@ package com.andy327.persistence.db.postgres
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+
 import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
 import doobie._
 import doobie.implicits._
-import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
@@ -18,9 +19,9 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
   /** Doobie transactor wired to the running container */
   private lazy val xa: Transactor[IO] = Transactor.fromDriverManager[IO](
-    driver   = "org.postgresql.Driver",
-    url      = container.jdbcUrl,
-    user     = container.username,
+    driver = "org.postgresql.Driver",
+    url = container.jdbcUrl,
+    user = container.username,
     password = container.password,
     None
   )

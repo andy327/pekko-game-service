@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      TESTCONTAINERS_RYUK_DISABLED: true
+      DOCKER_HOST: unix:///var/run/docker.sock
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Cache SBT and Ivy2
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+          key: sbt-cache-${{ runner.os }}-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            sbt-cache-${{ runner.os }}-
+
+      - name: Run tests
+        run: sbt clean test
