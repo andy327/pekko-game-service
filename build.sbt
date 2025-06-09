@@ -17,11 +17,13 @@ val baseName = "game-service"
 
 val versions: Map[String, String] = Map(
   "circe" -> "0.14.6",
+  "dimafeng" -> "0.43.0",
   "doobie" -> "1.0.0-RC8",
   "pekko" -> "1.1.3",
   "pekko-http" -> "1.2.0",
   "scalatest" -> "3.2.19",
   "slf4j" -> "2.0.17",
+  "testcontainers" -> "1.21.1",
   "typesafe-config" -> "1.4.3"
 )
 
@@ -38,15 +40,20 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
   .settings(
     name := s"$baseName-persistence",
     libraryDependencies ++= Seq(
-      "org.tpolecat"     %% "doobie-core"               % versions("doobie"),
-      "org.tpolecat"     %% "doobie-postgres"           % versions("doobie"),
-      "org.tpolecat"     %% "doobie-postgres-circe"     % versions("doobie"),
-      "org.tpolecat"     %% "doobie-hikari"             % versions("doobie"),
-      "io.circe"         %% "circe-core"                % versions("circe"),
-      "io.circe"         %% "circe-generic"             % versions("circe"),
-      "io.circe"         %% "circe-parser"              % versions("circe"),
-      "com.typesafe"      % "config"                    % versions("typesafe-config"),
-      "org.scalatest"    %% "scalatest"                 % versions("scalatest") % Test,
+      "org.tpolecat"      %% "doobie-core"                     % versions("doobie"),
+      "org.tpolecat"      %% "doobie-postgres"                 % versions("doobie"),
+      "org.tpolecat"      %% "doobie-postgres-circe"           % versions("doobie"),
+      "org.tpolecat"      %% "doobie-hikari"                   % versions("doobie"),
+      "io.circe"          %% "circe-core"                      % versions("circe"),
+      "io.circe"          %% "circe-generic"                   % versions("circe"),
+      "io.circe"          %% "circe-parser"                    % versions("circe"),
+      "com.typesafe"       % "config"                          % versions("typesafe-config"),
+      "org.slf4j"          % "slf4j-simple"                    % versions("slf4j"),
+      "org.scalatest"     %% "scalatest"                       % versions("scalatest") % Test,
+      "com.dimafeng"      %% "testcontainers-scala-scalatest"  % versions("dimafeng") % Test,
+      "com.dimafeng"      %% "testcontainers-scala-postgresql" % versions("dimafeng") % Test,
+      "org.testcontainers" % "testcontainers"                  % versions("testcontainers") % Test,
+      "org.testcontainers" % "postgresql"                      % versions("testcontainers") % Test
     )
   )
 
@@ -62,7 +69,7 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.slf4j"         % "slf4j-simple"              % versions("slf4j"),
       "org.scalatest"    %% "scalatest"                 % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
-      "org.apache.pekko" %% "pekko-http-testkit"        % versions("pekko-http") % Test
+      "org.apache.pekko" %% "pekko-http-testkit"        % versions("pekko-http") % Test,
     )
   )
 
