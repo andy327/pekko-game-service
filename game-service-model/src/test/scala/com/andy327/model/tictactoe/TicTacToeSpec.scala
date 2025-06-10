@@ -3,8 +3,6 @@ package com.andy327.model.tictactoe
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.tictactoe._
-
 class TicTacToeSpec extends AnyWordSpec with Matchers {
   "A TicTacToe game" should {
     "start with an empty board" in {
@@ -24,10 +22,22 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
       newState.gameStatus shouldBe InProgress
     }
 
+    "not allow the wrong player to make a move" in {
+      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
+      val result = game.play(X, Location(0, 1))
+      result shouldBe Left(GameError.InvalidTurn)
+    }
+
     "not allow a move on an occupied space" in {
       val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
-      val result = game.play(X, Location(0, 0))
-      result.isLeft shouldBe true
+      val result = game.play(O, Location(0, 0))
+      result shouldBe Left(GameError.CellOccupied)
+    }
+
+    "not allow a move on an invalid cell" in {
+      val game = TicTacToe.empty("alice", "bob")
+      val result = game.play(X, Location(0, 4))
+      result shouldBe Left(GameError.OutOfBounds)
     }
 
     "detect a winning condition" in {
@@ -66,7 +76,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
 
       game.gameStatus shouldBe Won(X)
       val result = game.play(O, Location(1, 2))
-      result.isLeft shouldBe true
+      result shouldBe Left(GameError.GameOver)
     }
   }
 }
