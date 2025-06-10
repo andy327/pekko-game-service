@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
-import doobie._
+import doobie.Transactor
 import doobie.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec

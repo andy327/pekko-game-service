@@ -14,7 +14,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
-import com.andy327.persistence.db.postgres.{DatabaseTransactor, PostgresGameRepository}
+import com.andy327.persistence.db.postgres.{PostgresTransactor, PostgresGameRepository}
 import com.andy327.server.actors.persistence.PostgresActor
 
 import actors.core.GameManager
@@ -33,7 +33,7 @@ object GameServer extends App {
   implicit val runtime: IORuntime = cats.effect.unsafe.IORuntime.global
 
   // Database transactor resource to manage thread and connection pooling
-  val transactorResource: Resource[IO, doobie.Transactor[IO]] = DatabaseTransactor.transactor
+  val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor.transactor
 
   // Use the transactor resource to initialize the rest of the app
   transactorResource.use { xa =>
