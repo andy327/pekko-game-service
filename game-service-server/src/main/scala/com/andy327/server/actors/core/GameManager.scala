@@ -7,7 +7,7 @@ import scala.util.{Failure, Success}
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameType}
@@ -36,56 +36,71 @@ object GameManager {
   case class GameStatus(state: GameState) extends GameResponse
   case class ErrorResponse(message: String) extends GameResponse
 
+  /** Emitted exactly once when the DB restore is complete. */
+  case object Ready
+
   /** Factory used from GameServer */
-  def apply(persistActor: ActorRef[PersistenceProtocol.Command], gameRepo: GameRepository): Behavior[Command] =
-    Behaviors.setup { context =>
-      implicit val runtime: IORuntime = IORuntime.global
+  def apply(
+      persistActor: ActorRef[PersistenceProtocol.Command],
+      gameRepo: GameRepository,
+      onReady: Option[ActorRef[Ready.type]] = None
+  ): Behavior[Command] =
+    Behaviors.withStash(capacity = 128) { stash =>
+      Behaviors.setup { context =>
+        implicit val runtime: IORuntime = IORuntime.global
 
-      // Load games from DB on startup asynchronously
-      context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
-        case Success(Right(games)) =>
-          context.log.info(s"Restoring ${games.size} games from the database")
-          RestoreGames(games)
-        case Success(Left(ex)) =>
-          context.log.error("Failed to load games from DB", ex)
-          RestoreGames(Map.empty)
-        case Failure(ex) =>
-          context.log.error("Unexpected failure while loading games from DB", ex)
-          RestoreGames(Map.empty)
+        // Load games from DB on startup asynchronously
+        context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
+          case Success(Right(games)) =>
+            context.log.info(s"Restoring ${games.size} games from the database")
+            RestoreGames(games)
+          case Success(Left(ex)) =>
+            context.log.error("Failed to load games from DB", ex)
+            RestoreGames(Map.empty)
+          case Failure(ex) =>
+            context.log.error("Unexpected failure while loading games from DB", ex)
+            RestoreGames(Map.empty)
+        }
+
+        // Enter initialization state while awaiting game restoration
+        initializing(persistActor, stash, onReady)
       }
-
-      // Enter initialization state while awaiting game restoration
-      initializing(persistActor)
     }
 
   /**
     * Initialization state: waits for RestoreGames message after async DB load.
     * Transitions to running state once restoration is complete.
     */
-  private def initializing(persistActor: ActorRef[PersistenceProtocol.Command]): Behavior[Command] =
-    Behaviors.setup { implicit context =>
-      Behaviors.receiveMessage {
-        case RestoreGames(games) =>
-          val restoredActors = games.map { case (gameId, (gameType, game)) =>
-            val gameActor = gameType match {
-              case GameType.TicTacToe =>
-                context.spawn(
-                  TicTacToeActor.fromSnapshot(gameId, game.asInstanceOf[TicTacToe], persistActor),
-                  s"game-$gameId"
-                ).unsafeUpcast[GameActor.GameCommand]
-            }
-            gameId -> gameActor
+  private def initializing(
+      persistActor: ActorRef[PersistenceProtocol.Command],
+      stash: StashBuffer[Command],
+      onReady: Option[ActorRef[Ready.type]]
+  ): Behavior[Command] = Behaviors.receive { (context, message) =>
+    message match {
+      case RestoreGames(games) =>
+        val restoredActors = games.map { case (gameId, (gameType, game)) =>
+          val gameActor = gameType match {
+            case GameType.TicTacToe =>
+              context.spawn(
+                TicTacToeActor.fromSnapshot(gameId, game.asInstanceOf[TicTacToe], persistActor),
+                s"game-$gameId"
+              ).unsafeUpcast[GameActor.GameCommand]
           }
-          context.log.info(s"Initialized ${games.size} game actors from snapshots")
+          gameId -> gameActor
+        }
+        context.log.info(s"Initialized ${games.size} game actors from snapshots")
 
-          // Transition to running state after restoring all games
-          running(restoredActors, persistActor)
+        // tell the listener we are ready
+        onReady.foreach(_ ! Ready)
 
-        case other =>
-          context.log.warn(s"Received unexpected message while initializing state: $other")
-          Behaviors.same
-      }
+        // unstash everything and switch to running behavior
+        stash.unstashAll(running(restoredActors, persistActor))
+
+      case other =>
+        stash.stash(other)
+        Behaviors.same
     }
+  }
 
   /**
     * Running state: main loop handling live operations.
