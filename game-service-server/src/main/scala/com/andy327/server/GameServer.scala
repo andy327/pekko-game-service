@@ -14,7 +14,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
-import com.andy327.persistence.db.postgres.{PostgresTransactor, PostgresGameRepository}
+import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
 import com.andy327.server.actors.persistence.PostgresActor
 
 import actors.core.GameManager

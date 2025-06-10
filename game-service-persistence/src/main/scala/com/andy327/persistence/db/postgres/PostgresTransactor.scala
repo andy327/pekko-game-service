@@ -20,7 +20,7 @@ object PostgresTransactor {
    * Creates a Resource that manages a Doobie HikariTransactor.
    */
   def transactor: Resource[IO, HikariTransactor[IO]] = for {
-    ce <- ExecutionContexts.fixedThreadPool[IO](poolSize) // fixed thread pool for JDBC operations (used for blocking calls)
+    ce <- ExecutionContexts.fixedThreadPool[IO](poolSize) // fixed thread pool for JDBC blocking operations
     xa <- HikariTransactor.newHikariTransactor[IO]( // HikariCP transactor for PostgreSQL
       driverClassName = "org.postgresql.Driver",
       url = url,

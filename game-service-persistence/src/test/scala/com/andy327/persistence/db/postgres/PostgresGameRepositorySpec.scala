@@ -2,10 +2,13 @@ package com.andy327.persistence.db.postgres
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.implicits._
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
 import doobie.Transactor
 import doobie.implicits._
+import io.circe.generic.auto._
+import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -54,11 +57,45 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
       gameRepo.loadGame("missing", GameType.TicTacToe).unsafeRunSync() shouldBe None
     }
 
+    "return None for a game with invalid JSON" in {
+      val invalidJson = "not-a-json"
+      val gameId = "bad-json"
+      val insert = sql"""
+        INSERT INTO games (game_id, game_type, game_state)
+        VALUES ($gameId, 'TicTacToe', $invalidJson)
+      """.update.run.transact(xa)
+
+      insert.unsafeRunSync()
+
+      gameRepo.loadGame(gameId, GameType.TicTacToe).unsafeRunSync() shouldBe None
+    }
+
     "list all saved games" in {
       gameRepo.saveGame("g2", GameType.TicTacToe, TicTacToe.empty("carl", "david")).unsafeRunSync()
 
       val all = gameRepo.loadAllGames().unsafeRunSync()
       all.keySet should contain theSameElementsAs Set("g1", "g2")
+    }
+
+    "skip corrupted or unknown game types when loading all games" in {
+      val badTypeGameId = "bad-type"
+      val corruptedGameId = "bad-json-2"
+      val validGameId = "g3"
+      val validGame = TicTacToe.empty("x", "y")
+
+      // Insert valid, corrupted, and unknown-type rows
+      val insertAll = List(
+        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($badTypeGameId, 'UnknownGame', '{}')""",
+        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($corruptedGameId, 'TicTacToe', 'corrupted-json')""",
+        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($validGameId, 'TicTacToe', ${validGame.asJson.noSpaces})"""
+      ).traverse_(_.update.run).transact(xa)
+
+      insertAll.unsafeRunSync()
+
+      val result = gameRepo.loadAllGames().unsafeRunSync()
+      result.keySet should contain(validGameId)
+      result.keySet should not contain badTypeGameId
+      result.keySet should not contain corruptedGameId
     }
   }
 }
