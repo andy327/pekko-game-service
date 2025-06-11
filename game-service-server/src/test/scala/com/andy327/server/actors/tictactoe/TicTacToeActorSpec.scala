@@ -4,6 +4,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
+import com.andy327.model.core.Game
 import com.andy327.model.tictactoe.{GameError, Location, O, TicTacToe, X}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameState, TicTacToeState}
@@ -49,12 +50,12 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         playerX = "alice",
         playerO = "bob",
         board = Vector(
-          Vector(Some(X), None, None),
-          Vector(None, Some(O), None),
-          Vector(None, None, None)
+          Vector(Some(X), Some(O), Some(X)),
+          Vector(None, Some(O), Some(X)),
+          Vector(None, Some(O), None)
         ),
-        currentPlayer = X,
-        winner = None,
+        currentPlayer = O,
+        winner = Some(X),
         isDraw = false
       )
 
@@ -74,12 +75,29 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         case Right(TicTacToeState(board, current, winner, draw)) =>
           board(0)(0) shouldBe "X"
           board(1)(1) shouldBe "O"
-          current shouldBe "X"
-          winner shouldBe None
+          current shouldBe "O"
+          winner shouldBe Some("X")
           draw shouldBe false
         case other =>
           fail(s"Unexpected response: $other")
       }
+    }
+
+    "fail to restore state from snapshot with an invalid game type" in {
+      val dummyGame = new Game[Any, Any, Any, Any, Any] {
+        override def play(player: Any, move: Any): Either[Any, Any] = Left("not implemented")
+        override def currentState: Any = "dummy"
+        override def currentPlayer: Any = "dummy"
+        override def gameStatus: Any = "dummy"
+      }
+
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+
+      // build behavior from snapshot and spawn it
+      val behavior = TicTacToeActor.fromSnapshot("dummy‑game", dummyGame, persistProbe.ref)
+      val actor = spawn(behavior)
+
+      persistProbe.expectTerminated(actor)
     }
 
     "apply a valid move and switch currentPlayer" in {

@@ -25,8 +25,6 @@ object JsonProtocol extends DefaultJsonProtocol {
         case s: TicTacToeState =>
           val json = statusFormat.write(s).compactPrint
           HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
-        case other =>
-          throw new RuntimeException(s"Cannot marshal unknown GameState: $other")
       }
     }
 }
