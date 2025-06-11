@@ -78,5 +78,16 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
       val result = game.play(O, Location(1, 2))
       result shouldBe Left(GameError.GameOver)
     }
+
+    "should properly render a game board" in {
+      val game = TicTacToe.empty("alice", "bob")
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 0)).toOption.get
+        .play(X, Location(0, 1)).toOption.get
+        .play(O, Location(2, 0)).toOption.get
+        .play(X, Location(1, 1)).toOption.get
+
+      game.toString shouldBe "-------\n|X|X| |\n|O|X| |\n|O| | |\n-------"
+    }
   }
 }
