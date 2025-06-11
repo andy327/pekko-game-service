@@ -7,8 +7,6 @@ import cats.implicits._
 
 import doobie._
 import doobie.implicits._
-import io.circe.generic.auto._
-import io.circe.syntax._
 
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.TicTacToe
@@ -20,6 +18,9 @@ import com.andy327.persistence.db.schema.GameTypeCodecs
  * Game state is serialized to JSON using Circe and stored as a string in the database.
  */
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
+  import GameTypeCodecs._
+  import io.circe.syntax._
+
   private val logger = LoggerFactory.getLogger(getClass)
 
   private def parseGameType(str: String): Either[Throwable, GameType] =

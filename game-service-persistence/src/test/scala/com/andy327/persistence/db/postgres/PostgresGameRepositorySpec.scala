@@ -7,15 +7,16 @@ import cats.implicits._
 import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
 import doobie.Transactor
 import doobie.implicits._
-import io.circe.generic.auto._
-import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.persistence.db.schema.GameTypeCodecs
 
 class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestContainer {
+  import GameTypeCodecs._
+  import io.circe.syntax._
 
   /** Single PostgreSQL container spun up once per ScalaTest run. */
   override val container: PostgreSQLContainer = PostgreSQLContainer()
