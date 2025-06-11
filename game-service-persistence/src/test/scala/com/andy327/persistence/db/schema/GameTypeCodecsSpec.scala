@@ -6,7 +6,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.GameType
-import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.model.tictactoe.{Location, TicTacToe, X}
 
 class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
   import GameTypeCodecs._
@@ -29,11 +29,30 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     }
 
     "deserialize a valid TicTacToe game from JSON" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
       val json = game.asJson.noSpaces
+      println(json)
 
       val result = deserializeGame(GameType.TicTacToe, json)
       result shouldBe Right(game)
+    }
+
+    "fail to decode an unknown Mark type" in {
+      val json = """{
+        "playerX":"alice",
+        "playerO":"bob",
+        "board":[
+          ["X","O","X"],
+          ["O","O","X"],
+          [null,"Z","O"]
+        ],
+        "currentPlayer":"X",
+        "winner":null,
+        "isDraw":false
+      }"""
+
+      val result = deserializeGame(GameType.TicTacToe, json)
+      result.isLeft shouldBe true
     }
 
     "return Left if game JSON is invalid" in {
