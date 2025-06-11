@@ -33,7 +33,7 @@ object GameServer extends App {
   implicit val runtime: IORuntime = cats.effect.unsafe.IORuntime.global
 
   // Database transactor resource to manage thread and connection pooling
-  val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor.transactor
+  val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor(config)
 
   // Use the transactor resource to initialize the rest of the app
   transactorResource.use { xa =>
