@@ -28,7 +28,7 @@ object GameManager {
   sealed trait Command
   case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[String]) extends Command
   case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
-  private case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
+  protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
   private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
@@ -160,8 +160,8 @@ object GameManager {
           }
           Behaviors.same
 
-        case other =>
-          context.log.warn(s"Unhandled message in running state: $other")
+        case RestoreGames(_) =>
+          context.log.warn("Received RestoreGames while already in running state; ignoring.")
           Behaviors.same
       }
     }

@@ -98,5 +98,24 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
       response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
     }
+
+    "ignore RestoreGames messages in running state" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(GameManager.Ready)
+
+      // Now send an unexpected RestoreGames message while in `running` state
+      gm ! GameManager.RestoreGames(Map.empty)
+
+      // Sanity check: send a valid command and expect the proper response
+      val responseProbe = TestProbe[String]()
+      gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob"), responseProbe.ref)
+
+      val gameId = responseProbe.expectMessageType[String]
+      assert(gameId.nonEmpty)
+    }
   }
 }
