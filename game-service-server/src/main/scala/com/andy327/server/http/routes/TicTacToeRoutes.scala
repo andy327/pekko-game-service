@@ -31,7 +31,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
   val routes: Route = pathPrefix("tictactoe") {
 
     /**
-     * @route POST /game
+     * @route POST /tictactoe
      * @queryParam playerX Player ID for player X
      * @queryParam playerO Player ID for player O
      * @response 200 gameId as plain text
@@ -51,7 +51,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
       }
     } ~
     /**
-     * @route POST /game/{id}/move
+     * @route POST /tictactoe/{id}/move
      * @pathParam id The ID of the game
      * @bodyParam Move JSON { "playerId": "X", "row": 0, "col": 1 }
      * @response 200 TicTacToeStatus
@@ -77,7 +77,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
       }
     } ~
     /**
-     * @route GET /game/{id}/status
+     * @route GET /tictactoe/{id}/status
      * @pathParam id The ID of the game
      * @response 200 TicTacToeStatus
      * @response 404 if the game is not found

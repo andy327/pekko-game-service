@@ -4,6 +4,7 @@ import scala.concurrent.duration._
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, StatusCodes}
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.apache.pekko.util.Timeout
@@ -74,6 +75,23 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         }
       }
 
+    "return 400 if game creation fails with ErrorResponse" in {
+      val errorBehavior = Behaviors.receiveMessage[GameManager.Command] {
+        case GameManager.CreateGame(_, _, replyTo) =>
+          replyTo ! GameManager.ErrorResponse("Error in GameManager")
+          Behaviors.same
+        case _ => Behaviors.same
+      }
+
+      val dummySystem = ActorSystem(errorBehavior, "ErrorResponseSystem")
+      val errorRoutes = new TicTacToeRoutes(dummySystem).routes
+
+      Post("/tictactoe?playerX=alice&playerO=bob") ~> errorRoutes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Error in GameManager")
+      }
+    }
+
     "return 404 for invalid game ID on move" in {
       val move = TicTacToeMove("alice", 0, 0)
       val moveJson = move.toJson.compactPrint
@@ -87,5 +105,43 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       Get("/tictactoe/invalid-game-id/status") ~> routes ~> check {
         status shouldBe StatusCodes.NotFound
       }
+
+    "return 500 for unexpected responses" in {
+      val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
+        case GameManager.CreateGame(_, _, replyTo) =>
+          val dummyState = TicTacToeState(Vector(), "X", None, false)
+          replyTo ! GameManager.GameStatus(dummyState) // triggers fallback in /tictactoe
+          Behaviors.same
+        case GameManager.ForwardToGame(_, _, Some(replyTo)) =>
+          replyTo ! GameManager.GameCreated("unexpected-id") // triggers fallback in /move and /status
+          Behaviors.same
+        case _ => Behaviors.same
+      }
+      val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseSystem")
+      val dummyMoveJson = TicTacToeMove("alice", 0, 0).toJson.compactPrint
+
+      val errorRoutes = new TicTacToeRoutes(dummySystem).routes
+
+      // Trigger fallback in /tictactoe route
+      Post("/tictactoe?playerX=alice&playerO=bob") ~> errorRoutes ~> check {
+        status shouldBe StatusCodes.InternalServerError
+        responseAs[String] should include("Unexpected response")
+      }
+
+      // Trigger fallback in /move route
+      Post("/tictactoe/fake-id/move").withEntity(
+        ContentTypes.`application/json`,
+        dummyMoveJson
+      ) ~> errorRoutes ~> check {
+        status shouldBe StatusCodes.InternalServerError
+        responseAs[String] should include("Unexpected response")
+      }
+
+      // Trigger fallback in /status route
+      Get("/tictactoe/fake-id/status") ~> errorRoutes ~> check {
+        status shouldBe StatusCodes.InternalServerError
+        responseAs[String] should include("Unexpected response")
+      }
+    }
   }
 }
