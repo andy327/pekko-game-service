@@ -1,5 +1,7 @@
 package com.andy327.server.actors.core
 
+import scala.concurrent.duration._
+
 import cats.effect.IO
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
@@ -97,6 +99,28 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.ForwardToGame(gameId, TicTacToeActor.GetState(gameStateProbe.ref), Some(gameResponseProbe.ref))
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
       response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
+    }
+
+    "stash messages during initialization and process them after RestoreGames" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val responseProbe = TestProbe[String]()
+      val slowRepo = new GameRepository {
+        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
+      }
+
+      val gm = spawn(GameManager(persistProbe.ref, slowRepo))
+
+      // Send a command that would be stashed during initialization
+      gm ! GameManager.CreateGame(GameType.TicTacToe, List("alice", "bob"), responseProbe.ref)
+
+      // Initially, no response because it's still initializing
+      responseProbe.expectNoMessage(500.millis)
+
+      // Eventually, after restore, the stashed message is processed
+      val gameId = responseProbe.expectMessageType[String](2.seconds)
+      assert(gameId.nonEmpty)
     }
 
     "ignore RestoreGames messages in running state" in {
