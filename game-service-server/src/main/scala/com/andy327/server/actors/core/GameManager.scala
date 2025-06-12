@@ -26,13 +26,14 @@ import com.andy327.server.http.json.GameState
  */
 object GameManager {
   sealed trait Command
-  case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[String]) extends Command
+  case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[GameResponse]) extends Command
   case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
   protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
   private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
+  case class GameCreated(gameId: String) extends GameResponse
   case class GameStatus(state: GameState) extends GameResponse
   case class ErrorResponse(message: String) extends GameResponse
 
@@ -111,21 +112,26 @@ object GameManager {
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
         case CreateGame(gameType, players, replyTo) =>
-          val gameId = UUID.randomUUID().toString
-          val (game, actor) = gameType match {
-            case GameType.TicTacToe =>
-              val (game, behavior) = TicTacToeActor.create(gameId, players, persistActor)
-              val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-              (game, actor)
+          if (players.size != 2) {
+            replyTo ! ErrorResponse(s"Expected 2 players, got ${players.size}")
+            Behaviors.same
+          } else {
+            val gameId = UUID.randomUUID().toString
+            val (game, actor) = gameType match {
+              case GameType.TicTacToe =>
+                val (game, behavior) = TicTacToeActor.create(gameId, players, persistActor)
+                val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+                (game, actor)
+            }
+
+            // Persist immediately after creation; no need to wait for acknowledgement
+            persistActor ! PersistenceProtocol.SaveSnapshot(gameId, gameType, game, replyTo = context.system.ignoreRef)
+
+            context.log.info(s"Created and persisted new game with gameId: $gameId")
+            replyTo ! GameCreated(gameId)
+
+            running(games + (gameId -> actor), persistActor)
           }
-
-          // Persist immediately after creation; no need to wait for acknowledgement
-          persistActor ! PersistenceProtocol.SaveSnapshot(gameId, gameType, game, replyTo = context.system.ignoreRef)
-
-          context.log.info(s"Created and persisted new game with gameId: $gameId")
-          replyTo ! gameId
-
-          running(games + (gameId -> actor), persistActor)
 
         case ForwardToGame(gameId, msg, replyToOpt) =>
           games.get(gameId) match {

@@ -43,16 +43,31 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(GameManager.Ready) // wait for initialization
 
-      val replyProbe = TestProbe[String]()
+      val replyProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob"), replyProbe.ref)
 
-      val gameId = replyProbe.receiveMessage()
+      val GameManager.GameCreated(gameId) = replyProbe.receiveMessage()
       gameId.length should be > 0
 
       val save = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
       save.gameId shouldBe gameId
       save.gameType shouldBe GameType.TicTacToe
       save.game shouldBe TicTacToe.empty("alice", "bob")
+    }
+
+    "return error when not specifying the correct number of players" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(GameManager.Ready) // wait for initialization
+
+      val replyProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob", "carl"), replyProbe.ref)
+
+      val response = replyProbe.expectMessageType[GameManager.ErrorResponse]
+      response.message should include("Expected 2 players")
     }
 
     "return error when forwarding to unknown game" in {
@@ -103,7 +118,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
     "stash messages during initialization and process them after RestoreGames" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val responseProbe = TestProbe[String]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
       val slowRepo = new GameRepository {
         def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
         def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
@@ -119,8 +134,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectNoMessage(500.millis)
 
       // Eventually, after restore, the stashed message is processed
-      val gameId = responseProbe.expectMessageType[String](2.seconds)
-      assert(gameId.nonEmpty)
+      val response = responseProbe.expectMessageType[GameManager.GameCreated](2.seconds)
+      assert(response.gameId.nonEmpty)
     }
 
     "ignore RestoreGames messages in running state" in {
@@ -135,11 +150,11 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.RestoreGames(Map.empty)
 
       // Sanity check: send a valid command and expect the proper response
-      val responseProbe = TestProbe[String]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob"), responseProbe.ref)
 
-      val gameId = responseProbe.expectMessageType[String]
-      assert(gameId.nonEmpty)
+      val response = responseProbe.expectMessageType[GameManager.GameCreated]
+      assert(response.gameId.nonEmpty)
     }
   }
 }

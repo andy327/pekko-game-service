@@ -13,7 +13,7 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.{GameError, Location}
 import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameResponse, GameStatus}
+import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameCreated, GameResponse, GameStatus}
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{GameState, TicTacToeMove}
@@ -41,8 +41,11 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     pathEndOrSingleSlash {
       post {
         parameters("playerX", "playerO") { (p1, p2) =>
-          onSuccess(system.ask(GameManager.CreateGame(GameType.TicTacToe, Seq(p1, p2), _))) { gameId =>
-            complete(gameId)
+          val players = Seq(p1, p2)
+          onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateGame(GameType.TicTacToe, players, replyTo))) {
+            case GameCreated(gameId)    => complete(gameId)
+            case ErrorResponse(message) => complete(StatusCodes.BadRequest, message)
+            case unknown                => complete(StatusCodes.InternalServerError, s"Unexpected response: $unknown")
           }
         }
       }
@@ -68,6 +71,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
           ) {
             case GameStatus(state)    => complete(state)
             case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+            case unknown              => complete(StatusCodes.InternalServerError, s"Unexpected response: $unknown")
           }
         }
       }
@@ -91,6 +95,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
         ) {
           case GameStatus(state)    => complete(state)
           case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+          case unknown              => complete(StatusCodes.InternalServerError, s"Unexpected response: $unknown")
         }
       }
     }
