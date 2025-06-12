@@ -1,8 +1,9 @@
 package com.andy327.server
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContextExecutor, Future}
-import scala.util.{Failure, Success}
+import scala.concurrent.{Await, Future}
+
+import org.slf4j.LoggerFactory
 
 import com.typesafe.config.{Config, ConfigFactory}
 
@@ -14,70 +15,82 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
+import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
+import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
-
-import actors.core.GameManager
-import http.routes.TicTacToeRoutes
+import com.andy327.server.http.routes.TicTacToeRoutes
 
 /**
  * GameServer is the main entry point of the game-service.
  * It initializes the database, actor system, and HTTP server.
  */
-object GameServer extends App {
-  // Load configuration from application.conf
-  val config: Config = ConfigFactory.load()
-  val host: String = config.getString("pekko-game-service.http.host")
-  val port: Int = config.getInt("pekko-game-service.http.port")
+object GameServer {
+  private val logger = LoggerFactory.getLogger(getClass)
 
-  implicit val runtime: IORuntime = cats.effect.unsafe.IORuntime.global
+  def main(args: Array[String]): Unit = {
+    // Load configuration from application.conf
+    val config: Config = ConfigFactory.load()
+    val host: String = config.getString("pekko-game-service.http.host")
+    val port: Int = config.getInt("pekko-game-service.http.port")
 
-  // Database transactor resource to manage thread and connection pooling
-  val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor(config)
+    implicit val runtime: IORuntime = IORuntime.global
 
-  // Use the transactor resource to initialize the rest of the app
-  transactorResource.use { xa =>
-    // Initialize repository with transactor
-    val gameRepository = new PostgresGameRepository(xa)
+    // Database transactor resource to manage thread and connection pooling
+    val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor(config)
+
+    // Use the transactor resource to initialize the rest of the app
+    transactorResource.use { xa =>
+      // Initialize repository with transactor
+      val gameRepository = new PostgresGameRepository(xa)
+
+      startServer(host, port, gameRepository).flatMap { case (system, _) =>
+        // Keep the application alive
+        IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
+      }
+    }.unsafeRunSync()
+  }
+
+  /**
+   * Starts the actor system and HTTP server and returns both.
+   * Can be reused in tests.
+   */
+  def startServer(
+      host: String,
+      port: Int,
+      gameRepo: GameRepository
+  ): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
+    val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
+      val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
+      GameManager(persistActor, gameRepo)
+    }
 
     // Pekko actor system
-    implicit val system: ActorSystem[GameManager.Command] = {
-      val root = Behaviors.setup[GameManager.Command] { context =>
-        val persistActor = context.spawn(PostgresActor(gameRepository), "postgres-persistence")
-
-        GameManager(persistActor, gameRepository)
-      }
-      ActorSystem(root, "GameManagerSystem")
-    }
-    implicit val ec: ExecutionContextExecutor = system.executionContext
+    val system: ActorSystem[GameManager.Command] = ActorSystem(rootBehavior, "GameManagerSystem")
+    implicit val classicSystem = system.classicSystem // Pekko HTTP still requires the classic ActorSystem
 
     // HTTP routes
-    val allRoutes = List(
+    val routes = concat(
       new TicTacToeRoutes(system).routes
     )
-    val routes = allRoutes.reduce(_ ~ _)
 
     // Start HTTP server
     val bindingFuture: Future[Http.ServerBinding] =
       Http().newServerAt(host, port).bind(routes)
 
     // Handle server startup result
-    bindingFuture.onComplete {
-      case Success(binding) =>
+    IO.fromFuture(IO(bindingFuture)).flatTap { binding =>
+      IO.delay {
         val address = binding.localAddress
-        println(s"Server online at http://${address.getHostString}:${address.getPort}/")
-      case Failure(ex) =>
-        println(s"Failed to bind HTTP endpoint, terminating system: ${ex.getMessage}")
-        system.terminate()
-    }
+        logger.info(s"Server online at http://${address.getHostString}:${address.getPort}/")
 
-    // JVM shutdown hook for graceful shutdown
-    sys.addShutdownHook {
-      println("Shutting down server...")
-      system.classicSystem.terminate()
-    }
-
-    // Keep the application alive
-    IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
-  }.unsafeRunSync()
+        // JVM shutdown hook for graceful shutdown
+        sys.addShutdownHook {
+          logger.info("Shutting down server...")
+          binding.unbind()
+          system.terminate()
+        }
+      }
+    }.map(binding => (system, binding))
+  }
 }
