@@ -26,18 +26,18 @@ import com.andy327.server.http.json.GameState
  */
 object GameManager {
   sealed trait Command
-  case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[GameResponse]) extends Command
-  case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
-  protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
-  private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
+  final case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[GameResponse]) extends Command
+  final case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
+  final protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
+  final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
-  case class GameCreated(gameId: String) extends GameResponse
-  case class GameStatus(state: GameState) extends GameResponse
-  case class ErrorResponse(message: String) extends GameResponse
+  final case class GameCreated(gameId: String) extends GameResponse
+  final case class GameStatus(state: GameState) extends GameResponse
+  final case class ErrorResponse(message: String) extends GameResponse
 
-  /** Emitted exactly once when the DB restore is complete. */
+  /** Emitted once when the DB restore is complete. */
   case object Ready
 
   /** Factory used from GameServer */

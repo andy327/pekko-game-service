@@ -51,7 +51,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         }
       }
 
-    "reject a move from unknown player" in
+    "reject a move from an unknown player" in
       Post("/tictactoe?playerX=alice&playerO=bob") ~> routes ~> check {
         val gameId = responseAs[String]
 
@@ -60,7 +60,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
         Post(s"/tictactoe/$gameId/move").withEntity(ContentTypes.`application/json`, badMoveJson) ~> routes ~> check {
           status shouldBe StatusCodes.NotFound
-          responseAs[String].toLowerCase should include("not part of this game")
+          responseAs[String].toLowerCase should include("unknown player")
         }
       }
 

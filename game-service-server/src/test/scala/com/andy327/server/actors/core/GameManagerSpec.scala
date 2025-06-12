@@ -16,7 +16,7 @@ import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
 import com.andy327.server.http.json.{GameState, GameStateConverters}
 
-/** In‑memory GameRepository for unit tests */
+/** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[String, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
   private val db = scala.collection.concurrent.TrieMap(initialGames.toSeq: _*)
 
@@ -78,7 +78,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       readyProbe.expectMessage(GameManager.Ready) // wait for initialization
 
       val replyProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ForwardToGame("no-such-id", "noop‑msg", Some(replyProbe.ref))
+      gm ! GameManager.ForwardToGame("no-such-id", "noop-msg", Some(replyProbe.ref))
 
       val error = replyProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game found with gameId")

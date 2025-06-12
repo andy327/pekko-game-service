@@ -59,7 +59,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
     }
 
     "return None for a game with invalid JSON" in {
-      val invalidJson = "not-a-json"
+      val invalidJson = "invalid-json"
       val gameId = "bad-json"
       val insert = sql"""
         INSERT INTO games (game_id, game_type, game_state)

@@ -14,11 +14,11 @@ object PersistActor {
 
   import PersistenceProtocol._
 
-  /** Internal wrapper for a finished load‑operation. */
+  /** Internal wrapper for a finished load-operation. */
   final case class Loaded(replyTo: ActorRef[SnapshotLoaded], result: Either[Throwable, Option[Game[_, _, _, _, _]]])
       extends Command
 
-  /** Internal wrapper for a finished save‑operation. */
+  /** Internal wrapper for a finished save-operation. */
   final case class Saved(replyTo: ActorRef[SnapshotSaved], result: Either[Throwable, Unit]) extends Command
 }
 

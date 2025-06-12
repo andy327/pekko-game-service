@@ -8,7 +8,7 @@ import com.andy327.model.core.{Game, GameType}
 import com.andy327.persistence.db.GameRepository
 
 /**
-  * Concrete persistence‑actor that stores snapshots in PostgreSQL via a GameRepository.
+  * Concrete persistence-actor that stores snapshots in PostgreSQL via a GameRepository.
   */
 object PostgresActor {
   def apply(gameRepo: GameRepository): Behavior[PersistenceProtocol.Command] =

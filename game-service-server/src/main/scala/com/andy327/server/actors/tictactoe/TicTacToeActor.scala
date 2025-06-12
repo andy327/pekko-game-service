@@ -13,16 +13,13 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
-  case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
+  final case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
       extends Command
-  case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
+  final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
 
-  sealed private trait Internal extends Command
-  final private case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
-  final private case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
-
-  private case class InternalLoadedState(maybeGame: Option[TicTacToe]) extends Command
-  private case class InternalSaveResult(success: Boolean) extends Command
+  sealed trait Internal extends Command
+  final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
+  final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
 
   private def markForPlayer(playerId: String, playerX: String, playerO: String): Option[Mark] =
     if (playerId == playerX) Some(X)
@@ -37,7 +34,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       players: Seq[String],
       persist: ActorRef[PersistenceProtocol.Command]
   ): (TicTacToe, Behavior[Command]) = {
-    require(players.size == 2, "Tic‑Tac‑Toe needs exactly two players")
+    require(players.size == 2, "Tic-Tac-Toe needs exactly two players")
     val (playerX, playerO) = (players(0), players(1))
 
     val game = TicTacToe.empty(playerX, playerO)
@@ -77,7 +74,11 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       persist: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
-      case MakeMove(playerId, loc, replyTo) if game.gameStatus == InProgress =>
+      case MakeMove(playerId, loc, replyTo) if game.gameStatus != InProgress =>
+        context.log.warn(s"[$gameId] game already completed!")
+        replyTo ! Left(GameError.GameOver)
+        Behaviors.same
+      case MakeMove(playerId, loc, replyTo) =>
         markForPlayer(playerId, game.playerX, game.playerO) match {
           case Some(mark) if mark == game.currentPlayer =>
             game.play(mark, loc) match {
@@ -96,18 +97,19 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
                 active(nextState, gameId, persist)
 
               case Left(err) =>
+                context.log.warn(s"[$gameId] move rejected: $err")
                 replyTo ! Left(err)
                 Behaviors.same
             }
 
           case Some(_) =>
-            // Player is part of the game, but it's not their turn
+            context.log.warn(s"[$gameId] not the correct player's turn!")
             replyTo ! Left(GameError.InvalidTurn)
             Behaviors.same
 
           case None =>
-            // Player is not even part of the game
-            replyTo ! Left(GameError.InvalidPlayer(s"Player ID '$playerId' is not part of this game."))
+            context.log.warn(s"[$gameId] Player ID '$playerId' is not part of this game.")
+            replyTo ! Left(GameError.InvalidPlayer(playerId))
             Behaviors.same
         }
 
@@ -115,16 +117,18 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
         replyTo ! Right(GameStateConverters.serializeGame(game))
         Behaviors.same
 
-      case SnapshotSaved(Left(throwable)) =>
-        context.log.error(s"[$gameId] snapshot failed", throwable)
+      case SnapshotSaved(result) =>
+        result match {
+          case Left(e)  => context.log.error(s"[$gameId] snapshot failed", e)
+          case Right(_) => context.log.debug(s"[$gameId] snapshot saved successfully")
+        }
         Behaviors.same
 
-      case SnapshotSaved(Right(_)) =>
-        // Success – no action
-        Behaviors.same
-
-      case other =>
-        context.log.warn(s"[$gameId] unknown message: $other")
+      case SnapshotLoaded(result) =>
+        result match {
+          case Left(e)  => context.log.error(s"[$gameId] snapshot load failed", e)
+          case Right(_) => context.log.debug(s"[$gameId] snapshot loaded successfully")
+        }
         Behaviors.same
     }
   }
