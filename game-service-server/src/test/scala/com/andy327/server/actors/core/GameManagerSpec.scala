@@ -7,13 +7,16 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameType}
-import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.model.tictactoe.{GameError, TicTacToe}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.http.json.TicTacToeState.TicTacToeView
+import com.andy327.server.http.json.{GameState, GameStateConverters}
 
 /** In‑memory GameRepository for unit tests */
-class InMemRepo extends GameRepository {
-  private val db = scala.collection.concurrent.TrieMap.empty[String, (GameType, Game[_, _, _, _, _])]
+class InMemRepo(initialGames: Map[String, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
+  private val db = scala.collection.concurrent.TrieMap(initialGames.toSeq: _*)
 
   def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
     IO(db.update(id, (tpe, g)))
@@ -62,6 +65,38 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val error = replyProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game found with gameId")
+    }
+
+    "handle database failure gracefully on startup" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val failingRepo = new GameRepository {
+        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
+          IO.raiseError(new RuntimeException("DB failure"))
+      }
+
+      val _ = spawn(GameManager(persistProbe.ref, failingRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(GameManager.Ready)
+    }
+
+    "restore saved games from the game repository on startup" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId = "restored-game"
+      val restoredGame = TicTacToe.empty("alice", "bob")
+
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, restoredGame)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(GameManager.Ready)
+
+      val gameStateProbe = TestProbe[Either[GameError, GameState]]()
+      val gameResponseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.ForwardToGame(gameId, TicTacToeActor.GetState(gameStateProbe.ref), Some(gameResponseProbe.ref))
+      val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
+      response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
     }
   }
 }

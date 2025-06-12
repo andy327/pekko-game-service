@@ -2,7 +2,7 @@ package com.andy327.server.actors.core
 
 import java.util.UUID
 
-import scala.util.{Failure, Success}
+import scala.util.Success
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
@@ -40,6 +40,7 @@ object GameManager {
   case object Ready
 
   /** Factory used from GameServer */
+  @annotation.nowarn("msg=match may not be exhaustive")
   def apply(
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
@@ -49,16 +50,13 @@ object GameManager {
       Behaviors.setup { context =>
         implicit val runtime: IORuntime = IORuntime.global
 
-        // Load games from DB on startup asynchronously
+        // Load games from DB on startup asynchronously, (IO.defer(...).attempt catches all exceptions)
         context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
           case Success(Right(games)) =>
             context.log.info(s"Restoring ${games.size} games from the database")
             RestoreGames(games)
           case Success(Left(ex)) =>
             context.log.error("Failed to load games from DB", ex)
-            RestoreGames(Map.empty)
-          case Failure(ex) =>
-            context.log.error("Unexpected failure while loading games from DB", ex)
             RestoreGames(Map.empty)
         }
 

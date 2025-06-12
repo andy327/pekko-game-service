@@ -7,12 +7,15 @@ import com.andy327.model.core.Game
 import com.andy327.model.tictactoe._
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{GameState, TicTacToeState}
+import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 
-object TicTacToeActor extends GameActor[TicTacToe] {
+object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
+  import TicTacToeState._
+
   sealed trait Command extends GameActor.GameCommand
-  case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, GameState]]) extends Command
-  case class GetState(replyTo: ActorRef[Either[GameError, GameState]]) extends Command
+  case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
+      extends Command
+  case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
 
   sealed private trait Internal extends Command
   final private case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
@@ -25,20 +28,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
     if (playerId == playerX) Some(X)
     else if (playerId == playerO) Some(O)
     else None
-
-  /**
-   * Converts the internal game model into a serializable HTTP response.
-   */
-  override def serializableGameState(game: TicTacToe): GameState = {
-    val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse("")))
-    val currentPlayer = game.currentPlayer.toString
-    val winnerOpt = game.gameStatus match {
-      case Won(mark) => Some(mark.toString)
-      case _         => None
-    }
-    val draw = game.gameStatus == Draw
-    TicTacToeState(boardStrings, currentPlayer, winnerOpt, draw)
-  }
 
   /**
    * Initializes a new TicTacToeActor with an empty game.
@@ -102,7 +91,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
                   game = nextState,
                   replyTo = context.messageAdapter(_ => SnapshotSaved(Right(())))
                 )
-                replyTo ! Right(serializableGameState(nextState))
+                replyTo ! Right(GameStateConverters.serializeGame(nextState))
 
                 active(nextState, gameId, persist)
 
@@ -123,7 +112,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
         }
 
       case GetState(replyTo) =>
-        replyTo ! Right(serializableGameState(game))
+        replyTo ! Right(GameStateConverters.serializeGame(game))
         Behaviors.same
 
       case SnapshotSaved(Left(throwable)) =>

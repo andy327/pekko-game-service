@@ -20,13 +20,10 @@ object GameActor {
 /**
  * Type-class factory and helper interface implemented by every game-specific actor.
  */
-trait GameActor[G <: Game[_, _, _, _, _]] {
+trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
 
   /** Resolves to the compile-time `GameType` matching `G` via an implicit tag. */
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
-
-  /** Convert the fully-typed game model into an HTTP friendly payload. */
-  def serializableGameState(game: G): GameState
 
   /** Spawn a fresh game actor given players, ids, etc. */
   def create(gameId: String, players: Seq[String], persist: ActorRef[PersistenceProtocol.Command]): (G, Behavior[_])
