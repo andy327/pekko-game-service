@@ -1,6 +1,6 @@
 package com.andy327.server.actors.persistence
 
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
@@ -23,7 +23,7 @@ object PersistActor {
 }
 
 /**
-  * Trait that handles the persistence behavior to communicate with the GameManager.
+  * Base trait for persistence actors that interact with GameManager to load and save games.
   *
   * Concrete implementations only need to supply the loading and saving behavior.
   */
@@ -41,16 +41,26 @@ trait PersistActor {
 
       Behaviors.receiveMessage {
         case LoadSnapshot(gameId, gameType, replyTo) =>
-          context.pipeToSelf(loadFromStore(gameId, gameType).attempt.unsafeToFuture()) {
-            case Success(result) => Loaded(replyTo, result)
-            case Failure(ex)     => Loaded(replyTo, Left(ex))
+          val result = Try(loadFromStore(gameId, gameType).unsafeToFuture())
+          result match {
+            case Success(fut) =>
+              context.pipeToSelf(fut) {
+                case Success(value) => Loaded(replyTo, Right(value))
+                case Failure(ex)    => Loaded(replyTo, Left(ex))
+              }
+            case Failure(ex) => replyTo ! SnapshotLoaded(Left(ex))
           }
           Behaviors.same
 
         case SaveSnapshot(gameId, gameType, game, replyTo) =>
-          context.pipeToSelf(saveToStore(gameId, gameType, game).attempt.unsafeToFuture()) {
-            case Success(_)  => Saved(replyTo, Right(()))
-            case Failure(ex) => Saved(replyTo, Left(ex))
+          val result = Try(saveToStore(gameId, gameType, game).unsafeToFuture())
+          result match {
+            case Success(fut) =>
+              context.pipeToSelf(fut) {
+                case Success(value) => Saved(replyTo, Right(value))
+                case Failure(ex)    => Saved(replyTo, Left(ex))
+              }
+            case Failure(ex) => replyTo ! SnapshotSaved(Left(ex))
           }
           Behaviors.same
 

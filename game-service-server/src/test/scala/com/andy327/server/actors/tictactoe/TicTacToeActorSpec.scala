@@ -1,5 +1,7 @@
 package com.andy327.server.actors.tictactoe
 
+import scala.util.control.NoStackTrace
+
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -226,7 +228,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val actor = spawn(behavior)
 
       // Send SnapshotSaved failure message
-      val ex = new RuntimeException("artificial test failure")
+      val ex = new RuntimeException("artificial test failure") with NoStackTrace
       actor ! TicTacToeActor.SnapshotSaved(Left(ex))
 
       // Confirm actor is still alive and behavior is intact
@@ -259,7 +261,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val actor = spawn(behavior)
 
       // Simulate a snapshot load failure
-      val ex = new RuntimeException("load failed")
+      val ex = new RuntimeException("load failed") with NoStackTrace
       actor ! TicTacToeActor.SnapshotLoaded(Left(ex))
 
       // Verify actor is still alive by sending GetState

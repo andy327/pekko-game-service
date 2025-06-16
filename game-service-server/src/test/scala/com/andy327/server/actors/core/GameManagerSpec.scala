@@ -1,6 +1,7 @@
 package com.andy327.server.actors.core
 
 import scala.concurrent.duration._
+import scala.util.control.NoStackTrace
 
 import cats.effect.IO
 
@@ -91,7 +92,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
         def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
         def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
         def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
-          IO.raiseError(new RuntimeException("DB failure"))
+          IO.raiseError(new RuntimeException("DB failure") with NoStackTrace)
       }
 
       val _ = spawn(GameManager(persistProbe.ref, failingRepo, Some(readyProbe.ref)))
