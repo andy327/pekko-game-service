@@ -61,6 +61,11 @@ lazy val server = (project in file(s"$baseName-server"))
   .dependsOn(model, persistence)
   .settings(
     name := s"$baseName-server",
+    Compile / mainClass := Some("com.andy327.server.GameServer"),
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", _ @ _*) => MergeStrategy.discard
+      case _ => MergeStrategy.first
+    },
     libraryDependencies ++= Seq(
       "org.apache.pekko" %% "pekko-actor-typed" % versions("pekko"),
       "org.apache.pekko" %% "pekko-http" % versions("pekko-http"),

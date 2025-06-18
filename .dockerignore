@@ -1,0 +1,27 @@
+# Scala build artifacts
+target/
+project/target/
+project/project/
+
+# Subproject build artifacts
+game-service-model/target/
+game-service-persistence/target/
+game-service-server/target/
+
+# EXCEPTION: allow the fat jar
+!game-service-server/target/scala-2.13/game-service-server-assembly-*.jar
+
+# sbt
+.ivy2/
+.sbt/
+
+# OS clutter
+.DS_Store
+
+# Git history
+.git/
+.gitignore
+
+# Dockerfile itself and context
+Dockerfile
+.dockerignore
