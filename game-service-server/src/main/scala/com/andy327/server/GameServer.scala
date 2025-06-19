@@ -10,6 +10,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import cats.effect.unsafe.IORuntime
 import cats.effect.{IO, Resource}
 
+import doobie.implicits._
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
@@ -43,6 +44,15 @@ object GameServer {
     transactorResource.use { xa =>
       // Initialize repository with transactor
       val gameRepository = new PostgresGameRepository(xa)
+
+      // Ensure the 'games' table exists
+      sql"""
+          CREATE TABLE IF NOT EXISTS games (
+            game_id UUID PRIMARY KEY,
+            game_type TEXT NOT NULL,
+            game_state JSONB NOT NULL
+          )
+        """.update.run.transact(xa)
 
       startServer(host, port, gameRepository).flatMap { case (system, _) =>
         // Keep the application alive
