@@ -23,6 +23,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
   "GameServer" should {
     "start and respond to /tictactoe" in {
       val dummyRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
         def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
         def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
         def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit

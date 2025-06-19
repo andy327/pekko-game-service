@@ -17,6 +17,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       loadResult: Either[Throwable, Option[Game[_, _, _, _, _]]] = Right(None),
       saveResult: Either[Throwable, Unit] = Right(())
   ) extends GameRepository {
+    def initialize(): IO[Unit] = IO.unit
     def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.fromEither(loadResult)
     def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
     def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
@@ -27,6 +28,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
 
   class ErrorRepo extends GameRepository { // throws synchronous error
     // throws when defining the IO, not when running it
+    def initialize(): IO[Unit] = IO.unit
     override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = throw loadError
     override def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = throw saveError
     override def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = throw loadError

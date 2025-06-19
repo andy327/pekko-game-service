@@ -21,6 +21,8 @@ import com.andy327.server.http.json.{GameState, GameStateConverters}
 class InMemRepo(initialGames: Map[String, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
   private val db = scala.collection.concurrent.TrieMap(initialGames.toSeq: _*)
 
+  def initialize(): IO[Unit] = IO.unit
+
   def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
     IO(db.update(id, (tpe, g)))
 
@@ -89,6 +91,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
       val failingRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
         def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
         def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
         def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
@@ -121,6 +124,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()
       val slowRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
         def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
         def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
         def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
