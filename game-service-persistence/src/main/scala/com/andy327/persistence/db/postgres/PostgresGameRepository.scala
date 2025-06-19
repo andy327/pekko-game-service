@@ -30,6 +30,18 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
     }
 
   /**
+   * Creates the 'games' table with the appropriate schema if it doesn't already exit.
+   */
+  override def initialize(): IO[Unit] =
+    sql"""
+      CREATE TABLE IF NOT EXISTS games (
+        game_id    TEXT PRIMARY KEY,
+        game_type  TEXT NOT NULL,
+        game_state TEXT NOT NULL
+      )
+    """.update.run.transact(xa).void
+
+  /**
    * Saves the current state of a game of the given gameType into the database.
    * If the gameId already exists, the existing row is updated.
    */

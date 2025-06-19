@@ -12,6 +12,9 @@ import com.andy327.model.core.{Game, GameType}
  */
 trait GameRepository {
 
+  /** Runs any needed initialization processes such as creating the table in the database. */
+  def initialize(): IO[Unit]
+
   /** Persist the current state of a game to the database. */
   def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 

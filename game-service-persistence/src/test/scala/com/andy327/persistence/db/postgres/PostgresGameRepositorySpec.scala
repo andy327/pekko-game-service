@@ -34,15 +34,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
   /** Create the minimal schema after the container is ready. */
   override def afterStart(): Unit = {
-    val createTable = sql"""
-      CREATE TABLE IF NOT EXISTS games (
-        game_id    TEXT PRIMARY KEY,
-        game_type  TEXT NOT NULL,
-        game_state TEXT NOT NULL
-      )
-    """.update.run.transact(xa)
-
-    createTable.unsafeRunSync()
+    gameRepo.initialize().unsafeRunSync()
   }
 
   "PostgresGameRepository" should {

@@ -63,8 +63,11 @@ lazy val server = (project in file(s"$baseName-server"))
     name := s"$baseName-server",
     Compile / mainClass := Some("com.andy327.server.GameServer"),
     assembly / assemblyMergeStrategy := {
-      case PathList("META-INF", _ @_*) => MergeStrategy.discard
-      case _                           => MergeStrategy.first
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case PathList("META-INF", _ @_*)          => MergeStrategy.discard
+      case "application.conf"                   => MergeStrategy.concat
+      case "reference.conf"                     => MergeStrategy.concat
+      case _                                    => MergeStrategy.first
     },
     libraryDependencies ++= Seq(
       "org.apache.pekko" %% "pekko-actor-typed" % versions("pekko"),

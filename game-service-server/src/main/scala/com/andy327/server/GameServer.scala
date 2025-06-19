@@ -10,6 +10,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import cats.effect.unsafe.IORuntime
 import cats.effect.{IO, Resource}
 
+import doobie.Transactor
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
@@ -37,17 +38,20 @@ object GameServer {
     implicit val runtime: IORuntime = IORuntime.global
 
     // Database transactor resource to manage thread and connection pooling
-    val transactorResource: Resource[IO, doobie.Transactor[IO]] = PostgresTransactor(config)
+    val transactorResource: Resource[IO, Transactor[IO]] = PostgresTransactor(config)
 
     // Use the transactor resource to initialize the rest of the app
     transactorResource.use { xa =>
       // Initialize repository with transactor
       val gameRepository = new PostgresGameRepository(xa)
 
-      startServer(host, port, gameRepository).flatMap { case (system, _) =>
-        // Keep the application alive
-        IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
-      }
+      // Ensure the schema exists before starting the server
+      for {
+        _ <- gameRepository.initialize()
+        result <- startServer(host, port, gameRepository).flatMap { case (system, _) =>
+          IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
+        }
+      } yield result
     }.unsafeRunSync()
   }
 
