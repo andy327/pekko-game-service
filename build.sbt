@@ -64,6 +64,8 @@ lazy val server = (project in file(s"$baseName-server"))
     Compile / mainClass := Some("com.andy327.server.GameServer"),
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", _ @_*) => MergeStrategy.discard
+      case "application.conf"          => MergeStrategy.concat
+      case "reference.conf"            => MergeStrategy.concat
       case _                           => MergeStrategy.first
     },
     libraryDependencies ++= Seq(
