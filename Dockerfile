@@ -1,3 +1,10 @@
+# Stage 1: build the fat JAR
+FROM hseeberger/scala-sbt:11.0.21_1.11.0_2.13.16 AS builder
+
+WORKDIR /build
+COPY . .
+RUN sbt server/assembly
+
 FROM eclipse-temurin:11-jre
 
 # Set working directory
