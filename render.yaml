@@ -1,0 +1,32 @@
+databases:
+- name: pekko-games-db
+  databaseName: games_ep3z
+  user: games_ep3z_user
+  plan: free
+  region: virginia
+  ipAllowList:
+  - source: 0.0.0.0/0
+    description: everywhere
+  postgresMajorVersion: "16"
+services:
+- type: web
+  name: pekko-game-service
+  runtime: docker
+  repo: https://github.com/andy327/pekko-game-service
+  plan: free
+  envVars:
+  - key: PORT
+    sync: false
+  - key: DB_PASSWORD
+    fromDatabase:
+      name: pekko-games-db
+      property: password
+  - key: DB_USER
+    sync: false
+  - key: DATABASE_URL
+    sync: false
+  region: virginia
+  dockerContext: .
+  dockerfilePath: ./Dockerfile
+  autoDeployTrigger: commit
+version: "1"
