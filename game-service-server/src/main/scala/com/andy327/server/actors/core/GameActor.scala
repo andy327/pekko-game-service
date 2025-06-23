@@ -26,12 +26,18 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
 
   /** Spawn a fresh game actor given players, ids, etc. */
-  def create(gameId: String, players: Seq[String], persist: ActorRef[PersistenceProtocol.Command]): (G, Behavior[_])
+  def create(
+      gameId: String,
+      players: Seq[String],
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command]
+  ): (G, Behavior[_])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database. */
   def fromSnapshot(
       gameId: String,
       snap: Game[_, _, _, _, _],
-      persist: ActorRef[PersistenceProtocol.Command]
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command]
   ): Behavior[_]
 }

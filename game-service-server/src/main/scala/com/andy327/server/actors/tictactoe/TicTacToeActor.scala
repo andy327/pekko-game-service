@@ -5,9 +5,10 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.Game
 import com.andy327.model.tictactoe._
-import com.andy327.server.actors.core.GameActor
+import com.andy327.server.actors.core.{GameActor, GameManager}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
+import com.andy327.server.lobby.GameLifecycleStatus
 
 object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
@@ -32,7 +33,8 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   override def create(
       gameId: String,
       players: Seq[String],
-      persist: ActorRef[PersistenceProtocol.Command]
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command]
   ): (TicTacToe, Behavior[Command]) = {
     require(players.size == 2, "Tic-Tac-Toe needs exactly two players")
     val (playerX, playerO) = (players(0), players(1))
@@ -40,7 +42,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
     val game = TicTacToe.empty(playerX, playerO)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
-      active(game, gameId, persist)
+      active(game, gameId, persist, gameManager)
     }
 
     (game, behavior)
@@ -53,11 +55,12 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   override def fromSnapshot(
       gameId: String,
       game: Game[_, _, _, _, _],
-      persist: ActorRef[PersistenceProtocol.Command]
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] =
     Behaviors.setup { context =>
       game match {
-        case ttt: TicTacToe => active(ttt, gameId, persist)
+        case ttt: TicTacToe => active(ttt, gameId, persist, gameManager)
         case _              =>
           context.log.error(s"Unexpected snapshot type for game $gameId: $game")
           Behaviors.stopped
@@ -71,13 +74,15 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   private def active(
       game: TicTacToe,
       gameId: String,
-      persist: ActorRef[PersistenceProtocol.Command]
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
       case MakeMove(playerId, loc, replyTo) if game.gameStatus != InProgress =>
         context.log.warn(s"[$gameId] game already completed!")
         replyTo ! Left(GameError.GameOver)
         Behaviors.same
+
       case MakeMove(playerId, loc, replyTo) =>
         markForPlayer(playerId, game.playerX, game.playerO) match {
           case Some(mark) if mark == game.currentPlayer =>
@@ -94,7 +99,15 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
                 )
                 replyTo ! Right(GameStateConverters.serializeGame(nextState))
 
-                active(nextState, gameId, persist)
+                nextState.gameStatus match {
+                  case Won(_) | Draw =>
+                    context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
+                    gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+                    Behaviors.stopped
+
+                  case InProgress =>
+                    active(nextState, gameId, persist, gameManager)
+                }
 
               case Left(err) =>
                 context.log.warn(s"[$gameId] move rejected: $err")
