@@ -2,7 +2,7 @@ package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType, GameTypeTag}
+import com.andy327.model.core.{Game, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.GameState
 
@@ -28,7 +28,7 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
   /** Spawn a fresh game actor given players, ids, etc. */
   def create(
       gameId: String,
-      players: Seq[String],
+      players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
   ): (G, Behavior[_])

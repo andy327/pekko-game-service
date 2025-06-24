@@ -6,16 +6,14 @@ import org.apache.pekko.http.scaladsl.marshalling.{Marshaller, ToResponseMarshal
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpResponse, MediaTypes}
 import spray.json._
 
-import com.andy327.server.lobby.Player
+import com.andy327.model.core.GameType
+import com.andy327.server.actors.core.GameManager.ErrorResponse
+import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
 
 /**
  * Spray-Json protocol + Pekko marshalling helpers.
  */
 object JsonProtocol extends DefaultJsonProtocol {
-  implicit val moveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove)
-
-  implicit val statusFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
-
   implicit val uuidFormat: RootJsonFormat[UUID] = new RootJsonFormat[UUID] {
     def write(uuid: UUID): JsValue = JsString(uuid.toString)
     def read(value: JsValue): UUID = value match {
@@ -31,9 +29,36 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
 
-  implicit val createLobbyRequestFormat: RootJsonFormat[CreateLobbyRequest] = jsonFormat1(CreateLobbyRequest)
+  implicit val gameTypeFormat: RootJsonFormat[GameType] = new RootJsonFormat[GameType] {
+    def write(gt: GameType): JsValue = JsString(gt.toString)
 
-  implicit val joinLobbyRequestFormat: RootJsonFormat[JoinLobbyRequest] = jsonFormat1(JoinLobbyRequest)
+    def read(json: JsValue): GameType = json match {
+      case JsString("TicTacToe") => GameType.TicTacToe
+      case JsString(other)       => deserializationError(s"Unknown GameType: $other")
+      case _                     => deserializationError("Expected GameType string")
+    }
+  }
+
+  implicit val gameLifecycleStatusFormat: RootJsonFormat[GameLifecycleStatus] =
+    new RootJsonFormat[GameLifecycleStatus] {
+      def write(status: GameLifecycleStatus): JsValue = JsString(status.toString)
+      def read(json: JsValue): GameLifecycleStatus = json match {
+        case JsString("WaitingForPlayers") => GameLifecycleStatus.WaitingForPlayers
+        case JsString("ReadyToStart")      => GameLifecycleStatus.ReadyToStart
+        case JsString("InProgress")        => GameLifecycleStatus.InProgress
+        case JsString("Completed")         => GameLifecycleStatus.Completed
+        case JsString(other)               => deserializationError(s"Unknown GameLifecycleStatus: $other")
+        case _                             => deserializationError("Expected GameLifecycleStatus as string")
+      }
+    }
+
+  implicit val gameMetadataFormat: RootJsonFormat[GameMetadata] = jsonFormat5(GameMetadata.apply)
+
+  implicit val moveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove)
+
+  implicit val statusFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
+
+  implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse)
 
   /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
   implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =

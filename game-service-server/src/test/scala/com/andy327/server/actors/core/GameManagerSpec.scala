@@ -1,5 +1,7 @@
 package com.andy327.server.actors.core
 
+import java.util.UUID
+
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
@@ -9,7 +11,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameType, PlayerId}
 import com.andy327.model.tictactoe.{GameError, TicTacToe}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -38,51 +40,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
   import testKit._
 
+  val alice: PlayerId = UUID.randomUUID()
+  val bob: PlayerId = UUID.randomUUID()
+
   "GameManager" should {
-    "spawn a game actor and persist an empty snapshot" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
-
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob"), responseProbe.ref)
-
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
-      gameId.length should be > 0
-
-      val save = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
-      save.gameId shouldBe gameId
-      save.gameType shouldBe GameType.TicTacToe
-      save.game shouldBe TicTacToe.empty("alice", "bob")
-    }
-
-    "return an error when not specifying the correct number of players" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
-
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob", "carl"), responseProbe.ref)
-
-      val response = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      response.message should include("Invalid number of players")
-    }
-
-    "return an error when forwarding to a nonexistent game" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
-
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ForwardToGame("nonexistent", "noop-msg", Some(responseProbe.ref))
-
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No game found with gameId")
-    }
-
     "handle database failure gracefully on startup" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
@@ -98,10 +59,34 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       readyProbe.expectMessage(GameManager.Ready)
     }
 
+    "stash messages during initialization and process them after RestoreGames" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val slowRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
+        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
+      }
+      val alice = Player("alice")
+
+      val gm = spawn(GameManager(persistProbe.ref, slowRepo))
+
+      // Send a command that would be stashed during initialization
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+
+      // Initially, no response because it's still initializing
+      responseProbe.expectNoMessage(500.millis)
+
+      // Eventually, after restore, the stashed message is processed
+      val response = responseProbe.expectMessageType[GameManager.LobbyCreated](2.seconds)
+      assert(response.gameId.nonEmpty)
+    }
+
     "restore saved games from the game repository on startup" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameId = "restored-game"
-      val restoredGame = TicTacToe.empty("alice", "bob")
+      val restoredGame = TicTacToe.empty(alice, bob)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, restoredGame)))
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
@@ -112,29 +97,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.ForwardToGame(gameId, TicTacToeActor.GetState(gameStateProbe.ref), Some(gameResponseProbe.ref))
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
       response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
-    }
-
-    "stash messages during initialization and process them after RestoreGames" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      val slowRepo = new GameRepository {
-        def initialize(): IO[Unit] = IO.unit
-        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
-      }
-
-      val gm = spawn(GameManager(persistProbe.ref, slowRepo))
-
-      // Send a command that would be stashed during initialization
-      gm ! GameManager.CreateGame(GameType.TicTacToe, List("alice", "bob"), responseProbe.ref)
-
-      // Initially, no response because it's still initializing
-      responseProbe.expectNoMessage(500.millis)
-
-      // Eventually, after restore, the stashed message is processed
-      val response = responseProbe.expectMessageType[GameManager.GameCreated](2.seconds)
-      assert(response.gameId.nonEmpty)
     }
 
     "ignore RestoreGames messages in running state" in {
@@ -148,10 +110,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Sanity check: send a valid command and expect the proper response
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.CreateGame(GameType.TicTacToe, Seq("alice", "bob"), responseProbe.ref)
+      gm ! GameManager.ListLobbies(responseProbe.ref)
 
-      val response = responseProbe.expectMessageType[GameManager.GameCreated]
-      assert(response.gameId.nonEmpty)
+      val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      assert(response.lobbies.isEmpty)
     }
 
     "create a new lobby and return its metadata" in {
@@ -164,7 +126,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
 
-      val response = responseProbe.expectMessageType[GameManager.GameCreated]
+      val response = responseProbe.expectMessageType[GameManager.LobbyCreated]
       assert(response.gameId.nonEmpty)
 
       gm ! GameManager.GetLobbyMetadata(response.gameId, responseProbe.ref)
@@ -196,7 +158,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.expectMessageType[GameManager.GameCreated]
+      val GameManager.LobbyCreated(gameId) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -212,7 +174,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.expectMessageType[GameManager.GameCreated]
+      val GameManager.LobbyCreated(gameId) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       gm ! GameManager.JoinLobby(gameId, alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
@@ -251,7 +213,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Alice creates the lobby
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
@@ -261,6 +223,35 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.JoinLobby(gameId, carl, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("lobby is full")
+    }
+
+    "prevent a player from joining a lobby of a game that's already started" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val carl = Player("carl")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      // Alice creates the lobby
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+
+      // Bob joins
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      // Game bgeins
+      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Carl tries to join - should be rejected
+      gm ! GameManager.JoinLobby(gameId, carl, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("game already started or ended")
     }
 
     "allow a host to start a game from a ready lobby and persist the snapshot" in {
@@ -274,7 +265,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -297,7 +288,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -334,7 +325,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Game 1: InProgress
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId1) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId1) = responseProbe.receiveMessage()
       gm ! GameManager.JoinLobby(gameId1, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
       gm ! GameManager.StartGame(gameId1, alice, responseProbe.ref)
@@ -342,13 +333,13 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Game 2: ReadyToStart
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId2) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId2) = responseProbe.receiveMessage()
       gm ! GameManager.JoinLobby(gameId2, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Game 2: WaitingForPlayers
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId3) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId3) = responseProbe.receiveMessage()
 
       gm ! GameManager.ListLobbies(responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
@@ -366,7 +357,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -399,35 +390,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       response.lobbies.size shouldBe 0
     }
 
-    "prevent a player from joining a lobby of a game that's already started" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val carl = Player("carl")
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
-
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-
-      // Alice creates the lobby
-      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
-
-      // Bob joins
-      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbyJoined]
-
-      // Game bgeins
-      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.GameStarted]
-
-      // Carl tries to join - should be rejected
-      gm ! GameManager.JoinLobby(gameId, carl, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("game already started or ended")
-    }
-
     "allow a player to leave a lobby" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
@@ -440,7 +402,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Alice creates the lobby
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.GameCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
@@ -469,6 +431,19 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.LeaveLobby("nonexistent", alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
+    }
+
+    "return an error when forwarding to a nonexistent game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.ForwardToGame("nonexistent", "noop-msg", Some(responseProbe.ref))
+
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("No game found with gameId")
     }
   }
 }

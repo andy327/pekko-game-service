@@ -1,11 +1,13 @@
 package com.andy327.model.tictactoe
 
+import com.andy327.model.core.PlayerId
+
 sealed trait GameError {
   def message: String
 }
 object GameError {
-  case class InvalidPlayer(player: String) extends GameError {
-    val message: String = s"Unknown player: $player"
+  case class InvalidPlayer(playerId: PlayerId) extends GameError {
+    val message: String = s"Unknown player: $playerId"
   }
   case object InvalidTurn extends GameError {
     val message = "It's not your turn."

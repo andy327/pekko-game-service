@@ -1,5 +1,7 @@
 package com.andy327.persistence.db.postgres
 
+import java.util.UUID
+
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.implicits._
@@ -10,7 +12,7 @@ import doobie.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -40,7 +42,9 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
   "PostgresGameRepository" should {
     "save then load a TicTacToe game" in {
       val gameId = "g1"
-      val game = TicTacToe.empty("alice", "bob")
+      val alice: PlayerId = UUID.randomUUID()
+      val bob: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(alice, bob)
 
       gameRepo.saveGame(gameId, GameType.TicTacToe, game).unsafeRunSync()
       gameRepo.loadGame(gameId, GameType.TicTacToe).unsafeRunSync() shouldBe Some(game)
@@ -64,7 +68,9 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
     }
 
     "list all saved games" in {
-      gameRepo.saveGame("g2", GameType.TicTacToe, TicTacToe.empty("carl", "david")).unsafeRunSync()
+      val carl: PlayerId = UUID.randomUUID()
+      val david: PlayerId = UUID.randomUUID()
+      gameRepo.saveGame("g2", GameType.TicTacToe, TicTacToe.empty(carl, david)).unsafeRunSync()
 
       val all = gameRepo.loadAllGames().unsafeRunSync()
       all.keySet should contain theSameElementsAs Set("g1", "g2")
@@ -74,7 +80,9 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
       val badTypeGameId = "bad-type"
       val corruptedGameId = "bad-json-2"
       val validGameId = "g3"
-      val validGame = TicTacToe.empty("x", "y")
+      val x: PlayerId = UUID.randomUUID()
+      val y: PlayerId = UUID.randomUUID()
+      val validGame = TicTacToe.empty(x, y)
 
       // Insert valid, corrupted, and unknown-type rows
       val insertAll = List(

@@ -3,7 +3,7 @@ package com.andy327.server.actors.tictactoe
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.Game
+import com.andy327.model.core.{Game, PlayerId}
 import com.andy327.model.tictactoe._
 import com.andy327.server.actors.core.{GameActor, GameManager}
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -14,7 +14,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
-  final case class MakeMove(playerId: String, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
+  final case class MakeMove(player: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
       extends Command
   final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
 
@@ -22,7 +22,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
   final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
 
-  private def markForPlayer(playerId: String, playerX: String, playerO: String): Option[Mark] =
+  private def markForPlayer(playerId: PlayerId, playerX: PlayerId, playerO: PlayerId): Option[Mark] =
     if (playerId == playerX) Some(X)
     else if (playerId == playerO) Some(O)
     else None
@@ -32,7 +32,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
    */
   override def create(
       gameId: String,
-      players: Seq[String],
+      players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
   ): (TicTacToe, Behavior[Command]) = {
@@ -78,7 +78,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
-      case MakeMove(playerId, loc, replyTo) if game.gameStatus != InProgress =>
+      case MakeMove(_, _, replyTo) if game.gameStatus != InProgress =>
         context.log.warn(s"[$gameId] game already completed!")
         replyTo ! Left(GameError.GameOver)
         Behaviors.same

@@ -1,7 +1,5 @@
 package com.andy327.server.actors.core
 
-import java.util.UUID
-
 import scala.util.Success
 
 import cats.effect.IO
@@ -36,15 +34,13 @@ object GameManager {
   final case class GetLobbyMetadata(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
 
-  final case class CreateGame(gameType: GameType, players: Seq[String], replyTo: ActorRef[GameResponse])
-      extends Command // TODO: Remove
   final case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
   final protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
-  final case class GameCreated(gameId: String) extends GameResponse
+  final case class LobbyCreated(gameId: String) extends GameResponse
   final case class LobbyJoined(gameId: String, metadata: GameMetadata) extends GameResponse
   final case class LobbyLeft(gameId: String, message: String) extends GameResponse
   final case class GameStarted(gameId: String) extends GameResponse
@@ -131,7 +127,7 @@ object GameManager {
         case CreateLobby(gameType, host, replyTo) =>
           context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
           val lobby = GameMetadata.newLobby(gameType, host)
-          replyTo ! GameCreated(lobby.gameId)
+          replyTo ! LobbyCreated(lobby.gameId)
           running(lobbies + (lobby.gameId -> lobby), games, persistActor)
 
         case JoinLobby(gameId, player, replyTo) =>
@@ -196,8 +192,8 @@ object GameManager {
                 if metadata.hostId == player.id && metadata.status == GameLifecycleStatus.ReadyToStart =>
               val (game, behavior) = metadata.gameType match {
                 case GameType.TicTacToe =>
-                  val playerNames = metadata.players.values.map(_.name).toSeq
-                  TicTacToeActor.create(gameId, playerNames, persistActor, context.self)
+                  val players = metadata.players.keySet.toSeq
+                  TicTacToeActor.create(gameId, players, persistActor, context.self)
               }
               val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
@@ -252,29 +248,6 @@ object GameManager {
             case None =>
               context.log.warn(s"Tried to complete unknown game: $gameId")
               Behaviors.same
-          }
-
-        // TODO: CreateLobby + StartGame renders CreateGame redundant; remove
-        case CreateGame(gameType, players, replyTo) =>
-          if (players.size < gameType.minPlayers || players.size > gameType.maxPlayers) {
-            replyTo ! ErrorResponse(s"Invalid number of players, got ${players.size}")
-            Behaviors.same
-          } else {
-            val gameId = UUID.randomUUID().toString
-            val (game, actor) = gameType match {
-              case GameType.TicTacToe =>
-                val (game, behavior) = TicTacToeActor.create(gameId, players, persistActor, context.self)
-                val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-                (game, actor)
-            }
-
-            // Persist immediately after creation; no need to wait for acknowledgement
-            persistActor ! PersistenceProtocol.SaveSnapshot(gameId, gameType, game, replyTo = context.system.ignoreRef)
-
-            context.log.info(s"Created and persisted new game with gameId: $gameId")
-            replyTo ! GameCreated(gameId)
-
-            running(lobbies, games + (gameId -> actor), persistActor)
           }
 
         case ForwardToGame(gameId, msg, replyToOpt) =>
