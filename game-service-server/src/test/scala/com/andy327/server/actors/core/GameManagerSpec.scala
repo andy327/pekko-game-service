@@ -12,7 +12,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, TicTacToe}
+import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
@@ -431,6 +431,36 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.LeaveLobby("nonexistent", alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
+    }
+
+    "return an error when forwarding an invalid move to a game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+
+      // Bob joins
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Set up probe to receive the intermediate GameActor response
+      val intermediateProbe = TestProbe[Either[GameError, GameState]]()
+
+      val invalidCommand = TicTacToeActor.MakeMove(alice.id, Location(99, 99), intermediateProbe.ref)
+      gm ! GameManager.ForwardToGame(gameId, invalidCommand, Some(responseProbe.ref))
+
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("out of bounds")
     }
 
     "return an error when forwarding to a nonexistent game" in {
