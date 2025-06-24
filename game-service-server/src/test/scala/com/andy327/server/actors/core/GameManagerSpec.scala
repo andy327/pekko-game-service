@@ -279,7 +279,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
-      gm ! GameManager.StartGame(gameId, alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
       responseProbe.expectMessage(GameManager.GameStarted(gameId))
 
       val snapshot = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
@@ -303,7 +303,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Bob tries to start the game
-      gm ! GameManager.StartGame(gameId, bob.id, responseProbe.ref)
+      gm ! GameManager.StartGame(gameId, bob, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("Only host can start")
     }
@@ -317,7 +317,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.StartGame("nonexistent", alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame("nonexistent", alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such game")
     }
@@ -337,7 +337,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.GameCreated(gameId1) = responseProbe.receiveMessage()
       gm ! GameManager.JoinLobby(gameId1, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
-      gm ! GameManager.StartGame(gameId1, alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame(gameId1, alice, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       // Game 2: ReadyToStart
@@ -371,7 +371,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
-      gm ! GameManager.StartGame(gameId, alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       // game actor sends a GameCompleted message to the GameManager
@@ -419,7 +419,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Game bgeins
-      gm ! GameManager.StartGame(gameId, alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame(gameId, alice, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       // Carl tries to join - should be rejected
@@ -447,12 +447,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Bob leaves
-      gm ! GameManager.LeaveLobby(gameId, bob.id, responseProbe.ref)
+      gm ! GameManager.LeaveLobby(gameId, bob, responseProbe.ref)
       val bobLeft = responseProbe.expectMessageType[GameManager.LobbyLeft]
       bobLeft.message should include("left lobby")
 
       // Alice leaves
-      gm ! GameManager.LeaveLobby(gameId, alice.id, responseProbe.ref)
+      gm ! GameManager.LeaveLobby(gameId, alice, responseProbe.ref)
       val aliceLeft = responseProbe.expectMessageType[GameManager.LobbyLeft]
       aliceLeft.message should include("host left")
     }
@@ -466,7 +466,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.LeaveLobby("nonexistent", alice.id, responseProbe.ref)
+      gm ! GameManager.LeaveLobby("nonexistent", alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
     }

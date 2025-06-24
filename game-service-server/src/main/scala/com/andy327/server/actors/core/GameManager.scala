@@ -30,8 +30,8 @@ object GameManager {
 
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class JoinLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class LeaveLobby(gameId: String, playerId: UUID, replyTo: ActorRef[GameResponse]) extends Command
-  final case class StartGame(gameId: String, playerId: UUID, replyTo: ActorRef[GameResponse]) extends Command
+  final case class LeaveLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class StartGame(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
   final case class GetLobbyMetadata(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
@@ -164,24 +164,24 @@ object GameManager {
               Behaviors.same
           }
 
-        case LeaveLobby(gameId, playerId, replyTo) =>
+        case LeaveLobby(gameId, player, replyTo) =>
           lobbies.get(gameId) match {
             case Some(metadata) =>
-              val updatedPlayers = metadata.players - playerId
+              val updatedPlayers = metadata.players - player.id
               val updatedStatus =
                 if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
                 else GameLifecycleStatus.WaitingForPlayers
 
               val newMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
 
-              if (playerId == metadata.hostId) {
+              if (player.id == metadata.hostId) {
                 val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
-                context.log.info(s"Host ($playerId) left lobby $gameId. Cancelling game...")
+                context.log.info(s"Host ($player.name) left lobby $gameId. Cancelling game...")
                 replyTo ! LobbyLeft(gameId, s"Lobby $gameId ended - host left")
                 running(lobbies + (gameId -> cancelled), games, persistActor)
               } else {
-                context.log.info(s"Player $playerId left lobby $gameId")
-                replyTo ! LobbyLeft(gameId, s"$playerId left lobby $gameId")
+                context.log.info(s"Player $player.name left lobby $gameId")
+                replyTo ! LobbyLeft(gameId, s"$player.name left lobby $gameId")
                 running(lobbies + (gameId -> newMetadata), games, persistActor)
               }
 
@@ -190,9 +190,10 @@ object GameManager {
               Behaviors.same
           }
 
-        case StartGame(gameId, playerId, replyTo) =>
+        case StartGame(gameId, player, replyTo) =>
           lobbies.get(gameId) match {
-            case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
+            case Some(metadata)
+                if metadata.hostId == player.id && metadata.status == GameLifecycleStatus.ReadyToStart =>
               val (game, behavior) = metadata.gameType match {
                 case GameType.TicTacToe =>
                   val playerNames = metadata.players.values.map(_.name).toSeq
