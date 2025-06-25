@@ -21,7 +21,7 @@ import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{TicTacToeMove, TicTacToeState}
-import com.andy327.server.lobby.{GameMetadata, Player}
+import com.andy327.server.lobby.{GameMetadata, IncomingPlayer, Player}
 
 class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   private val testKit = ActorTestKit()
@@ -36,13 +36,13 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
   "TicTacToeRoutes" should {
     "create a new lobby" in {
-      val player = Player(UUID.randomUUID(), "alice")
+      val player = IncomingPlayer(None, "alice")
       val requestEntity = HttpEntity(ContentTypes.`application/json`, player.toJson.compactPrint)
       Post("/tictactoe/lobby", requestEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val GameManager.LobbyCreated(gameId, host) = responseAs[GameManager.LobbyCreated]
         gameId.length should be > 0
-        host shouldBe player
+        host.name shouldBe "alice"
       }
     }
 
@@ -53,12 +53,12 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player(UUID.randomUUID(), "bob")
+      val player2 = IncomingPlayer(None, "bob")
       val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        val GameManager.LobbyJoined(_, metadata, _) = responseAs[GameManager.LobbyJoined]
-        metadata.players.values.toSet should contain only (host, player2)
+        val GameManager.LobbyJoined(_, metadata, joinedPlayer) = responseAs[GameManager.LobbyJoined]
+        metadata.players.values.toSet should contain only (host, joinedPlayer)
       }
     }
 

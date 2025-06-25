@@ -46,7 +46,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
      * @response 200 JSON { "gameId": "...", "player": { "id": "uuid", "name": "..." } }
      * @response 500 Unexpected response from GameManager
      *
-     * Create a new game lobby.
+     * Create a new game lobby. The player may provide an optional UUID. If omitted, a new UUID is assigned.
      */
     path("lobby") {
       post {
@@ -62,16 +62,17 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     /**
      * @route POST /tictactoe/lobby/{gameId}/join
      * @pathParam gameId The ID of the lobby to join
-     * @bodyParam Player JSON { "id": "UUID", "name": "bob" }
-     * @response 200 GameMetadata of the joined lobby
-     * @response 400 If the join request is invalid
+     * @bodyParam Player JSON { "name": "bob" } or { "id": "uuid", "name": "bob" }
+     * @response 200 LobbyJoined containing the joined game's metadata
+     * @response 400 If the join request is invalid (e.g., lobby full, already joined, nonexistent)
      * @response 500 Unexpected response from GameManager
      *
-     * Join an existing game lobby.
+     * Join an existing game lobby. The player may provide an optional UUID. If omitted, a new UUID is assigned.
      */
     path("lobby" / Segment / "join") { gameId =>
       post {
-        entity(as[Player]) { player =>
+        entity(as[IncomingPlayer]) { incoming =>
+          val player = incoming.toPlayer
           onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
             case joined: LobbyJoined => complete(joined)
             case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
