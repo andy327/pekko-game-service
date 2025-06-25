@@ -1,19 +1,26 @@
 package com.andy327.model.tictactoe
 
+import java.util.UUID
+
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.model.core.PlayerId
+
 class TicTacToeSpec extends AnyWordSpec with Matchers {
+  val alice: PlayerId = UUID.randomUUID()
+  val bob: PlayerId = UUID.randomUUID()
+
   "A TicTacToe game" should {
     "start with an empty board" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
       game.board.flatten.flatten shouldBe empty
       game.currentPlayer shouldBe X
       game.gameStatus shouldBe InProgress
     }
 
     "allow a player to make a move" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
       val result = game.play(X, Location(0, 0))
       result.isRight shouldBe true
       val newState = result.toOption.get
@@ -23,25 +30,25 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     }
 
     "not allow the wrong player to make a move" in {
-      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
+      val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
       val result = game.play(X, Location(0, 1))
       result shouldBe Left(GameError.InvalidTurn)
     }
 
     "not allow a move on an occupied space" in {
-      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
+      val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
       val result = game.play(O, Location(0, 0))
       result shouldBe Left(GameError.CellOccupied)
     }
 
     "not allow a move on an invalid cell" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
       val result = game.play(X, Location(0, 4))
       result shouldBe Left(GameError.OutOfBounds)
     }
 
     "detect a winning condition" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
         .play(X, Location(0, 0)).toOption.get
         .play(O, Location(1, 0)).toOption.get
         .play(X, Location(0, 1)).toOption.get
@@ -52,7 +59,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     }
 
     "detect a draw" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
         .play(X, Location(1, 1)).toOption.get
         .play(O, Location(0, 0)).toOption.get
         .play(X, Location(1, 0)).toOption.get
@@ -67,7 +74,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     }
 
     "not allow a move after the game is won" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
         .play(X, Location(0, 0)).toOption.get
         .play(O, Location(1, 0)).toOption.get
         .play(X, Location(0, 1)).toOption.get
@@ -80,7 +87,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     }
 
     "properly render a game board" in {
-      val game = TicTacToe.empty("alice", "bob")
+      val game = TicTacToe.empty(alice, bob)
         .play(X, Location(0, 0)).toOption.get
         .play(O, Location(1, 0)).toOption.get
         .play(X, Location(0, 1)).toOption.get

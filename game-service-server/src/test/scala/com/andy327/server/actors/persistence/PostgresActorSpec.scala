@@ -1,5 +1,7 @@
 package com.andy327.server.actors.persistence
 
+import java.util.UUID
+
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
@@ -8,7 +10,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 
@@ -34,7 +36,9 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
     override def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = throw loadError
   }
 
-  val freshGame: TicTacToe = TicTacToe.empty("alice", "bob")
+  val alice: PlayerId = UUID.randomUUID()
+  val bob: PlayerId = UUID.randomUUID()
+  val freshGame: TicTacToe = TicTacToe.empty(alice, bob)
 
   "PostgresActor" should {
     "reply with SnapshotLoaded on successful LoadSnapshot" in {

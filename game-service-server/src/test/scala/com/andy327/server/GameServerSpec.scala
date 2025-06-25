@@ -1,20 +1,26 @@
 package com.andy327.server
 
+import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model._
+import org.apache.pekko.http.scaladsl.unmarshalling.Unmarshal
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
+import spray.json._
 
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.persistence.db.GameRepository
+import com.andy327.server.actors.core.GameManager
+import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.lobby.Player
 
 class GameServerSpec extends AnyWordSpec with Matchers {
   implicit val timeout: Timeout = Timeout(5.seconds)
@@ -33,15 +39,43 @@ class GameServerSpec extends AnyWordSpec with Matchers {
       val actualPort = binding.localAddress.getPort
       implicit val classicSystem: ActorSystem = system.classicSystem
 
-      try {
-        val request = HttpRequest(
-          method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe?playerX=alice&playerO=bob"
-        )
-        val responseFuture: Future[HttpResponse] = Http()(classicSystem).singleRequest(request)
-        val response = Await.result(responseFuture, 5.seconds)
+      val player1 = Player("alice")
+      val player2 = Player("bob")
+      val player1Entity = HttpEntity(ContentTypes.`application/json`, player1.toJson.compactPrint)
+      val player2Entity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
+      val hostIdEntity = HttpEntity(ContentTypes.`application/json`, player1.id.toJson.compactPrint)
 
-        response.status shouldBe StatusCodes.OK
+      try {
+        // Create lobby with player 1
+        val createLobbyReq = HttpRequest(
+          method = HttpMethods.POST,
+          uri = s"http://localhost:${actualPort}/tictactoe/lobby",
+          entity = player1Entity
+        )
+        val createLobbyResp = Await.result(Http()(classicSystem).singleRequest(createLobbyReq), 2.seconds)
+        val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).gameId
+        createLobbyResp.status shouldBe StatusCodes.OK
+
+        // Join lobby with player 2
+        val joinLobbyReq = HttpRequest(
+          method = HttpMethods.POST,
+          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/join",
+          entity = player2Entity
+        )
+        val joinLobbyResp = Await.result(Http()(classicSystem).singleRequest(joinLobbyReq), 2.seconds)
+        joinLobbyResp.status shouldBe StatusCodes.OK
+
+        // Start the game from the lobby (initiated by the host)
+        val startGameReq = HttpRequest(
+          method = HttpMethods.POST,
+          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/start",
+          entity = hostIdEntity
+        )
+        val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
+        startResp.status shouldBe StatusCodes.OK
+
+        val startedGameId = Await.result(Unmarshal(startResp.entity).to[String], 2.seconds)
+        startedGameId shouldBe gameId
       } finally {
         Await.result(binding.unbind(), 5.seconds)
         system.terminate()

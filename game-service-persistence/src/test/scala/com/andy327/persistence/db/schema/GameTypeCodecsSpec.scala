@@ -1,15 +1,20 @@
 package com.andy327.persistence.db.schema
 
+import java.util.UUID
+
 import io.circe.parser._
 import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameType, PlayerId}
 import com.andy327.model.tictactoe.{Location, TicTacToe, X}
 
 class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
   import GameTypeCodecs._
+
+  val alice: PlayerId = UUID.randomUUID()
+  val bob: PlayerId = UUID.randomUUID()
 
   "GameTypeCodecs" should {
     "correctly encode and decode GameType.TicTacToe" in {
@@ -29,7 +34,7 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     }
 
     "deserialize a valid TicTacToe game from JSON" in {
-      val game = TicTacToe.empty("alice", "bob").play(X, Location(0, 0)).toOption.get
+      val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
       val json = game.asJson.noSpaces
       println(json)
 

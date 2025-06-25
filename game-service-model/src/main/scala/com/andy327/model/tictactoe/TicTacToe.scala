@@ -1,11 +1,11 @@
 package com.andy327.model.tictactoe
 
-import com.andy327.model.core.{Game, Renderable}
+import com.andy327.model.core.{Game, PlayerId, Renderable}
 
 import GameError._
 
 object TicTacToe {
-  def empty(playerX: String, playerO: String): TicTacToe = TicTacToe(
+  def empty(playerX: PlayerId, playerO: PlayerId): TicTacToe = TicTacToe(
     playerX = playerX,
     playerO = playerO,
     board = Vector.fill(3, 3)(Option.empty[Mark]),
@@ -30,8 +30,8 @@ object TicTacToe {
 }
 
 final case class TicTacToe(
-    playerX: String,
-    playerO: String,
+    playerX: PlayerId,
+    playerO: PlayerId,
     board: Board,
     currentPlayer: Mark,
     winner: Option[Mark],
