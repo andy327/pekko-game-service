@@ -8,6 +8,7 @@ import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model._
 import org.apache.pekko.http.scaladsl.unmarshalling.Unmarshal
 import org.apache.pekko.util.Timeout
@@ -17,6 +18,7 @@ import spray.json._
 
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.persistence.db.GameRepository
+import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.Player
 
@@ -50,7 +52,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
           entity = player1Entity
         )
         val createLobbyResp = Await.result(Http()(classicSystem).singleRequest(createLobbyReq), 2.seconds)
-        val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[String], 2.seconds)
+        val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).gameId
         createLobbyResp.status shouldBe StatusCodes.OK
 
         // Join lobby with player 2

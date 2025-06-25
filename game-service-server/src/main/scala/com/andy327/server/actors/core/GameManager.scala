@@ -40,8 +40,8 @@ object GameManager {
       extends Command
 
   sealed trait GameResponse
-  final case class LobbyCreated(gameId: String) extends GameResponse
-  final case class LobbyJoined(gameId: String, metadata: GameMetadata) extends GameResponse
+  final case class LobbyCreated(gameId: String, host: Player) extends GameResponse
+  final case class LobbyJoined(gameId: String, metadata: GameMetadata, joinedPlayer: Player) extends GameResponse
   final case class LobbyLeft(gameId: String, message: String) extends GameResponse
   final case class GameStarted(gameId: String) extends GameResponse
   final case class LobbiesListed(lobbies: List[GameMetadata]) extends GameResponse
@@ -127,7 +127,7 @@ object GameManager {
         case CreateLobby(gameType, host, replyTo) =>
           context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
           val lobby = GameMetadata.newLobby(gameType, host)
-          replyTo ! LobbyCreated(lobby.gameId)
+          replyTo ! LobbyCreated(lobby.gameId, host)
           running(lobbies + (lobby.gameId -> lobby), games, persistActor)
 
         case JoinLobby(gameId, player, replyTo) =>
@@ -147,7 +147,7 @@ object GameManager {
                   else GameLifecycleStatus.WaitingForPlayers
 
                 val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
-                replyTo ! LobbyJoined(gameId, updatedMetadata)
+                replyTo ! LobbyJoined(gameId, updatedMetadata, player)
                 running(lobbies + (gameId -> updatedMetadata), games, persistActor)
               }
 

@@ -158,7 +158,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -174,7 +174,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       gm ! GameManager.JoinLobby(gameId, alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
@@ -213,7 +213,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Alice creates the lobby
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
@@ -238,7 +238,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Alice creates the lobby
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
@@ -265,7 +265,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -288,7 +288,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -325,7 +325,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Game 1: InProgress
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId1) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId1, _) = responseProbe.receiveMessage()
       gm ! GameManager.JoinLobby(gameId1, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
       gm ! GameManager.StartGame(gameId1, alice, responseProbe.ref)
@@ -333,13 +333,13 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Game 2: ReadyToStart
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId2) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId2, _) = responseProbe.receiveMessage()
       gm ! GameManager.JoinLobby(gameId2, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Game 2: WaitingForPlayers
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId3) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId3, _) = responseProbe.receiveMessage()
 
       gm ! GameManager.ListLobbies(responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
@@ -357,7 +357,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
@@ -402,7 +402,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Alice creates the lobby
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
@@ -444,7 +444,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       // Bob joins
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)

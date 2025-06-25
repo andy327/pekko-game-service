@@ -25,7 +25,8 @@ import com.andy327.server.actors.core.GameManager.{
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{GameState, TicTacToeMove}
-import com.andy327.server.lobby.Player
+import com.andy327.server.lobby.IncomingPlayerOps._
+import com.andy327.server.lobby.{IncomingPlayer, Player}
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.
@@ -41,18 +42,19 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
 
     /**
      * @route POST /tictactoe/lobby
-     * @bodyParam Player JSON { "id": "UUID", "name": "alice" }
-     * @response 200 The ID of the created lobby as plain text
+     * @bodyParam Player JSON { "name": "alice" } or { "id": "uuid", "name": "alice" }
+     * @response 200 JSON { "gameId": "...", "player": { "id": "uuid", "name": "..." } }
      * @response 500 Unexpected response from GameManager
      *
      * Create a new game lobby.
      */
     path("lobby") {
       post {
-        entity(as[Player]) { player =>
+        entity(as[IncomingPlayer]) { incoming =>
+          val player = incoming.toPlayer
           onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateLobby(GameType.TicTacToe, player, replyTo))) {
-            case LobbyCreated(gameId) => complete(gameId)
-            case other                => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+            case created: LobbyCreated => complete(created)
+            case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
           }
         }
       }
@@ -71,9 +73,9 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
       post {
         entity(as[Player]) { player =>
           onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
-            case LobbyJoined(_, metadata) => complete(metadata)
-            case ErrorResponse(msg)       => complete(StatusCodes.BadRequest -> msg)
-            case other                    => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+            case joined: LobbyJoined => complete(joined)
+            case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
+            case other               => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
           }
         }
       }

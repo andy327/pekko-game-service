@@ -7,8 +7,8 @@ import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpRespo
 import spray.json._
 
 import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.GameManager.ErrorResponse
-import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
+import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined}
+import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, IncomingPlayer, Player}
 
 /**
  * Spray-Json protocol + Pekko marshalling helpers.
@@ -26,6 +26,8 @@ object JsonProtocol extends DefaultJsonProtocol {
       case other => deserializationError(s"Expected UUID string, got: $other")
     }
   }
+
+  implicit val incomingPlayerFormat: RootJsonFormat[IncomingPlayer] = jsonFormat2(IncomingPlayer.apply)
 
   implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
 
@@ -54,11 +56,15 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val gameMetadataFormat: RootJsonFormat[GameMetadata] = jsonFormat5(GameMetadata.apply)
 
-  implicit val moveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove)
+  implicit val lobbyCreatedFormat: RootJsonFormat[LobbyCreated] = jsonFormat2(LobbyCreated.apply)
+
+  implicit val lobbyJoinedFormat: RootJsonFormat[LobbyJoined] = jsonFormat3(LobbyJoined.apply)
+
+  implicit val moveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove.apply)
 
   implicit val statusFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 
-  implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse)
+  implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
 
   /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
   implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =
