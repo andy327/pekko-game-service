@@ -47,7 +47,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "join a lobby with a second player" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
@@ -63,19 +63,19 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "not allow too many players to join a lobby" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player(UUID.randomUUID(), "bob")
+      val player2 = Player("bob")
       val join1 = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", join1) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val player3 = Player(UUID.randomUUID(), "carl")
+      val player3 = Player("carl")
       val join2 = HttpEntity(ContentTypes.`application/json`, player3.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", join2) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
@@ -83,19 +83,19 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "start a game after a lobby has enough players" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player(UUID.randomUUID(), "bob")
+      val player2 = Player("bob")
       val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
+      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[String] shouldBe gameId
@@ -103,13 +103,13 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "reject starting a game with not enough players" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
+      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
         responseAs[String] should include("Only host can start, and game must be ready to start")
@@ -118,7 +118,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
     "list all lobbies" in {
       // Create a new lobby
-      val player = Player(UUID.randomUUID(), "alice")
+      val player = Player("alice")
       val requestEntity = HttpEntity(ContentTypes.`application/json`, player.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", requestEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
@@ -132,19 +132,19 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "submit a move to a valid game" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player(UUID.randomUUID(), "bob")
+      val player2 = Player("bob")
       val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
+      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
@@ -167,19 +167,19 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "fetch game status" in {
-      val host = Player(UUID.randomUUID(), "alice")
+      val host = Player("alice")
       val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
       val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player(UUID.randomUUID(), "bob")
+      val player2 = Player("bob")
       val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
+      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
       Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
@@ -212,7 +212,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       }
 
     "return 500 for unexpected responses" in {
-      val dummyId = Player(UUID.randomUUID(), "dummy")
+      val dummyId = Player("dummy")
       val dummyState = TicTacToeState(Vector(), "X", None, draw = false)
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
         case GameManager.CreateLobby(_, _, replyTo) =>
@@ -241,7 +241,9 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseSystem")
       val errorRoutes = new TicTacToeRoutes(dummySystem).routes
 
-      val playerJson = Player(UUID.randomUUID(), "alice").toJson.compactPrint
+      val player = Player("alice")
+      val hostIdJson = player.id.toJson.compactPrint
+      val playerJson = player.toJson.compactPrint
       val moveJson = TicTacToeMove(UUID.randomUUID(), 0, 0).toJson.compactPrint
 
       val requests = Table(
@@ -253,7 +255,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         ),
         (
           "POST /lobby/start",
-          Post("/tictactoe/lobby/fake-id/start").withEntity(ContentTypes.`application/json`, playerJson)
+          Post("/tictactoe/lobby/fake-id/start").withEntity(ContentTypes.`application/json`, hostIdJson)
         ),
         ("GET /lobbies", Get("/tictactoe/lobbies")),
         ("POST /move", Post("/tictactoe/fake-id/move").withEntity(ContentTypes.`application/json`, moveJson)),

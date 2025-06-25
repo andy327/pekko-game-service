@@ -10,7 +10,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameType, PlayerId}
 import com.andy327.model.tictactoe.{GameError, Location}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
@@ -25,8 +25,8 @@ import com.andy327.server.actors.core.GameManager.{
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{GameState, TicTacToeMove}
+import com.andy327.server.lobby.IncomingPlayer
 import com.andy327.server.lobby.IncomingPlayerOps._
-import com.andy327.server.lobby.{IncomingPlayer, Player}
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.
@@ -84,17 +84,17 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     /**
      * @route POST /tictactoe/lobby/{gameId}/start
      * @pathParam gameId The ID of the lobby to start
-     * @bodyParam Player JSON { "id": "UUID", "name": "alice" }
+     * @bodyParam PlayerId of the host
      * @response 200 The ID of the started game as plain text
      * @response 400 If the game cannot be started
      * @response 500 Unexpected response from GameManager
      *
-     * Start a game from a lobby as the host player.
+     * Start a game from a lobby as the host.
      */
     path("lobby" / Segment / "start") { gameId =>
       post {
-        entity(as[Player]) { player =>
-          onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player, replyTo))) {
+        entity(as[PlayerId]) { playerId =>
+          onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, playerId, replyTo))) {
             case GameStarted(id)        => complete(id)
             case ErrorResponse(message) => complete(StatusCodes.BadRequest -> message)
             case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -120,7 +120,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     /**
      * @route POST /tictactoe/{id}/move
      * @pathParam id The ID of the game to make a move in
-     * @bodyParam TicTacToeMove JSON { "player": { "id": "UUID", "name": "alice" }, "row": 0, "col": 1 }
+     * @bodyParam TicTacToeMove JSON { "playerId": "uuid", "row": 0, "col": 1 }
      * @response 200 Updated game state
      * @response 404 If the game is not found or move is invalid
      * @response 500 Unexpected response from GameManager

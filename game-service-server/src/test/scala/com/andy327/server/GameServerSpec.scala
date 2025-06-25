@@ -43,6 +43,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
       val player2 = Player("bob")
       val player1Entity = HttpEntity(ContentTypes.`application/json`, player1.toJson.compactPrint)
       val player2Entity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
+      val hostIdEntity = HttpEntity(ContentTypes.`application/json`, player1.id.toJson.compactPrint)
 
       try {
         // Create lobby with player 1
@@ -68,7 +69,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         val startGameReq = HttpRequest(
           method = HttpMethods.POST,
           uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/start",
-          entity = player1Entity
+          entity = hostIdEntity
         )
         val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
         startResp.status shouldBe StatusCodes.OK

@@ -8,7 +8,7 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameType, PlayerId}
 import com.andy327.model.tictactoe.{GameError, TicTacToe}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -29,7 +29,7 @@ object GameManager {
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class JoinLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class LeaveLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class StartGame(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class StartGame(gameId: String, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
   final case class GetLobbyMetadata(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
@@ -186,10 +186,9 @@ object GameManager {
               Behaviors.same
           }
 
-        case StartGame(gameId, player, replyTo) =>
+        case StartGame(gameId, playerId, replyTo) =>
           lobbies.get(gameId) match {
-            case Some(metadata)
-                if metadata.hostId == player.id && metadata.status == GameLifecycleStatus.ReadyToStart =>
+            case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
               val (game, behavior) = metadata.gameType match {
                 case GameType.TicTacToe =>
                   val players = metadata.players.keySet.toSeq
