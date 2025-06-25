@@ -49,6 +49,7 @@ object JsonProtocol extends DefaultJsonProtocol {
         case JsString("ReadyToStart")      => GameLifecycleStatus.ReadyToStart
         case JsString("InProgress")        => GameLifecycleStatus.InProgress
         case JsString("Completed")         => GameLifecycleStatus.Completed
+        case JsString("Cancelled")         => GameLifecycleStatus.Cancelled
         case JsString(other)               => deserializationError(s"Unknown GameLifecycleStatus: $other")
         case _                             => deserializationError("Expected GameLifecycleStatus as string")
       }
@@ -60,18 +61,18 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val lobbyJoinedFormat: RootJsonFormat[LobbyJoined] = jsonFormat3(LobbyJoined.apply)
 
-  implicit val moveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove.apply)
-
-  implicit val statusFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
-
   implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
+
+  implicit val ticTacToeMoveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove.apply)
+
+  implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 
   /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
   implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =
     Marshaller.withFixedContentType(MediaTypes.`application/json`) { gameState =>
       gameState match {
         case s: TicTacToeState =>
-          val json = statusFormat.write(s).compactPrint
+          val json = ticTacToeStateFormat.write(s).compactPrint
           HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
       }
     }
