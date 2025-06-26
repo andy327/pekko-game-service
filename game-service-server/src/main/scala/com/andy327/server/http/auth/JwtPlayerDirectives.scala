@@ -1,8 +1,6 @@
 package com.andy327.server.http.auth
 
-import java.util.UUID
-
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 import io.circe.parser.decode
 import org.apache.pekko.http.scaladsl.server.Directives._
@@ -47,9 +45,9 @@ object JwtPlayerDirectives {
             decode[UserContext](json.noSpaces) match {
               case Right(userContext) =>
                 // Parse the player id string into a UUID, then build a Player
-                Try(UUID.fromString(userContext.id)) match {
-                  case Success(uuid) => provide(Player(uuid, userContext.name))
-                  case Failure(_)    => reject(AuthorizationFailedRejection)
+                Player.fromJWT(userContext) match {
+                  case Right(player)   => provide(player)
+                  case Left(rejection) => reject(rejection)
                 }
               case Left(_) => reject(AuthorizationFailedRejection)
             }
