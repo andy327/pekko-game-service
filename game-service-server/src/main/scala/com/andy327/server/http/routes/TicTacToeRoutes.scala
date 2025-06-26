@@ -10,7 +10,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
-import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.{GameError, Location}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
@@ -23,16 +23,16 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyJoined
 }
 import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{GameState, TicTacToeMove}
-import com.andy327.server.lobby.IncomingPlayer
-import com.andy327.server.lobby.IncomingPlayerOps._
 
 /**
  * HTTP routes for managing Tic-Tac-Toe games.
  *
- * This class defines endpoints for creating/joining/listing lobbies, making moves, and querying game status.
- * Requests are forwarded to the GameManager actor, which handles routing to individual game actors.
+ * This class defines endpoints for creating/joining/listing lobbies, making moves, and querying game status. Requests
+ * are forwarded to the GameManager actor, which handles routing to individual game actors. Authentication is required
+ * for most operations (via JWT in the Authorization header).
  */
 class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
@@ -42,16 +42,15 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
 
     /**
      * @route POST /tictactoe/lobby
-     * @bodyParam Player JSON { "name": "alice" } or { "id": "uuid", "name": "alice" }
-     * @response 200 JSON { "gameId": "...", "player": { "id": "uuid", "name": "..." } }
+     * @auth Requires Bearer token
+     * @response 200 LobbyCreated { "gameId": "...", "player": { "id": "uuid", "name": "..." } }
      * @response 500 Unexpected response from GameManager
      *
-     * Create a new game lobby. The player may provide an optional UUID. If omitted, a new UUID is assigned.
+     * Creates a new game lobby for Tic-Tac-Toe using the authenticated player.
      */
     path("lobby") {
       post {
-        entity(as[IncomingPlayer]) { incoming =>
-          val player = incoming.toPlayer
+        authenticatePlayer { player =>
           onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateLobby(GameType.TicTacToe, player, replyTo))) {
             case created: LobbyCreated => complete(created)
             case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
@@ -61,18 +60,17 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     } ~
     /**
      * @route POST /tictactoe/lobby/{gameId}/join
+     * @auth Requires Bearer token
      * @pathParam gameId The ID of the lobby to join
-     * @bodyParam Player JSON { "name": "bob" } or { "id": "uuid", "name": "bob" }
-     * @response 200 LobbyJoined containing the joined game's metadata
+     * @response 200 LobbyJoined containing the joined lobby's metadata
      * @response 400 If the join request is invalid (e.g., lobby full, already joined, nonexistent)
      * @response 500 Unexpected response from GameManager
      *
-     * Join an existing game lobby. The player may provide an optional UUID. If omitted, a new UUID is assigned.
+     * Joins an existing Tic-Tac-Toe lobby using the authenticated player.
      */
     path("lobby" / Segment / "join") { gameId =>
       post {
-        entity(as[IncomingPlayer]) { incoming =>
-          val player = incoming.toPlayer
+        authenticatePlayer { player =>
           onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
             case joined: LobbyJoined => complete(joined)
             case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
@@ -83,18 +81,19 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     } ~
     /**
      * @route POST /tictactoe/lobby/{gameId}/start
+     * @auth Requires Bearer token
      * @pathParam gameId The ID of the lobby to start
      * @bodyParam PlayerId of the host
      * @response 200 The ID of the started game as plain text
      * @response 400 If the game cannot be started
      * @response 500 Unexpected response from GameManager
      *
-     * Start a game from a lobby as the host.
+     * Starts the game from the given lobby. Must be called by the host.
      */
     path("lobby" / Segment / "start") { gameId =>
       post {
-        entity(as[PlayerId]) { playerId =>
-          onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, playerId, replyTo))) {
+        authenticatePlayer { player =>
+          onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
             case GameStarted(id)        => complete(id)
             case ErrorResponse(message) => complete(StatusCodes.BadRequest -> message)
             case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -107,7 +106,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
      * @response 200 List of GameMetadata objects representing all open lobbies
      * @response 500 Unexpected response from GameManager
      *
-     * List all open lobbies.
+     * Lists all open Tic-Tac-Toe lobbies.
      */
     path("lobbies") {
       get {
@@ -119,27 +118,30 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
     } ~
     /**
      * @route POST /tictactoe/{id}/move
+     * @auth Requires Bearer token
      * @pathParam id The ID of the game to make a move in
-     * @bodyParam TicTacToeMove JSON { "playerId": "uuid", "row": 0, "col": 1 }
-     * @response 200 Updated game state
+     * @bodyParam TicTacToeMove JSON { "row": 0, "col": 1 }
+     * @response 200 Updated game state after the move is applied
      * @response 404 If the game is not found or move is invalid
      * @response 500 Unexpected response from GameManager
      *
-     * Submit a move for a player in a given game.
+     * Submits a move in the given game as the authenticated player.
      */
     path(Segment / "move") { gameId =>
       post {
-        entity(as[TicTacToeMove]) { case TicTacToeMove(player, row, col) =>
-          onSuccess(
-            system.ask[GameResponse] { replyTo =>
-              val dummyRef = system.ignoreRef[Either[GameError, GameState]]
-              val gameCmd = TicTacToeActor.MakeMove(player, Location(row, col), dummyRef)
-              GameManager.ForwardToGame(gameId, gameCmd, Some(replyTo))
+        authenticatePlayer { player =>
+          entity(as[TicTacToeMove]) { case TicTacToeMove(row, col) =>
+            onSuccess(
+              system.ask[GameResponse] { replyTo =>
+                val dummyRef = system.ignoreRef[Either[GameError, GameState]]
+                val gameCmd = TicTacToeActor.MakeMove(player.id, Location(row, col), dummyRef)
+                GameManager.ForwardToGame(gameId, gameCmd, Some(replyTo))
+              }
+            ) {
+              case GameStatus(state)    => complete(state)
+              case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+              case unknown              => complete(StatusCodes.InternalServerError, s"Unexpected response: $unknown")
             }
-          ) {
-            case GameStatus(state)    => complete(state)
-            case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
-            case unknown              => complete(StatusCodes.InternalServerError, s"Unexpected response: $unknown")
           }
         }
       }
@@ -151,7 +153,7 @@ class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
      * @response 404 If the game is not found
      * @response 500 Unexpected response from GameManager
      *
-     * Fetch the current state of the specified game.
+     * Fetches the current state of the specified game.
      */
     path(Segment / "status") { gameId =>
       get {

@@ -8,6 +8,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
+import org.apache.pekko.http.scaladsl.model.headers.RawHeader
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.apache.pekko.util.Timeout
@@ -16,12 +17,12 @@ import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 import spray.json._
 
-import com.andy327.model.core.PlayerId
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{TicTacToeMove, TicTacToeState}
-import com.andy327.server.lobby.{GameMetadata, IncomingPlayer, Player}
+import com.andy327.server.lobby.{GameMetadata, Player}
+import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   private val testKit = ActorTestKit()
@@ -34,83 +35,73 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
   private val routes = new TicTacToeRoutes(typedSystem).routes
 
+  val (aliceId, bobId, carlId) = (UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
+
+  val alicePlayer: Player = Player(aliceId, "alice")
+  val bobPlayer: Player = Player(bobId, "bob")
+  val carlPlayer: Player = Player(carlId, "carl")
+
+  val aliceHeader: RawHeader = RawHeader("Authorization", s"Bearer ${createTestToken(alicePlayer)}")
+  val bobHeader: RawHeader = RawHeader("Authorization", s"Bearer ${createTestToken(bobPlayer)}")
+  val carlHeader: RawHeader = RawHeader("Authorization", s"Bearer ${createTestToken(carlPlayer)}")
+
   "TicTacToeRoutes" should {
-    "create a new lobby" in {
-      val player = IncomingPlayer(None, "alice")
-      val requestEntity = HttpEntity(ContentTypes.`application/json`, player.toJson.compactPrint)
-      Post("/tictactoe/lobby", requestEntity) ~> routes ~> check {
+    "create a new lobby" in
+      Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val GameManager.LobbyCreated(gameId, host) = responseAs[GameManager.LobbyCreated]
         gameId.length should be > 0
         host.name shouldBe "alice"
+        host.id shouldBe aliceId
       }
-    }
 
     "join a lobby with a second player" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = IncomingPlayer(None, "bob")
-      val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val GameManager.LobbyJoined(_, metadata, joinedPlayer) = responseAs[GameManager.LobbyJoined]
-        metadata.players.values.toSet should contain only (host, joinedPlayer)
+        metadata.players.values.toSet should contain only (alicePlayer, joinedPlayer)
       }
     }
 
     "not allow too many players to join a lobby" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player("bob")
-      val join1 = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", join1) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val player3 = Player("carl")
-      val join2 = HttpEntity(ContentTypes.`application/json`, player3.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", join2) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(carlHeader) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
       }
     }
 
     "start a game after a lobby has enough players" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player("bob")
-      val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[String] shouldBe gameId
       }
     }
 
     "reject starting a game with not enough players" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
         responseAs[String] should include("Only host can start, and game must be ready to start")
       }
@@ -118,9 +109,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
     "list all lobbies" in {
       // Create a new lobby
-      val player = Player("alice")
-      val requestEntity = HttpEntity(ContentTypes.`application/json`, player.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", requestEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
@@ -132,26 +121,22 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "submit a move to a valid game" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player("bob")
-      val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val move = TicTacToeMove(host.id, 0, 0)
+      val move = TicTacToeMove(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
-      Post(s"/tictactoe/$gameId/move", moveEntity) ~> routes ~> check {
+
+      Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val gameState = responseAs[String].parseJson.convertTo[TicTacToeState]
         gameState.board(0)(0) shouldBe "X"
@@ -159,28 +144,23 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "fail to move in a nonexistent game" in {
-      val move = TicTacToeMove(UUID.randomUUID(), 0, 0)
+      val move = TicTacToeMove(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
-      Post(s"/tictactoe/nonexistent/move", moveEntity) ~> routes ~> check {
+      Post("/tictactoe/nonexistent/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.NotFound
       }
     }
 
     "fetch game status" in {
-      val host = Player("alice")
-      val hostEntity = HttpEntity(ContentTypes.`application/json`, host.toJson.compactPrint)
-      val gameId = Post("/tictactoe/lobby", hostEntity) ~> routes ~> check {
+      val gameId = Post("/tictactoe/lobby").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val player2 = Player("bob")
-      val joinEntity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/join", joinEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      val startEntity = HttpEntity(ContentTypes.`application/json`, host.id.toJson.compactPrint)
-      Post(s"/tictactoe/lobby/$gameId/start", startEntity) ~> routes ~> check {
+      Post(s"/tictactoe/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
@@ -197,11 +177,10 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       }
 
     "return 404 for invalid game ID on move" in {
-      val alice: PlayerId = UUID.randomUUID()
-      val move = TicTacToeMove(alice, 0, 0)
-      val moveJson = move.toJson.compactPrint
+      val move = TicTacToeMove(0, 0)
+      val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
 
-      Post("/tictactoe/invalid-game-id/move").withEntity(ContentTypes.`application/json`, moveJson) ~> routes ~> check {
+      Post("/tictactoe/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.NotFound
       }
     }
@@ -212,7 +191,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       }
 
     "return 500 for unexpected responses" in {
-      val dummyId = Player("dummy")
+      val dummy = Player("dummy")
       val dummyState = TicTacToeState(Vector(), "X", None, draw = false)
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
         case GameManager.CreateLobby(_, _, replyTo) =>
@@ -220,7 +199,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
           Behaviors.same
 
         case GameManager.JoinLobby(_, _, replyTo) =>
-          replyTo ! GameManager.LobbyCreated("unexpected", dummyId) // triggers /join fallback
+          replyTo ! GameManager.LobbyCreated("unexpected", dummy) // triggers /join fallback
           Behaviors.same
 
         case GameManager.StartGame(_, _, replyTo) =>
@@ -232,7 +211,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
           Behaviors.same
 
         case GameManager.ForwardToGame(_, _, Some(replyTo)) =>
-          replyTo ! GameManager.LobbyCreated("unexpected", dummyId) // triggers /move + /status fallback
+          replyTo ! GameManager.LobbyCreated("unexpected", dummy) // triggers /move + /status fallback
           Behaviors.same
 
         case _ => Behaviors.same
@@ -241,24 +220,16 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseSystem")
       val errorRoutes = new TicTacToeRoutes(dummySystem).routes
 
-      val player = Player("alice")
-      val hostIdJson = player.id.toJson.compactPrint
-      val playerJson = player.toJson.compactPrint
-      val moveJson = TicTacToeMove(UUID.randomUUID(), 0, 0).toJson.compactPrint
+      val move = TicTacToeMove(0, 0)
+      val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
 
       val requests = Table(
         ("description", "request"),
-        ("POST /lobby", Post("/tictactoe/lobby").withEntity(ContentTypes.`application/json`, playerJson)),
-        (
-          "POST /lobby/join",
-          Post("/tictactoe/lobby/fake-id/join").withEntity(ContentTypes.`application/json`, playerJson)
-        ),
-        (
-          "POST /lobby/start",
-          Post("/tictactoe/lobby/fake-id/start").withEntity(ContentTypes.`application/json`, hostIdJson)
-        ),
+        ("POST /lobby", Post("/tictactoe/lobby").withHeaders(aliceHeader)),
+        ("POST /lobby/join", Post("/tictactoe/lobby/fake-id/join").withHeaders(aliceHeader)),
+        ("POST /lobby/start", Post("/tictactoe/lobby/fake-id/start").withHeaders(aliceHeader)),
         ("GET /lobbies", Get("/tictactoe/lobbies")),
-        ("POST /move", Post("/tictactoe/fake-id/move").withEntity(ContentTypes.`application/json`, moveJson)),
+        ("POST /move", Post("/tictactoe/fake-id/move", moveEntity).withHeaders(aliceHeader)),
         ("GET /status", Get("/tictactoe/fake-id/status"))
       )
 

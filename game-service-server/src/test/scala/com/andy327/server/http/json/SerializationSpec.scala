@@ -39,20 +39,6 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "IncomingPlayer JSON format" should {
-    "round-trip with id" in {
-      val incoming = IncomingPlayer(Some(UUID.randomUUID()), "sam")
-      val json = incoming.toJson
-      json.convertTo[IncomingPlayer] shouldBe incoming
-    }
-
-    "round-trip without id" in {
-      val incoming = IncomingPlayer(None, "guest")
-      val json = incoming.toJson
-      json.convertTo[IncomingPlayer] shouldBe incoming
-    }
-  }
-
   "Player JSON format" should {
     "round-trip serialize and deserialize" in {
       val player = Player(UUID.randomUUID(), "bob")
@@ -166,7 +152,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "TicTacToeMove JSON format" should {
     "round-trip serialize and deserialize" in {
-      val move = TicTacToeMove(UUID.randomUUID(), row = 1, col = 2)
+      val move = TicTacToeMove(row = 1, col = 2)
       val json = move.toJson
       json.convertTo[TicTacToeMove] shouldBe move
     }

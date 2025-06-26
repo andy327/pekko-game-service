@@ -8,7 +8,7 @@ import spray.json._
 
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined}
-import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, IncomingPlayer, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
 
 /**
  * Spray-Json protocol + Pekko marshalling helpers.
@@ -26,8 +26,6 @@ object JsonProtocol extends DefaultJsonProtocol {
       case other => deserializationError(s"Expected UUID string, got: $other")
     }
   }
-
-  implicit val incomingPlayerFormat: RootJsonFormat[IncomingPlayer] = jsonFormat2(IncomingPlayer.apply)
 
   implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
 
@@ -63,7 +61,7 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
 
-  implicit val ticTacToeMoveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat3(TicTacToeMove.apply)
+  implicit val ticTacToeMoveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat2(TicTacToeMove.apply)
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 
