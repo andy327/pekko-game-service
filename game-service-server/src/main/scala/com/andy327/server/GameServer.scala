@@ -20,7 +20,7 @@ import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
-import com.andy327.server.http.routes.{AuthRoutes, TicTacToeRoutes}
+import com.andy327.server.http.routes.{AuthRoutes, LobbyRoutes, TicTacToeRoutes}
 
 /**
  * GameServer is the main entry point of the game-service.
@@ -76,6 +76,7 @@ object GameServer {
     // HTTP routes
     val routes = concat(
       new AuthRoutes().routes,
+      new LobbyRoutes(system).routes,
       new TicTacToeRoutes(system).routes
     )
 

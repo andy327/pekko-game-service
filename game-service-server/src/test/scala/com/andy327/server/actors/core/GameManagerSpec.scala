@@ -129,8 +129,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val response = responseProbe.expectMessageType[GameManager.LobbyCreated]
       assert(response.gameId.nonEmpty)
 
-      gm ! GameManager.GetLobbyMetadata(response.gameId, responseProbe.ref)
-      val GameManager.LobbyMetadata(metadata) = responseProbe.expectMessageType[GameManager.LobbyMetadata]
+      gm ! GameManager.GetLobbyInfo(response.gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
 
       metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
     }
@@ -143,7 +143,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GetLobbyMetadata("nonexistent", responseProbe.ref)
+      gm ! GameManager.GetLobbyInfo("nonexistent", responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game with gameId: nonexistent")
     }
@@ -180,8 +180,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("already in game")
 
-      gm ! GameManager.GetLobbyMetadata(gameId, responseProbe.ref)
-      val GameManager.LobbyMetadata(metadata) = responseProbe.expectMessageType[GameManager.LobbyMetadata]
+      gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
 
       metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
     }
@@ -368,8 +368,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       // game actor sends a GameCompleted message to the GameManager
       gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
 
-      gm ! GameManager.GetLobbyMetadata(gameId, responseProbe.ref)
-      val GameManager.LobbyMetadata(metadata) = responseProbe.expectMessageType[GameManager.LobbyMetadata]
+      gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
       metadata.status shouldBe GameLifecycleStatus.Completed
     }
 

@@ -98,11 +98,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "GameMetadata JSON format" should {
+  "LobbyMetadata JSON format" should {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
-      val metadata = GameMetadata(
+      val metadata = LobbyMetadata(
         gameId = "game-id",
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host, joiner.id -> joiner),
@@ -110,7 +110,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         status = GameLifecycleStatus.ReadyToStart
       )
       val json = metadata.toJson
-      json.convertTo[GameMetadata] shouldBe metadata
+      json.convertTo[LobbyMetadata] shouldBe metadata
     }
   }
 
@@ -128,7 +128,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val joiner = Player("guest")
       val lobby = LobbyJoined(
         gameId = "game-id",
-        metadata = GameMetadata(
+        metadata = LobbyMetadata(
           gameId = "game-id",
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),

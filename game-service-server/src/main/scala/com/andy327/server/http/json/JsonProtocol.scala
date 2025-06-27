@@ -9,7 +9,7 @@ import spray.json._
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined}
 import com.andy327.server.http.auth.PlayerRequest
-import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
 /**
  * Spray-Json protocol + Pekko marshalling helpers.
@@ -56,7 +56,7 @@ object JsonProtocol extends DefaultJsonProtocol {
       }
     }
 
-  implicit val gameMetadataFormat: RootJsonFormat[GameMetadata] = jsonFormat5(GameMetadata.apply)
+  implicit val lobbyMetadataFormat: RootJsonFormat[LobbyMetadata] = jsonFormat5(LobbyMetadata.apply)
 
   implicit val lobbyCreatedFormat: RootJsonFormat[LobbyCreated] = jsonFormat2(LobbyCreated.apply)
 

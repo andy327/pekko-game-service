@@ -14,7 +14,7 @@ import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.http.json.GameState
-import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
 /**
  * A supervisor actor that handles creating and monitoring one child actor per game, provides an API for creating games
@@ -31,7 +31,7 @@ object GameManager {
   final case class LeaveLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class StartGame(gameId: String, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
-  final case class GetLobbyMetadata(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
+  final case class GetLobbyInfo(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
 
   final case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
@@ -41,16 +41,16 @@ object GameManager {
 
   sealed trait GameResponse
   final case class LobbyCreated(gameId: String, host: Player) extends GameResponse
-  final case class LobbyJoined(gameId: String, metadata: GameMetadata, joinedPlayer: Player) extends GameResponse
+  final case class LobbyJoined(gameId: String, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
   final case class LobbyLeft(gameId: String, message: String) extends GameResponse
   final case class GameStarted(gameId: String) extends GameResponse
-  final case class LobbiesListed(lobbies: List[GameMetadata]) extends GameResponse
-  final case class LobbyMetadata(metadata: GameMetadata) extends GameResponse
+  final case class LobbiesListed(lobbies: List[LobbyMetadata]) extends GameResponse
+  final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
   final case class ErrorResponse(message: String) extends GameResponse
 
   /** Emitted once when the DB restore is complete. */
-  case object Ready
+  case object Ready extends GameResponse
 
   /** Factory used from GameServer */
   @annotation.nowarn("msg=match may not be exhaustive")
@@ -118,7 +118,7 @@ object GameManager {
     * Accepts new game creation and forwards commands to existing game actors.
     */
   private def running(
-      lobbies: Map[String, GameMetadata],
+      lobbies: Map[String, LobbyMetadata],
       games: Map[String, ActorRef[GameActor.GameCommand]],
       persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
@@ -126,14 +126,13 @@ object GameManager {
       Behaviors.receiveMessage {
         case CreateLobby(gameType, host, replyTo) =>
           context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
-          val lobby = GameMetadata.newLobby(gameType, host)
+          val lobby = LobbyMetadata.newLobby(gameType, host)
           replyTo ! LobbyCreated(lobby.gameId, host)
           running(lobbies + (lobby.gameId -> lobby), games, persistActor)
 
         case JoinLobby(gameId, player, replyTo) =>
           lobbies.get(gameId) match {
-            case Some(metadata)
-                if metadata.status == GameLifecycleStatus.WaitingForPlayers || metadata.status == GameLifecycleStatus.ReadyToStart =>
+            case Some(metadata) if metadata.status.isJoinable =>
               if (metadata.players.contains(player.id)) {
                 replyTo ! ErrorResponse("Player already in game")
                 Behaviors.same
@@ -230,10 +229,10 @@ object GameManager {
           replyTo ! LobbiesListed(activeLobbies)
           Behaviors.same
 
-        case GetLobbyMetadata(gameId, replyTo) =>
+        case GetLobbyInfo(gameId, replyTo) =>
           context.log.info(s"Getting lobby metadata for game $gameId")
           lobbies.get(gameId) match {
-            case Some(metadata) => replyTo ! LobbyMetadata(metadata)
+            case Some(metadata) => replyTo ! LobbyInfo(metadata)
             case None           => replyTo ! ErrorResponse(s"No game with gameId: $gameId")
           }
           Behaviors.same

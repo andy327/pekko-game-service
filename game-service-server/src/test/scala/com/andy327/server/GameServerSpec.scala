@@ -50,7 +50,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         // Create lobby with player 1
         val createLobbyReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby"
+          uri = s"http://localhost:${actualPort}/lobby/create/tictactoe"
         ).withHeaders(player1Header)
         val createLobbyResp = Await.result(Http()(classicSystem).singleRequest(createLobbyReq), 2.seconds)
         val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).gameId
@@ -59,7 +59,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         // Join lobby with player 2
         val joinLobbyReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/join"
+          uri = s"http://localhost:${actualPort}/lobby/${gameId}/join"
         ).withHeaders(player2Header)
         val joinLobbyResp = Await.result(Http()(classicSystem).singleRequest(joinLobbyReq), 2.seconds)
         joinLobbyResp.status shouldBe StatusCodes.OK
@@ -67,7 +67,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         // Start the game from the lobby (initiated by the host)
         val startGameReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/start"
+          uri = s"http://localhost:${actualPort}/lobby/${gameId}/start"
         ).withHeaders(player1Header)
         val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
         startResp.status shouldBe StatusCodes.OK
