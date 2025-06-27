@@ -24,6 +24,10 @@ import com.andy327.server.http.json.{GameState, TicTacToeMove}
  * This class defines endpoints for making moves and querying game status. Requests are forwarded to the GameManager
  * actor, which handles routing to individual game actors. Authentication is required for most operations (via JWT in
  * the Authorization header).
+ *
+ * Route Summary:
+ * - POST   /tictactoe/{gameId}/move    - Submit a move to the specified game
+ * - GET    /tictactoe/{gameId}/status  - Fetch the current state of a game
  */
 class TicTacToeRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds

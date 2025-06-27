@@ -23,7 +23,18 @@ import com.andy327.server.actors.core.GameManager.{
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
 
-// TODO: depend on a new LobbyManager actor instead of GameManager
+/**
+ * LobbyRoutes defines the HTTP routes for interacting with multiplayer game lobbies.
+ *
+ * These routes handle the creation, joining, and starting of game lobbies, as well as listing open lobbies. All actions
+ * that modify lobby state require player authentication.
+ *
+ * Route Summary:
+ * - POST   /lobby/create/{gameType}  - Create a new lobby for a specific game type
+ * - POST   /lobby/{gameId}/join      - Join an existing lobby
+ * - POST   /lobby/{gameId}/start     - Start a game from a lobby (host only)
+ * - GET    /lobby/list               - List all available open lobbies
+ */
 class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
