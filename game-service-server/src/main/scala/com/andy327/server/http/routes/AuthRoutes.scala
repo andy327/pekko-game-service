@@ -17,6 +17,15 @@ import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.Player
 
+/**
+ * Defines the HTTP route for authentication and token generation.
+ *
+ * This route allows clients to submit a `PlayerRequest` containing a name and an optional UUID. If a valid UUID is
+ * provided, it is used as the player's ID. If omitted, a new random UUID is generated.
+ *
+ * The resulting Player object is encoded as a `UserContext` and used to generate a JWT token signed with the
+ * application's secret key.
+ */
 class AuthRoutes {
   val routes: Route = pathPrefix("auth") {
     path("token") {
