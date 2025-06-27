@@ -8,6 +8,7 @@ import spray.json._
 
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined}
+import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, GameMetadata, Player}
 
 /**
@@ -26,6 +27,8 @@ object JsonProtocol extends DefaultJsonProtocol {
       case other => deserializationError(s"Expected UUID string, got: $other")
     }
   }
+
+  implicit val playerRequestFormat: RootJsonFormat[PlayerRequest] = jsonFormat2(PlayerRequest.apply)
 
   implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
 
