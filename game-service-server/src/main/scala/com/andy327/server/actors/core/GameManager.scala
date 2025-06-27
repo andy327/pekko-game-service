@@ -223,9 +223,7 @@ object GameManager {
 
         case ListLobbies(replyTo) =>
           context.log.info("Listing available lobbies")
-          val activeLobbies = lobbies.values.filter { m =>
-            m.status == GameLifecycleStatus.WaitingForPlayers || m.status == GameLifecycleStatus.ReadyToStart
-          }.toList
+          val activeLobbies = lobbies.values.filter(_.status.isJoinable).toList
           replyTo ! LobbiesListed(activeLobbies)
           Behaviors.same
 
@@ -240,9 +238,17 @@ object GameManager {
         case GameCompleted(gameId, result) =>
           lobbies.get(gameId) match {
             case Some(metadata) =>
-              val updated = metadata.copy(status = result)
+              val updatedMetadata = metadata.copy(status = result)
               context.log.info(s"Marking game $gameId as completed with result $result")
-              running(lobbies + (gameId -> updated), games, persistActor)
+
+              // Stop the game actor if it exists
+              games.get(gameId).foreach(context.stop)
+
+              // Remove the game actor reference
+              val updatedGames = games - gameId
+
+              running(lobbies + (gameId -> updatedMetadata), updatedGames, persistActor)
+
             case None =>
               context.log.warn(s"Tried to complete unknown game: $gameId")
               Behaviors.same
