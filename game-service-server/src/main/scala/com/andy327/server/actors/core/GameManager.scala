@@ -241,13 +241,15 @@ object GameManager {
               val updatedMetadata = metadata.copy(status = result)
               context.log.info(s"Marking game $gameId as completed with result $result")
 
+              // TODO: Find a way to spin down actors, but still make their game state available for /status lookups
+
               // Stop the game actor if it exists
-              games.get(gameId).foreach(context.stop)
+              // games.get(gameId).foreach(context.stop)
 
               // Remove the game actor reference
-              val updatedGames = games - gameId
+              // val updatedGames = games - gameId
 
-              running(lobbies + (gameId -> updatedMetadata), updatedGames, persistActor)
+              running(lobbies + (gameId -> updatedMetadata), games, persistActor)
 
             case None =>
               context.log.warn(s"Tried to complete unknown game: $gameId")
