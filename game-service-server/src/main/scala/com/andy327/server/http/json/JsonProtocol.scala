@@ -64,7 +64,10 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
 
-  implicit val ticTacToeMoveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat2(TicTacToeMove.apply)
+  // Tic-tac-toe
+
+  implicit val ticTacToeMoveRequestFormat: RootJsonFormat[TicTacToeMoveRequest] =
+    jsonFormat2(TicTacToeMoveRequest.apply)
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 

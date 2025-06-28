@@ -150,11 +150,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "TicTacToeMove JSON format" should {
+  "TicTacToeMoveRequest JSON format" should {
     "round-trip serialize and deserialize" in {
-      val move = TicTacToeMove(row = 1, col = 2)
+      val move = TicTacToeMoveRequest(row = 1, col = 2)
       val json = move.toJson
-      json.convertTo[TicTacToeMove] shouldBe move
+      json.convertTo[TicTacToeMoveRequest] shouldBe move
     }
   }
 

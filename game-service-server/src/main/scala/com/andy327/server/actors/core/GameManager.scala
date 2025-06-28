@@ -9,10 +9,11 @@ import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, TicTacToe}
+import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -34,7 +35,7 @@ object GameManager {
   final case class GetLobbyInfo(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
 
-  final case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
+  final case class RunGameOperation(gameId: String, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
   final protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
@@ -256,29 +257,26 @@ object GameManager {
               Behaviors.same
           }
 
-        case ForwardToGame(gameId, msg, replyToOpt) =>
+        case RunGameOperation(gameId, op, replyTo) =>
           games.get(gameId) match {
             case Some(gameActor) =>
-              replyToOpt.foreach { replyTo =>
-                // TODO: push this reply adapter up to the caller and remove specific message-handling from here
-                val adaptedRef: ActorRef[Either[GameError, GameState]] =
-                  context.messageAdapter { response =>
-                    WrappedGameResponse(response, replyTo)
-                  }
+              val adaptedRef: ActorRef[Either[GameError, GameState]] =
+                context.messageAdapter(response => WrappedGameResponse(response, replyTo))
 
-                val actualCommand = msg match {
-                  case TicTacToeActor.MakeMove(p, l, _) =>
-                    TicTacToeActor.MakeMove(p, l, adaptedRef)
-                  case TicTacToeActor.GetState(_) =>
-                    TicTacToeActor.GetState(adaptedRef)
-                }
+              val command = op match {
+                case GameOperation.MakeMove(playerId, move: MovePayload.TicTacToeMove) =>
+                  TicTacToeActor.MakeMove(playerId, Location(move.row, move.col), adaptedRef)
 
-                gameActor ! actualCommand
+                case GameOperation.GetState =>
+                  TicTacToeActor.GetState(adaptedRef)
+
+                // TODO: make this more generic to GameType
               }
 
+              gameActor ! command
             case None =>
-              context.log.warn(s"No game found with gameId $gameId to forward message $msg")
-              replyToOpt.foreach(_ ! ErrorResponse(s"No game found with gameId $gameId"))
+              context.log.warn(s"No game found with gameId $gameId to forward operation $op")
+              replyTo ! ErrorResponse(s"No game found with gameId $gameId")
           }
           Behaviors.same
 

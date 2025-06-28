@@ -12,12 +12,12 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
+import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.game.{GameOperation, MovePayload}
+import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
-import com.andy327.server.http.json.{GameState, GameStateConverters}
 import com.andy327.server.lobby.{GameLifecycleStatus, Player}
 
 /** In-memory GameRepository for unit tests */
@@ -91,10 +91,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
-      val gameStateProbe = TestProbe[Either[GameError, GameState]]()
+      // val gameStateProbe = TestProbe[Either[GameError, GameState]]()
       val gameResponseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.ForwardToGame(gameId, TicTacToeActor.GetState(gameStateProbe.ref), Some(gameResponseProbe.ref))
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, gameResponseProbe.ref)
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
       response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
     }
@@ -453,11 +453,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
-      // Set up probe to receive the intermediate GameActor response
-      val intermediateProbe = TestProbe[Either[GameError, GameState]]()
-
-      val invalidCommand = TicTacToeActor.MakeMove(alice.id, Location(99, 99), intermediateProbe.ref)
-      gm ! GameManager.ForwardToGame(gameId, invalidCommand, Some(responseProbe.ref))
+      val invalidMove = MovePayload.TicTacToeMove(99, 99)
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.MakeMove(alice.id, invalidMove), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("out of bounds")
@@ -466,11 +463,14 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "return an error when forwarding to a nonexistent game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
+      val alice = Player("alice")
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ForwardToGame("nonexistent", "noop-msg", Some(responseProbe.ref))
+
+      val move = MovePayload.TicTacToeMove(0, 0)
+      gm ! GameManager.RunGameOperation("nonexistent", GameOperation.MakeMove(alice.id, move), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game found with gameId")

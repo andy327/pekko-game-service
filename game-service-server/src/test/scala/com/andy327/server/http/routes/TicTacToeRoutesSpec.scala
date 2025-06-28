@@ -21,7 +21,7 @@ import spray.json._
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.http.json.{TicTacToeMove, TicTacToeState}
+import com.andy327.server.http.json.{TicTacToeMoveRequest, TicTacToeState}
 import com.andy327.server.lobby.Player
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
@@ -62,7 +62,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         status shouldBe StatusCodes.OK
       }
 
-      val move = TicTacToeMove(0, 0)
+      val move = TicTacToeMoveRequest(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
 
       Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
@@ -73,7 +73,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
     }
 
     "fail to move in a nonexistent game" in {
-      val move = TicTacToeMove(0, 0)
+      val move = TicTacToeMoveRequest(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
       Post("/tictactoe/nonexistent/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.NotFound
@@ -106,7 +106,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       }
 
     "return 404 for invalid game ID on move" in {
-      val move = TicTacToeMove(0, 0)
+      val move = TicTacToeMoveRequest(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
 
       Post("/tictactoe/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
@@ -121,7 +121,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
     "return 500 for unexpected responses" in {
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
-        case GameManager.ForwardToGame(_, _, Some(replyTo)) =>
+        case GameManager.RunGameOperation(_, _, replyTo) =>
           replyTo ! GameManager.Ready // triggers /move + /status fallback
           Behaviors.same
 
@@ -131,7 +131,7 @@ class TicTacToeRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseSystem")
       val errorRoutes = new TicTacToeRoutes(dummySystem).routes
 
-      val move = TicTacToeMove(0, 0)
+      val move = TicTacToeMoveRequest(0, 0)
       val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
 
       val requests = Table(
