@@ -118,6 +118,12 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
+    "return 400 when trying to create a lobby with an invalid game type" in
+      Post("/lobby/create/unknowngame").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Invalid game type")
+      }
+
     "return 500 for unexpected responses" in {
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
         case GameManager.CreateLobby(_, _, replyTo) =>
