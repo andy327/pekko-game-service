@@ -4,15 +4,15 @@ import java.util.UUID
 
 import com.andy327.model.core.GameType
 
-object GameMetadata {
-  def newLobby(gameType: GameType, host: Player): GameMetadata = {
+object LobbyMetadata {
+  def newLobby(gameType: GameType, host: Player): LobbyMetadata = {
     val gameId = UUID.randomUUID().toString
     val players = Map(host.id -> host)
-    GameMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers)
+    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers)
   }
 }
 
-case class GameMetadata(
+case class LobbyMetadata(
     gameId: String,
     gameType: GameType,
     players: Map[UUID, Player], // includes the host

@@ -39,20 +39,6 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "IncomingPlayer JSON format" should {
-    "round-trip with id" in {
-      val incoming = IncomingPlayer(Some(UUID.randomUUID()), "sam")
-      val json = incoming.toJson
-      json.convertTo[IncomingPlayer] shouldBe incoming
-    }
-
-    "round-trip without id" in {
-      val incoming = IncomingPlayer(None, "guest")
-      val json = incoming.toJson
-      json.convertTo[IncomingPlayer] shouldBe incoming
-    }
-  }
-
   "Player JSON format" should {
     "round-trip serialize and deserialize" in {
       val player = Player(UUID.randomUUID(), "bob")
@@ -112,11 +98,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "GameMetadata JSON format" should {
+  "LobbyMetadata JSON format" should {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
-      val metadata = GameMetadata(
+      val metadata = LobbyMetadata(
         gameId = "game-id",
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host, joiner.id -> joiner),
@@ -124,7 +110,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         status = GameLifecycleStatus.ReadyToStart
       )
       val json = metadata.toJson
-      json.convertTo[GameMetadata] shouldBe metadata
+      json.convertTo[LobbyMetadata] shouldBe metadata
     }
   }
 
@@ -142,7 +128,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val joiner = Player("guest")
       val lobby = LobbyJoined(
         gameId = "game-id",
-        metadata = GameMetadata(
+        metadata = LobbyMetadata(
           gameId = "game-id",
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),
@@ -166,7 +152,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "TicTacToeMove JSON format" should {
     "round-trip serialize and deserialize" in {
-      val move = TicTacToeMove(UUID.randomUUID(), row = 1, col = 2)
+      val move = TicTacToeMove(row = 1, col = 2)
       val json = move.toJson
       json.convertTo[TicTacToeMove] shouldBe move
     }

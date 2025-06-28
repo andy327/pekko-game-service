@@ -10,17 +10,18 @@ import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model._
+import org.apache.pekko.http.scaladsl.model.headers.RawHeader
 import org.apache.pekko.http.scaladsl.unmarshalling.Unmarshal
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import spray.json._
 
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.Player
+import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class GameServerSpec extends AnyWordSpec with Matchers {
   implicit val timeout: Timeout = Timeout(5.seconds)
@@ -41,17 +42,16 @@ class GameServerSpec extends AnyWordSpec with Matchers {
 
       val player1 = Player("alice")
       val player2 = Player("bob")
-      val player1Entity = HttpEntity(ContentTypes.`application/json`, player1.toJson.compactPrint)
-      val player2Entity = HttpEntity(ContentTypes.`application/json`, player2.toJson.compactPrint)
-      val hostIdEntity = HttpEntity(ContentTypes.`application/json`, player1.id.toJson.compactPrint)
+
+      val player1Header = RawHeader("Authorization", s"Bearer ${createTestToken(player1)}")
+      val player2Header = RawHeader("Authorization", s"Bearer ${createTestToken(player2)}")
 
       try {
         // Create lobby with player 1
         val createLobbyReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby",
-          entity = player1Entity
-        )
+          uri = s"http://localhost:${actualPort}/lobby/create/tictactoe"
+        ).withHeaders(player1Header)
         val createLobbyResp = Await.result(Http()(classicSystem).singleRequest(createLobbyReq), 2.seconds)
         val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).gameId
         createLobbyResp.status shouldBe StatusCodes.OK
@@ -59,18 +59,16 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         // Join lobby with player 2
         val joinLobbyReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/join",
-          entity = player2Entity
-        )
+          uri = s"http://localhost:${actualPort}/lobby/${gameId}/join"
+        ).withHeaders(player2Header)
         val joinLobbyResp = Await.result(Http()(classicSystem).singleRequest(joinLobbyReq), 2.seconds)
         joinLobbyResp.status shouldBe StatusCodes.OK
 
         // Start the game from the lobby (initiated by the host)
         val startGameReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:${actualPort}/tictactoe/lobby/${gameId}/start",
-          entity = hostIdEntity
-        )
+          uri = s"http://localhost:${actualPort}/lobby/${gameId}/start"
+        ).withHeaders(player1Header)
         val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
         startResp.status shouldBe StatusCodes.OK
 
