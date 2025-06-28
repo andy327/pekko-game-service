@@ -103,7 +103,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
                   case Won(_) | Draw =>
                     context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
                     gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-                    Behaviors.stopped
+                    active(nextState, gameId, persist, gameManager)
 
                   case InProgress =>
                     active(nextState, gameId, persist, gameManager)
