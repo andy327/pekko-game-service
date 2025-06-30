@@ -8,12 +8,12 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
+import com.andy327.model.core.{Game, GameError, GameType, PlayerId}
+import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.game.{GameOperation, MovePayload}
+import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -98,7 +98,7 @@ object GameManager {
                 s"game-$gameId"
               ).unsafeUpcast[GameActor.GameCommand]
           }
-          gameId -> gameActor
+          gameId -> (gameType, gameActor)
         }
         context.log.info(s"Initialized ${games.size} game actors from snapshots")
 
@@ -120,7 +120,7 @@ object GameManager {
     */
   private def running(
       lobbies: Map[String, LobbyMetadata],
-      games: Map[String, ActorRef[GameActor.GameCommand]],
+      games: Map[String, (GameType, ActorRef[GameActor.GameCommand])],
       persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
@@ -209,7 +209,7 @@ object GameManager {
 
               running(
                 lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
-                games + (gameId -> actor),
+                games + (gameId -> (metadata.gameType, actor)),
                 persistActor
               )
 
@@ -259,21 +259,21 @@ object GameManager {
 
         case RunGameOperation(gameId, op, replyTo) =>
           games.get(gameId) match {
-            case Some(gameActor) =>
+            case Some((gameType, gameActor)) =>
               val adaptedRef: ActorRef[Either[GameError, GameState]] =
                 context.messageAdapter(response => WrappedGameResponse(response, replyTo))
 
-              val command = op match {
-                case GameOperation.MakeMove(playerId, move: MovePayload.TicTacToeMove) =>
-                  TicTacToeActor.MakeMove(playerId, Location(move.row, move.col), adaptedRef)
-
-                case GameOperation.GetState =>
-                  TicTacToeActor.GetState(adaptedRef)
-
-                // TODO: make this more generic to GameType
+              GameRegistry.forType(gameType) match {
+                case Some(module) =>
+                  module.toGameCommand(op, adaptedRef) match {
+                    case Right(cmd) => gameActor ! cmd
+                    case Left(err)  => replyTo ! ErrorResponse(err.message)
+                  }
+                case None =>
+                  context.log.warn(s"No GameModule registered for type: $gameType")
+                  replyTo ! ErrorResponse(s"Unsupported game type: $gameType")
               }
 
-              gameActor ! command
             case None =>
               context.log.warn(s"No game found with gameId $gameId to forward operation $op")
               replyTo ! ErrorResponse(s"No game found with gameId $gameId")

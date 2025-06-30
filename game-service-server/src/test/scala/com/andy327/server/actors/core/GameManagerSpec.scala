@@ -91,7 +91,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
-      // val gameStateProbe = TestProbe[Either[GameError, GameState]]()
       val gameResponseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, gameResponseProbe.ref)
