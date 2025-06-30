@@ -16,9 +16,17 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{Command, ErrorResponse, GameResponse, GameStatus}
-import com.andy327.server.game.{GameOperation, GameRegistry}
+import com.andy327.server.game.{GameModuleBundle, GameOperation, GameRegistry}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
+
+trait GameModuleProvider {
+  def forType(gt: GameType): Option[GameModuleBundle]
+}
+
+object DefaultGameModuleProvider extends GameModuleProvider {
+  override def forType(gt: GameType): Option[GameModuleBundle] = GameRegistry.forType(gt)
+}
 
 /**
  * HTTP routes for managing a specific type of game.
@@ -34,7 +42,11 @@ import com.andy327.server.http.json.JsonProtocol._
  * - POST   /{gameType}/{gameId}/move    - Submit a move to the specified game
  * - GET    /{gameType}/{gameId}/status  - Fetch the current state of a game
  */
-class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
+class GameRoutes(
+    gameType: GameType,
+    system: ActorSystem[Command],
+    registry: GameModuleProvider = DefaultGameModuleProvider
+) {
   implicit val scheduler: Scheduler = system.scheduler
   implicit val timeout: Timeout = 3.seconds
   implicit val ec: ExecutionContext = system.executionContext
@@ -51,7 +63,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
    * Throws an `IllegalArgumentException` if no module is registered for the given type, which should only happen if the
    * `GameType` is unknown or the registry is misconfigured.
    */
-  private val module = GameRegistry.forType(gameType).getOrElse(
+  private val module = registry.forType(gameType).getOrElse(
     throw new IllegalArgumentException(s"No module registered for $gameType")
   ).module
 

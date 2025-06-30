@@ -54,7 +54,8 @@ object TicTacToeModule extends GameModule {
       Right(TicTacToeActor.MakeMove(playerId, Location(row, col), replyTo))
 
     case GameOperation.MakeMove(_, otherMove) =>
-      Left(GameError.Unknown(s"Unsupported move type for TicTacToe: ${otherMove.getClass.getSimpleName}"))
+      val name = Option(otherMove).map(_.getClass.getSimpleName).getOrElse("null")
+      Left(GameError.Unknown(s"Unsupported move type for TicTacToe: $name"))
 
     case GameOperation.GetState =>
       Right(TicTacToeActor.GetState(replyTo))

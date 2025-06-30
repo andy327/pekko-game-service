@@ -51,6 +51,19 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   val carlHeader: RawHeader = RawHeader("Authorization", s"Bearer ${createTestToken(carlPlayer)}")
 
   "GameRoutes" when {
+    "initialized with a gameType missing from the registry" should {
+      "throw an IllegalArgumentException with a helpful message" in {
+        val dummySystem = ActorSystem(Behaviors.empty[GameManager.Command], "MissingModuleTestSystem")
+        val fakeProvider: GameModuleProvider = _ => None
+
+        val exception = intercept[IllegalArgumentException] {
+          new GameRoutes(GameType.TicTacToe, dummySystem, fakeProvider)
+        }
+
+        exception.getMessage should include("No module registered for TicTacToe")
+      }
+    }
+
     "handling TicTacToe" should {
       "submit a move to a valid game" in {
         val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
@@ -100,6 +113,28 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
           val gameState = responseAs[String].parseJson.convertTo[TicTacToeState]
           gameState.currentPlayer shouldBe "X"
+        }
+      }
+
+      "return 400 for invalid JSON structure" in {
+        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val invalidJson = """{ "x": 0, "y": 1 }"""
+        val entity = HttpEntity(ContentTypes.`application/json`, invalidJson)
+
+        Post(s"/tictactoe/$gameId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+          responseAs[String] should include("Invalid JSON")
         }
       }
 

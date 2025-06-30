@@ -16,8 +16,8 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
+import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.{GameLifecycleStatus, Player}
 
 /** In-memory GameRepository for unit tests */
@@ -430,6 +430,36 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.LeaveLobby("nonexistent", alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
+    }
+
+    "forward a valid move to a game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+
+      // Bob joins
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      val validMove = MovePayload.TicTacToeMove(0, 0)
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.MakeMove(alice.id, validMove), responseProbe.ref)
+
+      val updatedState = responseProbe.expectMessageType[GameManager.GameStatus]
+
+      val view = updatedState.state.asInstanceOf[TicTacToeState]
+      view.board(0)(0) shouldBe "X"
+      view.currentPlayer shouldBe "O"
     }
 
     "return an error when forwarding an invalid move to a game" in {
