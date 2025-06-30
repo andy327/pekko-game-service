@@ -2,6 +2,10 @@ package com.andy327.server.game.modules
 
 import scala.util.Try
 
+import cats.syntax.functor._
+
+import io.circe.Decoder
+import io.circe.generic.auto._
 import org.apache.pekko.actor.typed.ActorRef
 import spray.json._
 
@@ -9,6 +13,7 @@ import com.andy327.model.core.GameError
 import com.andy327.model.tictactoe.Location
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.game.MovePayload.TicTacToeMove
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameState, JsonProtocol, TicTacToeMoveRequest}
 
@@ -23,6 +28,8 @@ import com.andy327.server.http.json.{GameState, JsonProtocol, TicTacToeMoveReque
  */
 object TicTacToeModule extends GameModule {
   import JsonProtocol._
+
+  override val moveDecoder: Decoder[MovePayload] = Decoder[TicTacToeMove].widen
 
   /**
    * Parses a TicTacToeMoveRequest from JSON and converts it to a MovePayload.

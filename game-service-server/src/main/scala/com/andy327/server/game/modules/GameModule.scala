@@ -1,5 +1,6 @@
 package com.andy327.server.game.modules
 
+import io.circe.Decoder
 import org.apache.pekko.actor.typed.ActorRef
 import spray.json.JsValue
 
@@ -13,6 +14,8 @@ import com.andy327.server.http.json.GameState
  * It allows generic routing and game management logic to remain agnostic to the game being played.
  */
 trait GameModule {
+
+  def moveDecoder: Decoder[MovePayload]
 
   /**
    * Parses a MovePayload from raw JSON submitted by the client.

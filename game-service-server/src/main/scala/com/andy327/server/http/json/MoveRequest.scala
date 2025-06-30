@@ -7,3 +7,8 @@ package com.andy327.server.http.json
  * It is converted to a domain-level MovePayload (e.g., `MovePayload.TicTacToeMove`) before being processed.
  */
 case class TicTacToeMoveRequest(row: Int, col: Int)
+
+import io.circe.Json
+
+/** A generic move request that wraps arbitrary game-specific move data */
+final case class MoveRequest(payload: Json)
