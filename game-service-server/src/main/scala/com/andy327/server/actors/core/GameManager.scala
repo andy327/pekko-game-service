@@ -9,11 +9,9 @@ import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameError, GameType, PlayerId}
-import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.game.{GameOperation, GameRegistry}
+import com.andy327.server.game.{GameModuleBundle, GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -90,17 +88,19 @@ object GameManager {
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games) =>
-        val restoredActors = games.map { case (gameId, (gameType, game)) =>
-          val gameActor = gameType match {
-            case GameType.TicTacToe =>
-              context.spawn(
-                TicTacToeActor.fromSnapshot(gameId, game.asInstanceOf[TicTacToe], persistActor, context.self),
-                s"game-$gameId"
-              ).unsafeUpcast[GameActor.GameCommand]
+        val restoredActors = games.flatMap { case (gameId, (gameType, game)) =>
+          GameRegistry.forType(gameType) match {
+            case Some(GameModuleBundle(_, gameActor)) =>
+              val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self)
+              val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+              Some(gameId -> (gameType, actorRef))
+            case None =>
+              context.log.warn(s"No GameModule registered for type: $gameType — skipping restore for $gameId")
+              None
           }
-          gameId -> (gameType, gameActor)
         }
-        context.log.info(s"Initialized ${games.size} game actors from snapshots")
+
+        context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
 
         // tell the listener we are ready
         onReady.foreach(_ ! Ready)
@@ -189,29 +189,35 @@ object GameManager {
         case StartGame(gameId, playerId, replyTo) =>
           lobbies.get(gameId) match {
             case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
-              val (game, behavior) = metadata.gameType match {
-                case GameType.TicTacToe =>
+              GameRegistry.forType(metadata.gameType) match {
+                case Some(GameModuleBundle(_, gameActor)) =>
                   val players = metadata.players.keySet.toSeq
-                  TicTacToeActor.create(gameId, players, persistActor, context.self)
+                  val (game, behavior) = gameActor.create(gameId, players, persistActor, context.self)
+
+                  val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+
+                  // Persist immediately after creation; no need to wait for acknowledgement
+                  persistActor ! PersistenceProtocol.SaveSnapshot(
+                    gameId,
+                    metadata.gameType,
+                    game.asInstanceOf[Game[_, _, _, _, _]],
+                    replyTo = context.system.ignoreRef
+                  )
+
+                  context.log.info(s"Created and persisted new game with gameId: $gameId")
+                  replyTo ! GameStarted(gameId)
+
+                  running(
+                    lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
+                    games + (gameId -> ((metadata.gameType, actorRef))),
+                    persistActor
+                  )
+
+                case None =>
+                  context.log.warn(s"No GameModule registered for type: ${metadata.gameType}")
+                  replyTo ! ErrorResponse(s"Unsupported game type: ${metadata.gameType}")
+                  Behaviors.same
               }
-              val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-
-              // Persist immediately after creation; no need to wait for acknowledgement
-              persistActor ! PersistenceProtocol.SaveSnapshot(
-                gameId,
-                metadata.gameType,
-                game,
-                replyTo = context.system.ignoreRef
-              )
-
-              context.log.info(s"Created and persisted new game with gameId: $gameId")
-              replyTo ! GameStarted(gameId)
-
-              running(
-                lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
-                games + (gameId -> (metadata.gameType, actor)),
-                persistActor
-              )
 
             case Some(_) =>
               replyTo ! ErrorResponse("Only host can start, and game must be ready to start")
@@ -264,11 +270,12 @@ object GameManager {
                 context.messageAdapter(response => WrappedGameResponse(response, replyTo))
 
               GameRegistry.forType(gameType) match {
-                case Some(module) =>
+                case Some(GameModuleBundle(module, _)) =>
                   module.toGameCommand(op, adaptedRef) match {
                     case Right(cmd) => gameActor ! cmd
                     case Left(err)  => replyTo ! ErrorResponse(err.message)
                   }
+
                 case None =>
                   context.log.warn(s"No GameModule registered for type: $gameType")
                   replyTo ! ErrorResponse(s"Unsupported game type: $gameType")
@@ -278,6 +285,7 @@ object GameManager {
               context.log.warn(s"No game found with gameId $gameId to forward operation $op")
               replyTo ! ErrorResponse(s"No game found with gameId $gameId")
           }
+
           Behaviors.same
 
         case WrappedGameResponse(response, replyTo) =>

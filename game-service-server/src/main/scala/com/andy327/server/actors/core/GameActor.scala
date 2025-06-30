@@ -22,6 +22,8 @@ object GameActor {
  */
 trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
 
+  type Command <: GameActor.GameCommand
+
   /** Resolves to the compile-time `GameType` matching `G` via an implicit tag. */
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
 
@@ -31,7 +33,7 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
-  ): (G, Behavior[_])
+  ): (G, Behavior[Command])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database. */
   def fromSnapshot(
@@ -39,5 +41,5 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
-  ): Behavior[_]
+  ): Behavior[Command]
 }
