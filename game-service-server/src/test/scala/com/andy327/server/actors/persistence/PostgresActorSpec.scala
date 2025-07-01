@@ -10,7 +10,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 
@@ -20,9 +20,9 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       saveResult: Either[Throwable, Unit] = Right(())
   ) extends GameRepository {
     def initialize(): IO[Unit] = IO.unit
-    def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.fromEither(loadResult)
-    def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
-    def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
+    def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.fromEither(loadResult)
+    def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
+    def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
   }
 
   val loadError: RuntimeException with NoStackTrace = new RuntimeException("loading failure") with NoStackTrace
@@ -31,9 +31,9 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
   class ErrorRepo extends GameRepository { // throws synchronous error
     // throws when defining the IO, not when running it
     def initialize(): IO[Unit] = IO.unit
-    override def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = throw loadError
-    override def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = throw saveError
-    override def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = throw loadError
+    override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = throw loadError
+    override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = throw saveError
+    override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = throw loadError
   }
 
   val alice: PlayerId = UUID.randomUUID()

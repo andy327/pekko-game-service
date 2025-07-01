@@ -8,7 +8,7 @@ import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server._
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameId, GameType}
 
 /**
  * Common HTTP route directives for parsing and validating parameters such as UUIDs and GameTypes.
@@ -29,9 +29,9 @@ import com.andy327.model.core.GameType
 object RouteDirectives {
 
   /**
-   * Parses a UUID from a provided string, returning a Directive1 if valid. If invalid, responds with HTTP 400.
+   * Parses a game ID/UUID from a provided string, returning a Directive1 if valid. If invalid, responds with HTTP 400.
    */
-  def parseGameId(idStr: String): Directive1[UUID] =
+  def parseGameId(idStr: String): Directive1[GameId] =
     Try(UUID.fromString(idStr)).toOption match {
       case Some(uuid) => provide(uuid)
       case None       => complete(StatusCodes.BadRequest -> s"Invalid UUID for game ID: $idStr")

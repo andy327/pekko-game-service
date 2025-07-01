@@ -1,7 +1,5 @@
 package com.andy327.server.http.auth
 
-import java.util.UUID
-
 import io.circe.syntax._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
@@ -58,7 +56,7 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
     }
 
     "accept a valid JWT" in {
-      val player = Player(UUID.randomUUID(), "alice")
+      val player = Player("alice")
       val userContext = UserContext(player.id.toString, player.name)
       val token = JwtCirce.encode(userContext.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
 

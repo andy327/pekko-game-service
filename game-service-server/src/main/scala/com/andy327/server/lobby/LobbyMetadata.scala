@@ -2,7 +2,7 @@ package com.andy327.server.lobby
 
 import java.util.UUID
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameId, GameType, PlayerId}
 
 object LobbyMetadata {
 
@@ -28,16 +28,16 @@ object LobbyMetadata {
  *
  * This includes the game type, participating players, host identity, game ID, and current lifecycle status.
  *
- * @param gameId unique identifier for the lobby/game
+ * @param gameId unique UUID for the lobby/game
  * @param gameType type of game being played (e.g., TicTacToe)
  * @param players map of player UUIDs to Player objects (includes host and any joined players)
  * @param hostId UUID of the player who created and controls the lobby
  * @param status current lifecycle status of the game (e.g., waiting, in progress, completed)
  */
 case class LobbyMetadata(
-    gameId: UUID,
+    gameId: GameId,
     gameType: GameType,
-    players: Map[UUID, Player], // includes the host
-    hostId: UUID,
+    players: Map[PlayerId, Player], // includes the host
+    hostId: PlayerId,
     status: GameLifecycleStatus
 )

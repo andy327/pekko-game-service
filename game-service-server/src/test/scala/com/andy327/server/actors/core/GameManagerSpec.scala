@@ -11,7 +11,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -21,18 +21,18 @@ import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.{GameLifecycleStatus, Player}
 
 /** In-memory GameRepository for unit tests */
-class InMemRepo(initialGames: Map[UUID, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
+class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
   private val db = scala.collection.concurrent.TrieMap(initialGames.toSeq: _*)
 
   def initialize(): IO[Unit] = IO.unit
 
-  def saveGame(id: UUID, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
+  def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
     IO(db.update(id, (tpe, g)))
 
-  def loadGame(id: UUID, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] =
+  def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] =
     IO(db.get(id).collect { case (`tpe`, g) => g })
 
-  def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] =
+  def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     IO(db.toMap)
 }
 
@@ -49,9 +49,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val readyProbe = TestProbe[GameManager.Ready.type]()
       val failingRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def saveGame(id: UUID, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadGame(id: UUID, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] =
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
           IO.raiseError(new RuntimeException("DB failure") with NoStackTrace)
       }
 
@@ -64,9 +64,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       val slowRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def saveGame(id: UUID, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadGame(id: UUID, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
       }
       val alice = Player("alice")
 
@@ -85,7 +85,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
     "restore saved games from the game repository on startup" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameId = UUID.randomUUID()
+      val gameId: GameId = UUID.randomUUID()
       val restoredGame = TicTacToe.empty(alice, bob)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, restoredGame)))
 
@@ -137,7 +137,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "return an error when retrieving metadata for a nonexistent lobby" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
@@ -190,7 +190,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
@@ -304,7 +304,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
@@ -378,7 +378,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "handle trying to mark a nonexistent game as completed" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
@@ -426,7 +426,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
@@ -498,7 +498,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
-      val nonexistentGameId = UUID.randomUUID()
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 

@@ -10,7 +10,7 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
@@ -47,7 +47,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Saves the current state of a game of the given gameType into the database.
    * If the gameId already exists, the existing row is updated.
    */
-  override def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
+  override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
     val (jsonStr, gameTypeStr) = gameType match {
       case GameType.TicTacToe =>
         val typedGame = game.asInstanceOf[TicTacToe]
@@ -67,7 +67,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads the game state for a given gameId and gameType.
    * If the game exists, it is deserialized from JSON into a TicTacToe object.
    */
-  override def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+  override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
     sql"SELECT game_state FROM games WHERE game_id = ${gameId.toString}"
       .query[String]
       .option
@@ -87,7 +87,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads all games stored in the database and returns them as a Map from gameId to game state.
    * If any games fail to decode from JSON, their errors are logged and we proceed with loading.
    */
-  override def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] =
+  override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     sql"SELECT game_id, game_type, game_state FROM games"
       .query[(String, String, String)]
       .to[List]

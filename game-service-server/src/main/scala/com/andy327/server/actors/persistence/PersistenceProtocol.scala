@@ -1,10 +1,8 @@
 package com.andy327.server.actors.persistence
 
-import java.util.UUID
-
 import org.apache.pekko.actor.typed.ActorRef
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 
 /**
   * Messages understood by a persistence actor (e.g. PostgresActor).
@@ -18,11 +16,11 @@ object PersistenceProtocol {
   trait Command
 
   /** Ask the persistence actor to load a snapshot. */
-  final case class LoadSnapshot(gameId: UUID, gameType: GameType, replyTo: ActorRef[SnapshotLoaded]) extends Command
+  final case class LoadSnapshot(gameId: GameId, gameType: GameType, replyTo: ActorRef[SnapshotLoaded]) extends Command
 
   /** Ask the persistence actor to save (insert/update) a snapshot. */
   final case class SaveSnapshot(
-      gameId: UUID,
+      gameId: GameId,
       gameType: GameType,
       game: Game[_, _, _, _, _],
       replyTo: ActorRef[SnapshotSaved]

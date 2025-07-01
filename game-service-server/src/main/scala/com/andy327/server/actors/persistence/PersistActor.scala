@@ -1,7 +1,5 @@
 package com.andy327.server.actors.persistence
 
-import java.util.UUID
-
 import scala.util.{Failure, Success, Try}
 
 import cats.effect.IO
@@ -10,7 +8,7 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 
 object PersistActor {
 
@@ -34,8 +32,8 @@ trait PersistActor {
   import PersistenceProtocol._
   import PersistActor._
 
-  def loadFromStore(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
-  def saveToStore(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
+  def loadFromStore(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
+  def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
   final def behavior: Behavior[Command] =
     Behaviors.setup { context =>

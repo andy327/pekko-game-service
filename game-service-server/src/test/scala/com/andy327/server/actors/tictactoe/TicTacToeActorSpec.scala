@@ -9,7 +9,7 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, PlayerId}
+import com.andy327.model.core.{Game, GameId, PlayerId}
 import com.andy327.model.tictactoe.{GameError, Location, O, TicTacToe, X}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -287,7 +287,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "notify the GameManager when a game completes" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val gameId = UUID.randomUUID()
+      val gameId: GameId = UUID.randomUUID()
       val (_, behavior) =
         TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
       val actor = spawn(behavior)

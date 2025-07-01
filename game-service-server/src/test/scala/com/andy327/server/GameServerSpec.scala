@@ -1,7 +1,5 @@
 package com.andy327.server
 
-import java.util.UUID
-
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
@@ -18,7 +16,7 @@ import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
@@ -33,9 +31,9 @@ class GameServerSpec extends AnyWordSpec with Matchers {
     "start and respond to /tictactoe" in {
       val dummyRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def loadGame(gameId: UUID, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
+        def loadGame(gameId: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
       }
 
       val (system, binding) = GameServer.startServer("localhost", port = 0, dummyRepo).unsafeRunSync()

@@ -12,7 +12,7 @@ import doobie.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -41,7 +41,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
   "PostgresGameRepository" should {
     "save then load a TicTacToe game" in {
-      val gameId = UUID.randomUUID()
+      val gameId: GameId = UUID.randomUUID()
       val alice: PlayerId = UUID.randomUUID()
       val bob: PlayerId = UUID.randomUUID()
       val game = TicTacToe.empty(alice, bob)
@@ -56,7 +56,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
     "return None for a game with invalid JSON" in {
       val invalidJson = "invalid-json"
-      val gameId = UUID.randomUUID()
+      val gameId: GameId = UUID.randomUUID()
       val insert = sql"""
         INSERT INTO games (game_id, game_type, game_state)
         VALUES (${gameId.toString}, 'TicTacToe', $invalidJson)
@@ -80,9 +80,9 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
     }
 
     "skip corrupted or unknown game types when loading all games" in {
-      val badTypeGameId = UUID.randomUUID()
-      val corruptedGameId = UUID.randomUUID()
-      val validGameId = UUID.randomUUID()
+      val badTypeGameId: GameId = UUID.randomUUID()
+      val corruptedGameId: GameId = UUID.randomUUID()
+      val validGameId: GameId = UUID.randomUUID()
       val x: PlayerId = UUID.randomUUID()
       val y: PlayerId = UUID.randomUUID()
       val validGame = TicTacToe.empty(x, y)
