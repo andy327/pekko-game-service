@@ -16,17 +16,10 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{Command, ErrorResponse, GameResponse, GameStatus}
-import com.andy327.server.game.{GameModuleBundle, GameOperation, GameRegistry}
+import com.andy327.server.game.GameOperation
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
-
-trait GameModuleProvider {
-  def forType(gt: GameType): Option[GameModuleBundle]
-}
-
-object DefaultGameModuleProvider extends GameModuleProvider {
-  override def forType(gt: GameType): Option[GameModuleBundle] = GameRegistry.forType(gt)
-}
+import com.andy327.server.http.routes.RouteDirectives._
 
 /**
  * HTTP routes for managing a specific type of game.
@@ -87,54 +80,59 @@ class GameRoutes(
   val routes: Route = pathPrefix(gameTypePrefix) {
 
     /**
-     * @route POST /{gameType}/{id}/move
+     * @route POST /{gameType}/{gameId}/move
      * @auth Requires Bearer token
      * @pathParam gameType The type of the game (e.g., tictactoe)
-     * @pathParam id The ID of the game to make a move in
+     * @pathParam gameId The ID of the game to make a move in
      * @bodyParam MovePayload A game-specific JSON payload for the move (structure depends on gameType)
      * @response 200 Updated game state after the move is applied
-     * @response 400 If the JSON payload is malformed or invalid for the game type
+     * @response 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game type
      * @response 404 If the game is not found or the move is invalid
      * @response 500 Unexpected response from GameManager
      *
      * Submits a move to the specified game using the authenticated player ID and a dynamic, game-specific move format.
      */
-    path(Segment / "move") { gameId =>
-      post {
+    path(Segment / "move") { gameIdStr =>
+      parseGameId(gameIdStr) { gameId =>
         authenticatePlayer { player =>
-          extractRequest { req =>
-            onSuccess(decodeJsonEntity(module.moveDecoder)(req)) {
-              case Right(move) =>
-                val op = GameOperation.MakeMove(player.id, move)
-                onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, op, _))) {
-                  case GameStatus(state)    => complete(state)
-                  case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
-                  case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
-                }
+          post {
+            extractRequest { req =>
+              onSuccess(decodeJsonEntity(module.moveDecoder)(req)) {
+                case Right(move) =>
+                  val op = GameOperation.MakeMove(player.id, move)
+                  onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, op, _))) {
+                    case GameStatus(state)    => complete(state)
+                    case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+                    case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+                  }
 
-              case Left(decodingError) =>
-                complete(StatusCodes.BadRequest -> s"Invalid JSON: $decodingError")
+                case Left(decodingError) =>
+                  complete(StatusCodes.BadRequest -> s"Invalid JSON: $decodingError")
+              }
             }
           }
         }
       }
     } ~
     /**
-     * @route GET /{gameType}/{id}/status
+     * @route GET /{gameType}/{gameId}/status
      * @pathParam gameType The type of the game (e.g., tictactoe)
-     * @pathParam id The ID of the game to check status
+     * @pathParam gameId The ID of the game to check status
      * @response 200 Current game state
+     * @response 400 If the game ID is not a valid UUID
      * @response 404 If the game is not found
      * @response 500 Unexpected response from GameManager
      *
      * Fetches the current state of the specified game.
      */
-    path(Segment / "status") { gameId =>
-      get {
-        onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, GameOperation.GetState, _))) {
-          case GameStatus(state)    => complete(state)
-          case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
-          case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+    path(Segment / "status") { gameIdStr =>
+      parseGameId(gameIdStr) { gameId =>
+        get {
+          onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, GameOperation.GetState, _))) {
+            case GameStatus(state)    => complete(state)
+            case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+            case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+          }
         }
       }
     }

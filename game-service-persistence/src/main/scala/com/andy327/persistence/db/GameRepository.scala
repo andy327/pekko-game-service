@@ -1,5 +1,7 @@
 package com.andy327.persistence.db
 
+import java.util.UUID
+
 import cats.effect.IO
 
 import com.andy327.model.core.{Game, GameType}
@@ -16,15 +18,15 @@ trait GameRepository {
   def initialize(): IO[Unit]
 
   /** Persist the current state of a game to the database. */
-  def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
+  def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
   /** LLoad a game from the database using its ID and GameType. */
-  def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
+  def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
 
   /**
    * Load all saved games from the database.
    *
    * This may be used during server startup to rehydrate all active games into memory.
    */
-  def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]]
+  def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]]
 }

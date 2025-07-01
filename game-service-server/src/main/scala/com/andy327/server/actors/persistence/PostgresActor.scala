@@ -1,5 +1,7 @@
 package com.andy327.server.actors.persistence
 
+import java.util.UUID
+
 import cats.effect.IO
 
 import org.apache.pekko.actor.typed.Behavior
@@ -15,10 +17,10 @@ object PostgresActor {
     new Impl(gameRepo).behavior
 
   private class Impl(gameRepo: GameRepository) extends PersistActor {
-    def loadFromStore(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    def loadFromStore(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
       gameRepo.loadGame(gameId, gameType)
 
-    def saveToStore(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
+    def saveToStore(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
       gameRepo.saveGame(gameId, gameType, game)
   }
 }

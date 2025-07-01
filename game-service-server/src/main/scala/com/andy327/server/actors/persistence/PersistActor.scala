@@ -1,5 +1,7 @@
 package com.andy327.server.actors.persistence
 
+import java.util.UUID
+
 import scala.util.{Failure, Success, Try}
 
 import cats.effect.IO
@@ -32,8 +34,8 @@ trait PersistActor {
   import PersistenceProtocol._
   import PersistActor._
 
-  def loadFromStore(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
-  def saveToStore(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
+  def loadFromStore(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
+  def saveToStore(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
   final def behavior: Behavior[Command] =
     Behaviors.setup { context =>

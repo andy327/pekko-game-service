@@ -1,5 +1,7 @@
 package com.andy327.server
 
+import java.util.UUID
+
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
@@ -31,9 +33,9 @@ class GameServerSpec extends AnyWordSpec with Matchers {
     "start and respond to /tictactoe" in {
       val dummyRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
-        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(gameId: UUID, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
       }
 
       val (system, binding) = GameServer.startServer("localhost", port = 0, dummyRepo).unsafeRunSync()
@@ -72,8 +74,8 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
         startResp.status shouldBe StatusCodes.OK
 
-        val startedGameId = Await.result(Unmarshal(startResp.entity).to[String], 2.seconds)
-        startedGameId shouldBe gameId
+        val startGameResp = Await.result(Unmarshal(startResp.entity).to[GameManager.GameStarted], 2.seconds)
+        startGameResp.gameId shouldBe gameId
       } finally {
         Await.result(binding.unbind(), 5.seconds)
         system.terminate()

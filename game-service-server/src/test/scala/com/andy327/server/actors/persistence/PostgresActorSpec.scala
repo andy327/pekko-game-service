@@ -20,9 +20,9 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       saveResult: Either[Throwable, Unit] = Right(())
   ) extends GameRepository {
     def initialize(): IO[Unit] = IO.unit
-    def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.fromEither(loadResult)
-    def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
-    def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
+    def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.fromEither(loadResult)
+    def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
+    def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
   }
 
   val loadError: RuntimeException with NoStackTrace = new RuntimeException("loading failure") with NoStackTrace
@@ -31,9 +31,9 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
   class ErrorRepo extends GameRepository { // throws synchronous error
     // throws when defining the IO, not when running it
     def initialize(): IO[Unit] = IO.unit
-    override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = throw loadError
-    override def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = throw saveError
-    override def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = throw loadError
+    override def loadGame(gameId: UUID, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = throw loadError
+    override def saveGame(gameId: UUID, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = throw saveError
+    override def loadAllGames(): IO[Map[UUID, (GameType, Game[_, _, _, _, _])]] = throw loadError
   }
 
   val alice: PlayerId = UUID.randomUUID()
@@ -46,7 +46,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val persistActor = spawn(PostgresActor(gameRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotLoaded]()
-      persistActor ! PersistenceProtocol.LoadSnapshot("game-1", GameType.TicTacToe, replyProbe.ref)
+      persistActor ! PersistenceProtocol.LoadSnapshot(UUID.randomUUID(), GameType.TicTacToe, replyProbe.ref)
 
       replyProbe.expectMessage(PersistenceProtocol.SnapshotLoaded(Right(Some(freshGame))))
     }
@@ -56,7 +56,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val persistActor = spawn(PostgresActor(gameRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotLoaded]()
-      persistActor ! PersistenceProtocol.LoadSnapshot("game-2", GameType.TicTacToe, replyProbe.ref)
+      persistActor ! PersistenceProtocol.LoadSnapshot(UUID.randomUUID(), GameType.TicTacToe, replyProbe.ref)
 
       val result = replyProbe.receiveMessage()
       result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe loadError
@@ -66,7 +66,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val gameRepo = new ErrorRepo
       val actor = spawn(PostgresActor(gameRepo))
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotLoaded]()
-      actor ! PersistenceProtocol.LoadSnapshot("game-3", GameType.TicTacToe, replyProbe.ref)
+      actor ! PersistenceProtocol.LoadSnapshot(UUID.randomUUID(), GameType.TicTacToe, replyProbe.ref)
 
       val result = replyProbe.receiveMessage()
       result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe loadError
@@ -77,7 +77,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val persistActor = spawn(PostgresActor(gameRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
-      persistActor ! PersistenceProtocol.SaveSnapshot("game-4", GameType.TicTacToe, freshGame, replyProbe.ref)
+      persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
 
       replyProbe.expectMessage(PersistenceProtocol.SnapshotSaved(Right(())))
     }
@@ -87,7 +87,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val persistActor = spawn(PostgresActor(gameRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
-      persistActor ! PersistenceProtocol.SaveSnapshot("game-5", GameType.TicTacToe, freshGame, replyProbe.ref)
+      persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
 
       val result = replyProbe.receiveMessage()
       result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe saveError
@@ -97,7 +97,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val gameRepo = new ErrorRepo
       val actor = spawn(PostgresActor(gameRepo))
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
-      actor ! PersistenceProtocol.SaveSnapshot("game-6", GameType.TicTacToe, freshGame, replyProbe.ref)
+      actor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
 
       val result = replyProbe.receiveMessage()
       result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe saveError

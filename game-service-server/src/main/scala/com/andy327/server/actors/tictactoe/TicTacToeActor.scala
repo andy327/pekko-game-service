@@ -1,5 +1,7 @@
 package com.andy327.server.actors.tictactoe
 
+import java.util.UUID
+
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
@@ -10,11 +12,28 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
 
+/**
+ * An actor implementation for managing a single TicTacToe game instance.
+ *
+ * This actor encapsulates both the game state and game logic. It is responsible for:
+ * - Receiving player commands to make moves or fetch game state
+ * - Validating and applying game rules
+ * - Persisting game state changes via a persistence actor
+ * - Notifying the GameManager when a game has completed (win or draw)
+ * - Supporting recovery from snapshot-based persistence on startup
+ *
+ * It uses a game-agnostic `GameActor` interface, and plugs into the game service via the GameRegistry and GameModule.
+ *
+ * Commands:
+ * - `MakeMove`: attempts to apply a move by a player
+ * - `GetState`: returns a snapshot of the current game state
+ * - `SnapshotSaved` / `SnapshotLoaded`: internal protocol for persistence status
+ */
 object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
-  final case class MakeMove(player: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
+  final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
       extends Command
   final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
 
@@ -31,7 +50,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
    * Initializes a new TicTacToeActor with an empty game.
    */
   override def create(
-      gameId: String,
+      gameId: UUID,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
@@ -53,7 +72,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
    * This is used during recovery of games from persistent storage.
    */
   override def fromSnapshot(
-      gameId: String,
+      gameId: UUID,
       game: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
@@ -73,7 +92,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
    */
   private def active(
       game: TicTacToe,
-      gameId: String,
+      gameId: UUID,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>

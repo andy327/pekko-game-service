@@ -48,7 +48,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val GameManager.LobbyCreated(gameId, host) = responseAs[GameManager.LobbyCreated]
-        gameId.length should be > 0
+        gameId.toString.length should be > 0
         host.name shouldBe "alice"
         host.id shouldBe aliceId
       }
@@ -90,7 +90,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
 
       Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[String] shouldBe gameId
+        responseAs[GameManager.GameStarted].gameId shouldBe gameId
       }
     }
 
@@ -125,6 +125,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
 
     "return 500 for unexpected responses" in {
+      val fakeId = UUID.randomUUID()
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
         case GameManager.CreateLobby(_, _, replyTo) =>
           replyTo ! GameManager.Ready // triggers /create fallback
@@ -151,8 +152,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       val requests = Table(
         ("description", "request"),
         ("POST /lobby/create", Post("/lobby/create/tictactoe").withHeaders(aliceHeader)),
-        ("POST /lobby/join", Post("/lobby/fake-id/join").withHeaders(aliceHeader)),
-        ("POST /lobby/start", Post("/lobby/fake-id/start").withHeaders(aliceHeader)),
+        ("POST /lobby/join", Post(s"/lobby/$fakeId/join").withHeaders(aliceHeader)),
+        ("POST /lobby/start", Post(s"/lobby/$fakeId/start").withHeaders(aliceHeader)),
         ("GET /lobby/list", Get("/lobby/list"))
       )
 

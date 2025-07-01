@@ -89,9 +89,10 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "fail to move in a nonexistent game" in {
+        val fakeId = UUID.randomUUID()
         val move = TicTacToeMoveRequest(0, 0)
         val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
-        Post("/tictactoe/nonexistent/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.NotFound
         }
       }
@@ -116,7 +117,23 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
       }
 
-      "return 400 for invalid JSON structure" in {
+      "return 404 for move on unknown game" in {
+        val fakeId = UUID.randomUUID()
+        Get(s"/tictactoe/$fakeId/status") ~> routes ~> check {
+          status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "return 400 for invalid game ID on move" in {
+        val move = TicTacToeMoveRequest(0, 0)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        Post("/tictactoe/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+        }
+      }
+
+      "return 400 for invalid JSON structure on move" in {
         val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
           responseAs[GameManager.LobbyCreated].gameId
         }
@@ -138,26 +155,20 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
       }
 
-      "return 404 for status of unknown game" in
-        Get("/tictactoe/nonexistent/status") ~> routes ~> check {
-          status shouldBe StatusCodes.NotFound
-        }
-
-      "return 404 for invalid game ID on move" in {
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
-
-        Post("/tictactoe/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+      "return 404 for status of unknown game" in {
+        val fakeId = UUID.randomUUID()
+        Get(s"/tictactoe/$fakeId/status") ~> routes ~> check {
           status shouldBe StatusCodes.NotFound
         }
       }
 
-      "return 404 for invalid game ID on status" in
+      "return 400 for invalid game ID on status" in
         Get("/tictactoe/invalid-game-id/status") ~> routes ~> check {
-          status shouldBe StatusCodes.NotFound
+          status shouldBe StatusCodes.BadRequest
         }
 
       "return 500 for unexpected responses" in {
+        val fakeId = UUID.randomUUID()
         val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
           case GameManager.RunGameOperation(_, _, replyTo) =>
             replyTo ! GameManager.Ready // triggers /move + /status fallback
@@ -174,8 +185,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         val requests = Table(
           ("description", "request"),
-          ("POST /move", Post("/tictactoe/fake-id/move", moveEntity).withHeaders(aliceHeader)),
-          ("GET /status", Get("/tictactoe/fake-id/status"))
+          ("POST /move", Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
+          ("GET /status", Get(s"/tictactoe/$fakeId/status"))
         )
 
         forAll(requests) { (description, req) =>

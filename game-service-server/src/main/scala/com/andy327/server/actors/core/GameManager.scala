@@ -1,5 +1,7 @@
 package com.andy327.server.actors.core
 
+import java.util.UUID
+
 import scala.util.Success
 
 import cats.effect.IO
@@ -26,23 +28,23 @@ object GameManager {
   sealed trait Command
 
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class JoinLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class LeaveLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class StartGame(gameId: String, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+  final case class JoinLobby(gameId: UUID, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class LeaveLobby(gameId: UUID, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class StartGame(gameId: UUID, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
-  final case class GetLobbyInfo(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
-  final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
+  final case class GetLobbyInfo(gameId: UUID, replyTo: ActorRef[GameResponse]) extends Command
+  final case class GameCompleted(gameId: UUID, result: GameLifecycleStatus.GameEnded) extends Command
 
-  final case class RunGameOperation(gameId: String, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
-  final protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
+  final case class RunGameOperation(gameId: UUID, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+  final protected[core] case class RestoreGames(games: Map[UUID, (GameType, Game[_, _, _, _, _])]) extends Command
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
-  final case class LobbyCreated(gameId: String, host: Player) extends GameResponse
-  final case class LobbyJoined(gameId: String, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
-  final case class LobbyLeft(gameId: String, message: String) extends GameResponse
-  final case class GameStarted(gameId: String) extends GameResponse
+  final case class LobbyCreated(gameId: UUID, host: Player) extends GameResponse
+  final case class LobbyJoined(gameId: UUID, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
+  final case class LobbyLeft(gameId: UUID, message: String) extends GameResponse
+  final case class GameStarted(gameId: UUID) extends GameResponse
   final case class LobbiesListed(lobbies: List[LobbyMetadata]) extends GameResponse
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
@@ -119,8 +121,8 @@ object GameManager {
     * Accepts new game creation and forwards commands to existing game actors.
     */
   private def running(
-      lobbies: Map[String, LobbyMetadata],
-      games: Map[String, (GameType, ActorRef[GameActor.GameCommand])],
+      lobbies: Map[UUID, LobbyMetadata],
+      games: Map[UUID, (GameType, ActorRef[GameActor.GameCommand])],
       persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>

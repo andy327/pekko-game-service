@@ -5,6 +5,8 @@ import com.andy327.model.core.{Game, PlayerId, Renderable}
 import GameError._
 
 object TicTacToe {
+
+  /** Creates a new empty TicTacToe game with the specified players. */
   def empty(playerX: PlayerId, playerO: PlayerId): TicTacToe = TicTacToe(
     playerX = playerX,
     playerO = playerO,
@@ -14,9 +16,14 @@ object TicTacToe {
     isDraw = false
   )
 
+  /** Returns true if all cells on the board are filled, and thus no more moves can be made. */
   private def isFull(board: Board): Boolean =
     board.flatten.forall(_.isDefined)
 
+  /**
+   * Checks if there is a winning line (row, column, or diagonal) on the board. If found, returns the winning Mark
+   * (X or O).
+   */
   private def checkWinner(board: Board): Option[Mark] = {
     val rows = board
     val cols = (0 until 3).map(i => board.map(_(i)))
@@ -29,6 +36,20 @@ object TicTacToe {
   }
 }
 
+/**
+ * Represents an instance of a TicTacToe game, including both the current state (players, board, turn, outcome) and the
+ * rules for how the game evolves.
+ *
+ * This class is responsible for validating and applying player moves, determining when the game ends (via win or draw),
+ * and updating game state accordingly.
+ *
+ * @param playerX the player id (uuid) assigned to X
+ * @param playerO the player id (uuid) assigned to O
+ * @param board the 3x3 board of Marks (Some(X), Some(O), or None)
+ * @param currentPlayer the player (Mark) whose turn it is
+ * @param winner the winning player's Mark, if the game is over
+ * @param isDraw true if the game ended in a draw
+ */
 final case class TicTacToe(
     playerX: PlayerId,
     playerO: PlayerId,
@@ -49,6 +70,13 @@ final case class TicTacToe(
     case O => X
   }
 
+  /**
+   * Applies a move to the board for the current player.
+   *
+   * @param player the player making the move
+   * @param loc the location on the board to place the mark
+   * @return the updated game state, or a GameError if the move is invalid
+   */
   def play(player: Mark, loc: Location): Either[GameError, TicTacToe] =
     if (gameStatus != InProgress)
       Left(GameOver)
