@@ -81,6 +81,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
     "skip corrupted or unknown game types when loading all games" in {
       val badTypeGameId: GameId = UUID.randomUUID()
+      val invalidGameId: String = "abc"
       val corruptedGameId: GameId = UUID.randomUUID()
       val validGameId: GameId = UUID.randomUUID()
       val x: PlayerId = UUID.randomUUID()
@@ -92,6 +93,8 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
         sql"""INSERT INTO games (game_id, game_type, game_state)
               VALUES (${badTypeGameId.toString}, 'UnknownGame', '{}')""",
         sql"""INSERT INTO games (game_id, game_type, game_state)
+              VALUES (${invalidGameId}, 'TicTacToe', ${validGame.asJson.noSpaces})""",
+        sql"""INSERT INTO games (game_id, game_type, game_state)
               VALUES (${corruptedGameId.toString}, 'TicTacToe', 'corrupted-json')""",
         sql"""INSERT INTO games (game_id, game_type, game_state)
               VALUES (${validGameId.toString}, 'TicTacToe', ${validGame.asJson.noSpaces})"""
@@ -102,6 +105,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
       val result = gameRepo.loadAllGames().unsafeRunSync()
       result.keySet should contain(validGameId)
       result.keySet should not contain badTypeGameId
+      result.keySet should not contain invalidGameId
       result.keySet should not contain corruptedGameId
     }
   }
