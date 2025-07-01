@@ -16,11 +16,12 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
+import com.andy327.model.core.GameType
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
-import com.andy327.server.http.routes.{AuthRoutes, LobbyRoutes, TicTacToeRoutes}
+import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes}
 
 /**
  * GameServer is the main entry point of the game-service.
@@ -77,7 +78,7 @@ object GameServer {
     val routes = concat(
       new AuthRoutes().routes,
       new LobbyRoutes(system).routes,
-      new TicTacToeRoutes(system).routes
+      new GameRoutes(GameType.TicTacToe, system).routes
     )
 
     // Start HTTP server

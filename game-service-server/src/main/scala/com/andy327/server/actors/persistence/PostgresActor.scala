@@ -4,7 +4,7 @@ import cats.effect.IO
 
 import org.apache.pekko.actor.typed.Behavior
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.persistence.db.GameRepository
 
 /**
@@ -15,10 +15,10 @@ object PostgresActor {
     new Impl(gameRepo).behavior
 
   private class Impl(gameRepo: GameRepository) extends PersistActor {
-    def loadFromStore(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    def loadFromStore(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
       gameRepo.loadGame(gameId, gameType)
 
-    def saveToStore(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
+    def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
       gameRepo.saveGame(gameId, gameType, game)
   }
 }

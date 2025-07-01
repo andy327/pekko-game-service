@@ -103,7 +103,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val host = Player("host")
       val joiner = Player("guest")
       val metadata = LobbyMetadata(
-        gameId = "game-id",
+        gameId = UUID.randomUUID(),
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host, joiner.id -> joiner),
         hostId = host.id,
@@ -116,7 +116,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "LobbyCreated JSON format" should {
     "round-trip serialize and deserialize" in {
-      val lobby = LobbyCreated("game-id", Player(UUID.randomUUID(), "host"))
+      val lobby = LobbyCreated(UUID.randomUUID(), Player(UUID.randomUUID(), "host"))
       val json = lobby.toJson
       json.convertTo[LobbyCreated] shouldBe lobby
     }
@@ -126,10 +126,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
+      val gameId = UUID.randomUUID()
       val lobby = LobbyJoined(
-        gameId = "game-id",
+        gameId = gameId,
         metadata = LobbyMetadata(
-          gameId = "game-id",
+          gameId = gameId,
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),
           hostId = host.id,
@@ -150,11 +151,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "TicTacToeMove JSON format" should {
+  "TicTacToeMoveRequest JSON format" should {
     "round-trip serialize and deserialize" in {
-      val move = TicTacToeMove(row = 1, col = 2)
+      val move = TicTacToeMoveRequest(row = 1, col = 2)
       val json = move.toJson
-      json.convertTo[TicTacToeMove] shouldBe move
+      json.convertTo[TicTacToeMoveRequest] shouldBe move
     }
   }
 

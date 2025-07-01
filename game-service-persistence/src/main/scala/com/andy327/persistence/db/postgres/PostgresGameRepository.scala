@@ -1,5 +1,7 @@
 package com.andy327.persistence.db.postgres
 
+import java.util.UUID
+
 import org.slf4j.LoggerFactory
 
 import cats.effect.IO
@@ -8,7 +10,7 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
@@ -45,7 +47,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Saves the current state of a game of the given gameType into the database.
    * If the gameId already exists, the existing row is updated.
    */
-  override def saveGame(gameId: String, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
+  override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
     val (jsonStr, gameTypeStr) = gameType match {
       case GameType.TicTacToe =>
         val typedGame = game.asInstanceOf[TicTacToe]
@@ -54,7 +56,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
 
     sql"""
       INSERT INTO games (game_id, game_type, game_state)
-      VALUES ($gameId, $gameTypeStr, $jsonStr)
+      VALUES (${gameId.toString}, $gameTypeStr, $jsonStr)
       ON CONFLICT (game_id) DO UPDATE
       SET game_type = EXCLUDED.game_type,
           game_state = EXCLUDED.game_state
@@ -65,8 +67,8 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads the game state for a given gameId and gameType.
    * If the game exists, it is deserialized from JSON into a TicTacToe object.
    */
-  override def loadGame(gameId: String, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-    sql"SELECT game_state FROM games WHERE game_id = $gameId"
+  override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    sql"SELECT game_state FROM games WHERE game_id = ${gameId.toString}"
       .query[String]
       .option
       .transact(xa)
@@ -75,7 +77,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
           IO.fromEither(GameTypeCodecs.deserializeGame(gameType, jsonStr))
             .map(Some(_))
             .handleErrorWith { err =>
-              logger.warn(s"Failed to decode $gameType game $gameId: ${err.getMessage}")
+              logger.warn(s"Failed to decode $gameType game ${gameId.toString}: ${err.getMessage}")
               IO.pure(None)
             }
         case None => IO.pure(None)
@@ -85,26 +87,36 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
    * Loads all games stored in the database and returns them as a Map from gameId to game state.
    * If any games fail to decode from JSON, their errors are logged and we proceed with loading.
    */
-  override def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
+  override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     sql"SELECT game_id, game_type, game_state FROM games"
       .query[(String, String, String)]
       .to[List]
       .transact(xa)
       .flatMap { rows =>
-        rows.flatTraverse { case (id, gameTypeStr, jsonStr) =>
-          parseGameType(gameTypeStr) match {
-            case Right(gameType) =>
+        rows.flatTraverse { case (idStr, gameTypeStr, jsonStr) =>
+          val maybeId = Either.catchOnly[IllegalArgumentException](UUID.fromString(idStr))
+          val maybeGameType = parseGameType(gameTypeStr)
+
+          (maybeId, maybeGameType) match {
+            case (Right(gameId), Right(gameType)) =>
               GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
-                case Right(game) => IO.pure(List(id -> (gameType, game)))
+                case Right(game) => IO.pure(List(gameId -> (gameType, game)))
                 case Left(err)   =>
                   IO {
-                    logger.warn(s"Skipping corrupted $gameType game $id: ${err.getMessage}")
+                    logger.warn(s"Skipping corrupted $gameType game $idStr: ${err.getMessage}")
                     Nil
                   }
               }
-            case Left(err) =>
+
+            case (Left(err), _) =>
               IO {
-                logger.warn(s"Failed to decode GameType for game $id: ${err.getMessage}")
+                logger.warn(s"Skipping game with invalid UUID [$idStr]: ${err.getMessage}")
+                Nil
+              }
+
+            case (_, Left(err)) =>
+              IO {
+                logger.warn(s"Failed to decode GameType for game $idStr: ${err.getMessage}")
                 Nil
               }
           }

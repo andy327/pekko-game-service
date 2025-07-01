@@ -8,11 +8,10 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, TicTacToe}
+import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.game.{GameModuleBundle, GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -27,23 +26,23 @@ object GameManager {
   sealed trait Command
 
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class JoinLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class LeaveLobby(gameId: String, player: Player, replyTo: ActorRef[GameResponse]) extends Command
-  final case class StartGame(gameId: String, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+  final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+  final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
-  final case class GetLobbyInfo(gameId: String, replyTo: ActorRef[GameResponse]) extends Command
-  final case class GameCompleted(gameId: String, result: GameLifecycleStatus.GameEnded) extends Command
+  final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
+  final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
 
-  final case class ForwardToGame[T](gameId: String, message: T, replyTo: Option[ActorRef[GameResponse]]) extends Command
-  final protected[core] case class RestoreGames(games: Map[String, (GameType, Game[_, _, _, _, _])]) extends Command
+  final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+  final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
   sealed trait GameResponse
-  final case class LobbyCreated(gameId: String, host: Player) extends GameResponse
-  final case class LobbyJoined(gameId: String, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
-  final case class LobbyLeft(gameId: String, message: String) extends GameResponse
-  final case class GameStarted(gameId: String) extends GameResponse
+  final case class LobbyCreated(gameId: GameId, host: Player) extends GameResponse
+  final case class LobbyJoined(gameId: GameId, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
+  final case class LobbyLeft(gameId: GameId, message: String) extends GameResponse
+  final case class GameStarted(gameId: GameId) extends GameResponse
   final case class LobbiesListed(lobbies: List[LobbyMetadata]) extends GameResponse
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
@@ -89,17 +88,19 @@ object GameManager {
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games) =>
-        val restoredActors = games.map { case (gameId, (gameType, game)) =>
-          val gameActor = gameType match {
-            case GameType.TicTacToe =>
-              context.spawn(
-                TicTacToeActor.fromSnapshot(gameId, game.asInstanceOf[TicTacToe], persistActor, context.self),
-                s"game-$gameId"
-              ).unsafeUpcast[GameActor.GameCommand]
+        val restoredActors = games.flatMap { case (gameId, (gameType, game)) =>
+          GameRegistry.forType(gameType) match {
+            case Some(GameModuleBundle(_, gameActor)) =>
+              val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self)
+              val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+              Some(gameId -> (gameType, actorRef))
+            case None =>
+              context.log.warn(s"No GameModule registered for type: $gameType — skipping restore for $gameId")
+              None
           }
-          gameId -> gameActor
         }
-        context.log.info(s"Initialized ${games.size} game actors from snapshots")
+
+        context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
 
         // tell the listener we are ready
         onReady.foreach(_ ! Ready)
@@ -118,8 +119,8 @@ object GameManager {
     * Accepts new game creation and forwards commands to existing game actors.
     */
   private def running(
-      lobbies: Map[String, LobbyMetadata],
-      games: Map[String, ActorRef[GameActor.GameCommand]],
+      lobbies: Map[GameId, LobbyMetadata],
+      games: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
       persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
@@ -188,29 +189,35 @@ object GameManager {
         case StartGame(gameId, playerId, replyTo) =>
           lobbies.get(gameId) match {
             case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
-              val (game, behavior) = metadata.gameType match {
-                case GameType.TicTacToe =>
+              GameRegistry.forType(metadata.gameType) match {
+                case Some(GameModuleBundle(_, gameActor)) =>
                   val players = metadata.players.keySet.toSeq
-                  TicTacToeActor.create(gameId, players, persistActor, context.self)
+                  val (game, behavior) = gameActor.create(gameId, players, persistActor, context.self)
+
+                  val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+
+                  // Persist immediately after creation; no need to wait for acknowledgement
+                  persistActor ! PersistenceProtocol.SaveSnapshot(
+                    gameId,
+                    metadata.gameType,
+                    game.asInstanceOf[Game[_, _, _, _, _]],
+                    replyTo = context.system.ignoreRef
+                  )
+
+                  context.log.info(s"Created and persisted new game with gameId: $gameId")
+                  replyTo ! GameStarted(gameId)
+
+                  running(
+                    lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
+                    games + (gameId -> ((metadata.gameType, actorRef))),
+                    persistActor
+                  )
+
+                case None =>
+                  context.log.warn(s"No GameModule registered for type: ${metadata.gameType}")
+                  replyTo ! ErrorResponse(s"Unsupported game type: ${metadata.gameType}")
+                  Behaviors.same
               }
-              val actor = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-
-              // Persist immediately after creation; no need to wait for acknowledgement
-              persistActor ! PersistenceProtocol.SaveSnapshot(
-                gameId,
-                metadata.gameType,
-                game,
-                replyTo = context.system.ignoreRef
-              )
-
-              context.log.info(s"Created and persisted new game with gameId: $gameId")
-              replyTo ! GameStarted(gameId)
-
-              running(
-                lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
-                games + (gameId -> actor),
-                persistActor
-              )
 
             case Some(_) =>
               replyTo ! ErrorResponse("Only host can start, and game must be ready to start")
@@ -256,30 +263,29 @@ object GameManager {
               Behaviors.same
           }
 
-        case ForwardToGame(gameId, msg, replyToOpt) =>
+        case RunGameOperation(gameId, op, replyTo) =>
           games.get(gameId) match {
-            case Some(gameActor) =>
-              replyToOpt.foreach { replyTo =>
-                // TODO: push this reply adapter up to the caller and remove specific message-handling from here
-                val adaptedRef: ActorRef[Either[GameError, GameState]] =
-                  context.messageAdapter { response =>
-                    WrappedGameResponse(response, replyTo)
+            case Some((gameType, gameActor)) =>
+              val adaptedRef: ActorRef[Either[GameError, GameState]] =
+                context.messageAdapter(response => WrappedGameResponse(response, replyTo))
+
+              GameRegistry.forType(gameType) match {
+                case Some(GameModuleBundle(module, _)) =>
+                  module.toGameCommand(op, adaptedRef) match {
+                    case Right(cmd) => gameActor ! cmd
+                    case Left(err)  => replyTo ! ErrorResponse(err.message)
                   }
 
-                val actualCommand = msg match {
-                  case TicTacToeActor.MakeMove(p, l, _) =>
-                    TicTacToeActor.MakeMove(p, l, adaptedRef)
-                  case TicTacToeActor.GetState(_) =>
-                    TicTacToeActor.GetState(adaptedRef)
-                }
-
-                gameActor ! actualCommand
+                case None =>
+                  context.log.warn(s"No GameModule registered for type: $gameType")
+                  replyTo ! ErrorResponse(s"Unsupported game type: $gameType")
               }
 
             case None =>
-              context.log.warn(s"No game found with gameId $gameId to forward message $msg")
-              replyToOpt.foreach(_ ! ErrorResponse(s"No game found with gameId $gameId"))
+              context.log.warn(s"No game found with gameId $gameId to forward operation $op")
+              replyTo ! ErrorResponse(s"No game found with gameId $gameId")
           }
+
           Behaviors.same
 
         case WrappedGameResponse(response, replyTo) =>

@@ -12,7 +12,7 @@ import doobie.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -41,7 +41,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
   "PostgresGameRepository" should {
     "save then load a TicTacToe game" in {
-      val gameId = "g1"
+      val gameId: GameId = UUID.randomUUID()
       val alice: PlayerId = UUID.randomUUID()
       val bob: PlayerId = UUID.randomUUID()
       val game = TicTacToe.empty(alice, bob)
@@ -51,15 +51,15 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
     }
 
     "return None for a missing game" in {
-      gameRepo.loadGame("missing", GameType.TicTacToe).unsafeRunSync() shouldBe None
+      gameRepo.loadGame(UUID.randomUUID(), GameType.TicTacToe).unsafeRunSync() shouldBe None
     }
 
     "return None for a game with invalid JSON" in {
       val invalidJson = "invalid-json"
-      val gameId = "bad-json"
+      val gameId: GameId = UUID.randomUUID()
       val insert = sql"""
         INSERT INTO games (game_id, game_type, game_state)
-        VALUES ($gameId, 'TicTacToe', $invalidJson)
+        VALUES (${gameId.toString}, 'TicTacToe', $invalidJson)
       """.update.run.transact(xa)
 
       insert.unsafeRunSync()
@@ -68,27 +68,36 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
     }
 
     "list all saved games" in {
-      val carl: PlayerId = UUID.randomUUID()
-      val david: PlayerId = UUID.randomUUID()
-      gameRepo.saveGame("g2", GameType.TicTacToe, TicTacToe.empty(carl, david)).unsafeRunSync()
+      val alice: PlayerId = UUID.randomUUID()
+      val bob: PlayerId = UUID.randomUUID()
+      val gameId1 = UUID.randomUUID()
+      val gameId2 = UUID.randomUUID()
+      gameRepo.saveGame(gameId1, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
+      gameRepo.saveGame(gameId2, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
 
       val all = gameRepo.loadAllGames().unsafeRunSync()
-      all.keySet should contain theSameElementsAs Set("g1", "g2")
+      (all.keySet should contain).allOf(gameId1, gameId2)
     }
 
     "skip corrupted or unknown game types when loading all games" in {
-      val badTypeGameId = "bad-type"
-      val corruptedGameId = "bad-json-2"
-      val validGameId = "g3"
+      val badTypeGameId: GameId = UUID.randomUUID()
+      val invalidGameId: String = "abc"
+      val corruptedGameId: GameId = UUID.randomUUID()
+      val validGameId: GameId = UUID.randomUUID()
       val x: PlayerId = UUID.randomUUID()
       val y: PlayerId = UUID.randomUUID()
       val validGame = TicTacToe.empty(x, y)
 
       // Insert valid, corrupted, and unknown-type rows
       val insertAll = List(
-        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($badTypeGameId, 'UnknownGame', '{}')""",
-        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($corruptedGameId, 'TicTacToe', 'corrupted-json')""",
-        sql"""INSERT INTO games (game_id, game_type, game_state) VALUES ($validGameId, 'TicTacToe', ${validGame.asJson.noSpaces})"""
+        sql"""INSERT INTO games (game_id, game_type, game_state)
+              VALUES (${badTypeGameId.toString}, 'UnknownGame', '{}')""",
+        sql"""INSERT INTO games (game_id, game_type, game_state)
+              VALUES (${invalidGameId}, 'TicTacToe', ${validGame.asJson.noSpaces})""",
+        sql"""INSERT INTO games (game_id, game_type, game_state)
+              VALUES (${corruptedGameId.toString}, 'TicTacToe', 'corrupted-json')""",
+        sql"""INSERT INTO games (game_id, game_type, game_state)
+              VALUES (${validGameId.toString}, 'TicTacToe', ${validGame.asJson.noSpaces})"""
       ).traverse_(_.update.run).transact(xa)
 
       insertAll.unsafeRunSync()
@@ -96,6 +105,7 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
       val result = gameRepo.loadAllGames().unsafeRunSync()
       result.keySet should contain(validGameId)
       result.keySet should not contain badTypeGameId
+      result.keySet should not contain invalidGameId
       result.keySet should not contain corruptedGameId
     }
   }

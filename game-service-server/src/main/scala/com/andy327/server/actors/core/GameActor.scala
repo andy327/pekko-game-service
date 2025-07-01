@@ -2,7 +2,7 @@ package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameType, GameTypeTag, PlayerId}
+import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.GameState
 
@@ -22,22 +22,24 @@ object GameActor {
  */
 trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
 
+  type Command <: GameActor.GameCommand
+
   /** Resolves to the compile-time `GameType` matching `G` via an implicit tag. */
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
 
   /** Spawn a fresh game actor given players, ids, etc. */
   def create(
-      gameId: String,
+      gameId: GameId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
-  ): (G, Behavior[_])
+  ): (G, Behavior[Command])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database. */
   def fromSnapshot(
-      gameId: String,
+      gameId: GameId,
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
-  ): Behavior[_]
+  ): Behavior[Command]
 }

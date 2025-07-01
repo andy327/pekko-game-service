@@ -7,7 +7,7 @@ import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpRespo
 import spray.json._
 
 import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined}
+import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameStarted, LobbyCreated, LobbyJoined}
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -62,9 +62,14 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val lobbyJoinedFormat: RootJsonFormat[LobbyJoined] = jsonFormat3(LobbyJoined.apply)
 
+  implicit val gameStartFormat: RootJsonFormat[GameStarted] = jsonFormat1(GameStarted.apply)
+
   implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
 
-  implicit val ticTacToeMoveFormat: RootJsonFormat[TicTacToeMove] = jsonFormat2(TicTacToeMove.apply)
+  // Tic-tac-toe
+
+  implicit val ticTacToeMoveRequestFormat: RootJsonFormat[TicTacToeMoveRequest] =
+    jsonFormat2(TicTacToeMoveRequest.apply)
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 

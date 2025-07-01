@@ -9,7 +9,7 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, PlayerId}
+import com.andy327.model.core.{Game, GameId, PlayerId}
 import com.andy327.model.tictactoe.{GameError, Location, O, TicTacToe, X}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -28,7 +28,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
   "TicTacToeActor" should {
     "return an empty 3×3 board on GetState" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-1", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -51,7 +51,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
 
       val thrown = intercept[IllegalArgumentException] {
-        TicTacToeActor.create("bad-game", Seq(alice), persistProbe.ref, dummyGameManager)
+        TicTacToeActor.create(UUID.randomUUID(), Seq(alice), persistProbe.ref, dummyGameManager)
       }
 
       thrown.getMessage should include("Tic-Tac-Toe needs exactly two players")
@@ -74,7 +74,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
 
       // build behavior from snapshot and spawn it
-      val behavior = TicTacToeActor.fromSnapshot("restored-game", snapshotState, persistProbe.ref, dummyGameManager)
+      val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), snapshotState, persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       // ask for state and verify it matches the snapshot
@@ -106,7 +106,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
 
       // build behavior from snapshot and spawn it
-      val behavior = TicTacToeActor.fromSnapshot("dummy-game", dummyGame, persistProbe.ref, dummyGameManager)
+      val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), dummyGame, persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       persistProbe.expectTerminated(actor)
@@ -114,7 +114,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "apply a valid move and switch currentPlayer" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-2", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -145,7 +145,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a move when it is not the player's turn" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-3", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -160,7 +160,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "reject a move from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-4", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -172,7 +172,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject an invalid move" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-5", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -198,7 +198,8 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         isDraw = true
       )
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val actor = spawn(TicTacToeActor.fromSnapshot("game-6", completedGame, persistProbe.ref, dummyGameManager))
+      val actor =
+        spawn(TicTacToeActor.fromSnapshot(UUID.randomUUID(), completedGame, persistProbe.ref, dummyGameManager))
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -211,7 +212,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "log success and continue when SnapShotSaved succeeds" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-7", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -235,7 +236,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "log error and continue when SnapshotSaved fails" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-8", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       // Send SnapshotSaved failure message
@@ -252,7 +253,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "log success and continue when SnapshotLoaded succeeds" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-9", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       // Simulate successful snapshot load (with no restored game)
@@ -268,7 +269,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "log error and continue when SnapshotLoaded fails" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-10", Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
       // Simulate a snapshot load failure
@@ -286,7 +287,9 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "notify the GameManager when a game completes" in {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val (_, behavior) = TicTacToeActor.create("game-11", Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
+      val gameId: GameId = UUID.randomUUID()
+      val (_, behavior) =
+        TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
       val actor = spawn(behavior)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -306,7 +309,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       // Confirm GameManager was notified
       val completedMsg = gameManagerProbe.receiveMessage()
-      completedMsg shouldBe GameManager.GameCompleted("game-11", GameLifecycleStatus.Completed)
+      completedMsg shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
     }
   }
 }

@@ -11,28 +11,28 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameType, PlayerId}
-import com.andy327.model.tictactoe.{GameError, Location, TicTacToe}
+import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.actors.tictactoe.TicTacToeActor
+import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
-import com.andy327.server.http.json.{GameState, GameStateConverters}
+import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.{GameLifecycleStatus, Player}
 
 /** In-memory GameRepository for unit tests */
-class InMemRepo(initialGames: Map[String, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
+class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
   private val db = scala.collection.concurrent.TrieMap(initialGames.toSeq: _*)
 
   def initialize(): IO[Unit] = IO.unit
 
-  def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
+  def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] =
     IO(db.update(id, (tpe, g)))
 
-  def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] =
+  def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] =
     IO(db.get(id).collect { case (`tpe`, g) => g })
 
-  def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
+  def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     IO(db.toMap)
 }
 
@@ -49,9 +49,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val readyProbe = TestProbe[GameManager.Ready.type]()
       val failingRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] =
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
           IO.raiseError(new RuntimeException("DB failure") with NoStackTrace)
       }
 
@@ -64,9 +64,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       val slowRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def saveGame(id: String, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadGame(id: String, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def loadAllGames(): IO[Map[String, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.sleep(1.second) *> IO.pure(Map.empty)
       }
       val alice = Player("alice")
 
@@ -80,21 +80,20 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Eventually, after restore, the stashed message is processed
       val response = responseProbe.expectMessageType[GameManager.LobbyCreated](2.seconds)
-      assert(response.gameId.nonEmpty)
+      response.gameId.toString should not be empty
     }
 
     "restore saved games from the game repository on startup" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameId = "restored-game"
+      val gameId: GameId = UUID.randomUUID()
       val restoredGame = TicTacToe.empty(alice, bob)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, restoredGame)))
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
-      val gameStateProbe = TestProbe[Either[GameError, GameState]]()
       val gameResponseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.ForwardToGame(gameId, TicTacToeActor.GetState(gameStateProbe.ref), Some(gameResponseProbe.ref))
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, gameResponseProbe.ref)
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
       response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
     }
@@ -127,7 +126,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
 
       val response = responseProbe.expectMessageType[GameManager.LobbyCreated]
-      assert(response.gameId.nonEmpty)
+      response.gameId.toString should not be empty
 
       gm ! GameManager.GetLobbyInfo(response.gameId, responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
@@ -138,14 +137,15 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "return an error when retrieving metadata for a nonexistent lobby" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GetLobbyInfo("nonexistent", responseProbe.ref)
+      gm ! GameManager.GetLobbyInfo(nonexistentGameId, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No game with gameId: nonexistent")
+      error.message should include("No game with gameId")
     }
 
     "allow a second player to join a lobby and change its status to ReadyToStart" in {
@@ -190,11 +190,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.JoinLobby("nonexistent", alice, responseProbe.ref)
+      gm ! GameManager.JoinLobby(nonexistentGameId, alice, responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
@@ -303,12 +304,13 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.StartGame("nonexistent", alice.id, responseProbe.ref)
+      gm ! GameManager.StartGame(nonexistentGameId, alice.id, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such game")
     }
@@ -376,13 +378,14 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "handle trying to mark a nonexistent game as completed" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       // game actor sends a GameCompleted message to the GameManager
-      gm ! GameManager.GameCompleted("nonexistent", GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(nonexistentGameId, GameLifecycleStatus.Completed)
 
       // no-op: behavior remains the same and GameManager can continue receiving messages
       gm ! GameManager.ListLobbies(responseProbe.ref)
@@ -423,14 +426,45 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.LeaveLobby("nonexistent", alice, responseProbe.ref)
+      gm ! GameManager.LeaveLobby(nonexistentGameId, alice, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No such lobby")
+    }
+
+    "forward a valid move to a game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+
+      // Bob joins
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      val validMove = MovePayload.TicTacToeMove(0, 0)
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.MakeMove(alice.id, validMove), responseProbe.ref)
+
+      val updatedState = responseProbe.expectMessageType[GameManager.GameStatus]
+
+      val view = updatedState.state.asInstanceOf[TicTacToeState]
+      view.board(0)(0) shouldBe "X"
+      view.currentPlayer shouldBe "O"
     }
 
     "return an error when forwarding an invalid move to a game" in {
@@ -453,11 +487,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
-      // Set up probe to receive the intermediate GameActor response
-      val intermediateProbe = TestProbe[Either[GameError, GameState]]()
-
-      val invalidCommand = TicTacToeActor.MakeMove(alice.id, Location(99, 99), intermediateProbe.ref)
-      gm ! GameManager.ForwardToGame(gameId, invalidCommand, Some(responseProbe.ref))
+      val invalidMove = MovePayload.TicTacToeMove(99, 99)
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.MakeMove(alice.id, invalidMove), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("out of bounds")
@@ -466,11 +497,15 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
     "return an error when forwarding to a nonexistent game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val nonexistentGameId: GameId = UUID.randomUUID()
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ForwardToGame("nonexistent", "noop-msg", Some(responseProbe.ref))
+
+      val move = MovePayload.TicTacToeMove(0, 0)
+      gm ! GameManager.RunGameOperation(nonexistentGameId, GameOperation.MakeMove(alice.id, move), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game found with gameId")
