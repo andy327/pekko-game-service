@@ -4,7 +4,7 @@ import io.circe.syntax._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
 import org.apache.pekko.http.scaladsl.server.Directives._
-import org.apache.pekko.http.scaladsl.server.{AuthorizationFailedRejection, Route}
+import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -24,18 +24,21 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
   "JwtPlayerDirectives.authenticatePlayer" should {
     "reject if Authorization header is missing" in
       Get("/") ~> testRoute ~> check {
-        rejections should contain(AuthorizationFailedRejection)
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Missing Authorization header")
       }
 
     "reject if Authorization header is not a Bearer token" in
       Get("/").withHeaders(RawHeader("Authorization", "Token abc")) ~> testRoute ~> check {
-        rejections should contain(AuthorizationFailedRejection)
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Missing Authorization header")
       }
 
     "reject if JWT is invalid" in {
       val badToken = "invalid.token"
       Get("/").withHeaders(RawHeader("Authorization", s"Bearer $badToken")) ~> testRoute ~> check {
-        rejections should contain(AuthorizationFailedRejection)
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Token is invalid or expired")
       }
     }
 
@@ -43,7 +46,8 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
       val badJson = "not-a-json".asJson.noSpaces
       val token = JwtCirce.encode(badJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
       Get("/").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> testRoute ~> check {
-        rejections should contain(AuthorizationFailedRejection)
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Token payload could not be parsed")
       }
     }
 
@@ -51,7 +55,8 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
       val userContext = UserContext(id = "not-a-uuid", name = "fake")
       val token = JwtCirce.encode(userContext.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
       Get("/").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> testRoute ~> check {
-        rejections should contain(AuthorizationFailedRejection)
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Invalid player ID or name")
       }
     }
 

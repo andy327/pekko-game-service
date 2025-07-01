@@ -3,12 +3,15 @@ package com.andy327.server.http.auth
 import scala.util.{Failure, Success}
 
 import io.circe.parser.decode
+import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
+import org.apache.pekko.http.scaladsl.model.StatusCodes
+import org.apache.pekko.http.scaladsl.server.Directive1
 import org.apache.pekko.http.scaladsl.server.Directives._
-import org.apache.pekko.http.scaladsl.server.{AuthorizationFailedRejection, Directive1}
 import pdi.jwt._
 
 import com.andy327.server.auth.UserContext
 import com.andy327.server.config.JwtConfig.secretKey
+import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.Player
 
 /**
@@ -46,16 +49,16 @@ object JwtPlayerDirectives {
               case Right(userContext) =>
                 // Parse the player id string into a UUID, then build a Player
                 Player.fromJWT(userContext) match {
-                  case Right(player)   => provide(player)
-                  case Left(rejection) => reject(rejection)
+                  case Right(player) => provide(player)
+                  case Left(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid player ID or name"))
                 }
-              case Left(_) => reject(AuthorizationFailedRejection)
+              case Left(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Token payload could not be parsed"))
             }
 
-          case Failure(_) => reject(AuthorizationFailedRejection)
+          case Failure(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Token is invalid or expired"))
         }
 
       // If no Authorization header is present or it doesn't start with Bearer
-      case _ => reject(AuthorizationFailedRejection)
+      case _ => complete(StatusCodes.Unauthorized -> Map("error" -> "Missing Authorization header"))
     }
 }

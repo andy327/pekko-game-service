@@ -33,12 +33,12 @@ object GameLifecycleStatus {
   /** Indicates that the game has started and is currently in progress. */
   case object InProgress extends GameLifecycleStatus
 
-  /** Trait representing any terminal game state — where the game has ended and can no longer be interacted with. */
+  /** Trait representing any terminal game state - where the game has ended and can no longer be interacted with. */
   sealed trait GameEnded extends GameLifecycleStatus
 
-  /** The game ended normally — either via win or draw. */
+  /** The game ended normally - either via win or draw. */
   case object Completed extends GameEnded
 
-  /** The game was cancelled before completion — due to players leaving, disconnection, or host termination. */
+  /** The game was cancelled before completion - due to players leaving, disconnection, or host termination. */
   case object Cancelled extends GameEnded
 }

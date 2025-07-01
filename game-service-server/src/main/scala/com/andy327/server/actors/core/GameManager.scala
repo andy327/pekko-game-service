@@ -147,7 +147,7 @@ object GameManager {
               }
 
             case Some(_) =>
-              replyTo ! ErrorResponse("Cannot join — game already started or ended")
+              replyTo ! ErrorResponse("Cannot join - game already started or ended")
               Behaviors.same
 
             case None =>
