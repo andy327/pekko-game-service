@@ -72,7 +72,7 @@ class AuthRoutes {
     /**
      * @route GET /auth/whoami
      * @auth Requires Bearer token in the Authorization header
-     * @response 200 JSON object with `id` and `name` of the authenticated player
+     * @response 200 JSON object with the authenticated player's `id` (UUID) and `name` (String)
      * @response 401 If the Authorization header is missing, the token is invalid or expired,
      *               the payload cannot be decoded into a `UserContext`, or the player ID is malformed
      *
@@ -85,8 +85,7 @@ class AuthRoutes {
     path("whoami") {
       authenticatePlayer { player =>
         get {
-          // complete(player)
-          complete(Map("id" -> player.id.toString, "name" -> player.name))
+          complete(player)
         }
       }
     }
