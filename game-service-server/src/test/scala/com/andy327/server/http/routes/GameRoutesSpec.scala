@@ -51,19 +51,6 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   val carlHeader: RawHeader = RawHeader("Authorization", s"Bearer ${createTestToken(carlPlayer)}")
 
   "GameRoutes" when {
-    "initialized with a gameType missing from the registry" should {
-      "throw an IllegalArgumentException with a helpful message" in {
-        val dummySystem = ActorSystem(Behaviors.empty[GameManager.Command], "MissingModuleTestSystem")
-        val fakeProvider: GameModuleProvider = _ => None
-
-        val exception = intercept[IllegalArgumentException] {
-          new GameRoutes(GameType.TicTacToe, dummySystem, fakeProvider)
-        }
-
-        exception.getMessage should include("No module registered for TicTacToe")
-      }
-    }
-
     "handling TicTacToe" should {
       "submit a move to a valid game" in {
         val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {

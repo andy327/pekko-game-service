@@ -21,16 +21,13 @@ case class GameModuleBundle(module: GameModule, actor: GameActor[_, _])
  */
 object GameRegistry {
 
-  // All supported games registered here
-  private val registry: Map[GameType, GameModuleBundle] = Map(
-    GameType.TicTacToe -> GameModuleBundle(TicTacToeModule, TicTacToeActor)
-  )
-
   /**
    * Retrieves the GameModuleBundle associated with a given GameType.
    *
    * @param gameType the game type to look up
    * @return an optional bundle containing the game module and actor implementation
    */
-  def forType(gameType: GameType): Option[GameModuleBundle] = registry.get(gameType)
+  def forType(gameType: GameType): GameModuleBundle = gameType match {
+    case GameType.TicTacToe => GameModuleBundle(TicTacToeModule, TicTacToeActor)
+  }
 }
