@@ -1,0 +1,31 @@
+coverage:
+  status:
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        informational: true
+        if_not_found: success
+    project:
+      default:
+        target: 90%
+        threshold: 1%
+        informational: true
+        if_not_found: success
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+  after_n_builds: 1
+
+flags:
+  model:
+    paths:
+      - game-service-model/src/main/
+  persistence:
+    paths:
+      - game-service-persistence/src/main/
+  server:
+    paths:
+      - game-service-server/src/main/
