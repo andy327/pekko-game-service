@@ -7,7 +7,7 @@ import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpRespo
 import spray.json._
 
 import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameStarted, LobbyCreated, LobbyJoined}
+import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameStarted, LobbyCreated, LobbyJoined, LobbyLeft}
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -61,6 +61,8 @@ object JsonProtocol extends DefaultJsonProtocol {
   implicit val lobbyCreatedFormat: RootJsonFormat[LobbyCreated] = jsonFormat2(LobbyCreated.apply)
 
   implicit val lobbyJoinedFormat: RootJsonFormat[LobbyJoined] = jsonFormat3(LobbyJoined.apply)
+
+  implicit val lobbyLeftFormat: RootJsonFormat[LobbyLeft] = jsonFormat2(LobbyLeft.apply)
 
   implicit val gameStartFormat: RootJsonFormat[GameStarted] = jsonFormat1(GameStarted.apply)
 

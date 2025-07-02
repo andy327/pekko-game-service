@@ -18,7 +18,8 @@ import com.andy327.server.actors.core.GameManager.{
   LobbiesListed,
   LobbyCreated,
   LobbyInfo,
-  LobbyJoined
+  LobbyJoined,
+  LobbyLeft
 }
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
@@ -73,7 +74,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           authenticatePlayer { player =>
             onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateLobby(gameType, player, replyTo))) {
               case created: LobbyCreated => complete(created)
-              case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+              case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
             }
           }
         }
@@ -116,7 +117,28 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
               onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
                 case joined: LobbyJoined => complete(joined)
                 case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
-                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              }
+            }
+          }
+        } ~
+        /**
+         * @route POST /lobby/{gameId}/leave
+         * @auth Requires Bearer token
+         * @pathParam gameId The ID of the lobby to leave
+         * @response 200 LobbyLeft with gameId and message
+         * @response 404 If the specified lobby does not exist
+         * @response 500 If an unexpected error occurs while leaving the lobby
+         *
+         * Leaves an existing lobby using the authenticated player.
+         */
+        path("leave") {
+          post {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(gameId, player, replyTo))) {
+                case left @ LobbyLeft(_, _) => complete(left)
+                case ErrorResponse(msg)     => complete(StatusCodes.NotFound -> msg)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }
           }

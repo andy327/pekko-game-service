@@ -416,6 +416,11 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val bobLeft = responseProbe.expectMessageType[GameManager.LobbyLeft]
       bobLeft.message should include("left lobby")
 
+      // Bob tries to leave again
+      gm ! GameManager.LeaveLobby(gameId, bob, responseProbe.ref)
+      val bobLeft2 = responseProbe.expectMessageType[GameManager.LobbyLeft]
+      bobLeft2.message should include("already absent")
+
       // Alice leaves
       gm ! GameManager.LeaveLobby(gameId, alice, responseProbe.ref)
       val aliceLeft = responseProbe.expectMessageType[GameManager.LobbyLeft]

@@ -165,14 +165,18 @@ object GameManager {
 
               val newMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
 
-              if (player.id == metadata.hostId) {
+              if (!metadata.players.contains(player.id)) {
+                context.log.info(s"Player ${player.name} already absent from lobby $gameId")
+                replyTo ! LobbyLeft(gameId, s"${player.name} already absent from lobby $gameId")
+                Behaviors.same
+              } else if (player.id == metadata.hostId) {
                 val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
-                context.log.info(s"Host ($player.name) left lobby $gameId. Cancelling game...")
+                context.log.info(s"Host (${player.name}) left lobby $gameId. Cancelling game...")
                 replyTo ! LobbyLeft(gameId, s"Lobby $gameId ended - host left")
                 running(lobbies + (gameId -> cancelled), games, persistActor)
               } else {
-                context.log.info(s"Player $player.name left lobby $gameId")
-                replyTo ! LobbyLeft(gameId, s"$player.name left lobby $gameId")
+                context.log.info(s"Player ${player.name} left lobby $gameId")
+                replyTo ! LobbyLeft(gameId, s"${player.name} left lobby $gameId")
                 running(lobbies + (gameId -> newMetadata), games, persistActor)
               }
 

@@ -54,6 +54,12 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         host.id shouldBe aliceId
       }
 
+    "reject creating a lobby with an invalid game type" in
+      Post("/lobby/create/unknowngame").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Invalid game type")
+      }
+
     "join a lobby with a second player" in {
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
@@ -79,6 +85,56 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.BadRequest
       }
     }
+
+    "leave a lobby" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      // Bob leaves
+      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+        val leftLobby = responseAs[GameManager.LobbyLeft]
+        leftLobby.gameId shouldBe gameId
+      }
+
+      // Bob tries to leave again (OK)
+      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+        val leftLobby = responseAs[GameManager.LobbyLeft]
+        leftLobby.gameId shouldBe gameId
+      }
+
+      // Alice (host) leaves
+      Post(s"/lobby/$gameId/leave").withHeaders(aliceHeader) ~> routes ~> check {
+        val leftLobby = responseAs[GameManager.LobbyLeft]
+        leftLobby.gameId shouldBe gameId
+      }
+
+      // Game should be cancelled
+      Get(s"/lobby/$gameId") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val response = responseAs[LobbyMetadata]
+        response.status shouldBe GameLifecycleStatus.Cancelled
+      }
+    }
+
+    "reject leaving a lobby if the lobby does not exist" in {
+      val fakeId = UUID.randomUUID()
+
+      Post(s"/lobby/$fakeId/leave").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.NotFound
+        responseAs[String] should include("No such lobby")
+      }
+    }
+
+    "reject leaving a lobby if the gameId is not a valid UUID" in
+      Post("/lobby/not-a-uuid/leave").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Invalid UUID for game")
+      }
 
     "start a game after a lobby has enough players" in {
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
@@ -126,13 +182,13 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "return 400 if the gameId is not a valid UUID" in
+    "reject a lobby info request if the gameId is not a valid UUID" in
       Get("/lobby/not-a-uuid") ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
         responseAs[String] should include("Invalid UUID for game")
       }
 
-    "return 404 if the lobby does not exist" in {
+    "reject a lobby info request if the lobby does not exist" in {
       val fakeId = UUID.randomUUID()
 
       Get(s"/lobby/$fakeId") ~> routes ~> check {
@@ -154,12 +210,6 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "return 400 when trying to create a lobby with an invalid game type" in
-      Post("/lobby/create/unknowngame").withHeaders(aliceHeader) ~> routes ~> check {
-        status shouldBe StatusCodes.BadRequest
-        responseAs[String] should include("Invalid game type")
-      }
-
     "return 500 for unexpected responses" in {
       val fakeId = UUID.randomUUID()
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
@@ -168,6 +218,10 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           Behaviors.same
 
         case GameManager.JoinLobby(_, _, replyTo) =>
+          replyTo ! GameManager.Ready // triggers /join fallback
+          Behaviors.same
+
+        case GameManager.LeaveLobby(_, _, replyTo) =>
           replyTo ! GameManager.Ready // triggers /join fallback
           Behaviors.same
 
@@ -193,6 +247,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         ("description", "request"),
         ("POST /lobby/create", Post("/lobby/create/tictactoe").withHeaders(aliceHeader)),
         ("POST /lobby/join", Post(s"/lobby/$fakeId/join").withHeaders(aliceHeader)),
+        ("POST /lobby/leave", Post(s"/lobby/$fakeId/leave").withHeaders(aliceHeader)),
         ("POST /lobby/start", Post(s"/lobby/$fakeId/start").withHeaders(aliceHeader)),
         ("GET /lobby", Get(s"/lobby/$fakeId").withHeaders(aliceHeader)),
         ("GET /lobby/list", Get("/lobby/list"))
