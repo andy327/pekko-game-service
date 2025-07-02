@@ -17,6 +17,7 @@ import com.andy327.server.actors.core.GameManager.{
   GameStarted,
   LobbiesListed,
   LobbyCreated,
+  LobbyInfo,
   LobbyJoined
 }
 import com.andy327.server.http.auth.JwtPlayerDirectives._
@@ -42,6 +43,21 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   val routes: Route = pathPrefix("lobby") {
 
     /**
+     * @route GET /lobby/list
+     * @response 200 List of LobbyMetadata objects representing all open lobbies
+     * @response 500 If an unexpected error occurs while retrieving lobby list
+     *
+     * Lists metadata for all open lobbies.
+     */
+    path("list") {
+      get {
+        onSuccess(system.ask[GameResponse](GameManager.ListLobbies)) {
+          case LobbiesListed(lobbies) => complete(lobbies)
+          case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+        }
+      }
+    } ~
+    /**
      * @route POST /lobby/create/{gameType}
      * @pathParam gameType The type of game to create a lobby for (e.g., "tictactoe")
      * @auth Requires Bearer token
@@ -63,66 +79,69 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         }
       }
     } ~
-    /**
-     * @route POST /lobby/{gameId}/join
-     * @auth Requires Bearer token
-     * @pathParam gameId The ID of the lobby to join
-     * @response 200 LobbyJoined with metadata for the joined lobby
-     * @response 400 If the join request is invalid (e.g., already joined, lobby full)
-     * @response 404 If the specified lobby does not exist
-     * @response 500 If an unexpected error occurs while joining the lobby
-     *
-     * Joins an existing lobby using the authenticated player.
-     */
-    path(Segment / "join") { idStr =>
-      parseGameId(idStr) { gameId =>
-        post {
-          authenticatePlayer { player =>
-            onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
-              case joined: LobbyJoined => complete(joined)
-              case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
-              case other               => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+    pathPrefix(Segment) { gameIdStr =>
+      parseGameId(gameIdStr) { gameId =>
+        /**
+         * @route GET /lobby/{gameId}
+         * @pathParam gameId The ID of the lobby to retrieve
+         * @response 200 LobbyMetadata if found
+         * @response 404 If the specified lobby does not exist
+         * @response 500 If an unexpected error occurs while retrieving metadata
+         *
+         * Fetches metadata for a specific lobby.
+         */
+        pathEndOrSingleSlash {
+          get {
+            onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(gameId, replyTo))) {
+              case LobbyInfo(metadata) => complete(metadata)
+              case ErrorResponse(msg)  => complete(StatusCodes.NotFound -> msg)
+              case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
             }
           }
-        }
-      }
-    } ~
-    /**
-     * @route POST /lobby/{gameId}/start
-     * @auth Requires Bearer token
-     * @pathParam gameId The ID of the lobby to start
-     * @response 200 GameStarted with the new game ID
-     * @response 400 If the game cannot be started (e.g., not enough players, not host)
-     * @response 404 If the lobby does not exist
-     * @response 500 If an unexpected error occurs while starting the game
-     *
-     * Starts the game from the given lobby. Must be called by the host.
-     */
-    path(Segment / "start") { idStr =>
-      parseGameId(idStr) { gameId =>
-        post {
-          authenticatePlayer { player =>
-            onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
-              case gs @ GameStarted(_)    => complete(gs)
-              case ErrorResponse(message) => complete(StatusCodes.BadRequest -> message)
-              case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+        } ~
+        /**
+         * @route POST /lobby/{gameId}/join
+         * @auth Requires Bearer token
+         * @pathParam gameId The ID of the lobby to join
+         * @response 200 LobbyJoined with metadata for the joined lobby
+         * @response 400 If the join request is invalid (e.g., already joined, lobby full)
+         * @response 404 If the specified lobby does not exist
+         * @response 500 If an unexpected error occurs while joining the lobby
+         *
+         * Joins an existing lobby using the authenticated player.
+         */
+        path("join") {
+          post {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
+                case joined: LobbyJoined => complete(joined)
+                case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
+                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected: $other")
+              }
             }
           }
-        }
-      }
-    } ~
-    /**
-     * @route GET /lobby/list
-     * @response 200 List of LobbyMetadata objects representing all open lobbies
-     * @response 500 If an unexpected error occurs while retrieving lobby list
-     *
-     * Lists all open lobbies.
-     */
-    path("list") {
-      get {
-        onSuccess(system.ask[GameResponse](GameManager.ListLobbies)) {
-          case LobbiesListed(lobbies) => complete(lobbies)
-          case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+        } ~
+        /**
+         * @route POST /lobby/{gameId}/start
+         * @auth Requires Bearer token
+         * @pathParam gameId The ID of the lobby to start
+         * @response 200 GameStarted with the new game ID
+         * @response 400 If the game cannot be started (e.g., not enough players, not host)
+         * @response 404 If the lobby does not exist
+         * @response 500 If an unexpected error occurs while starting the game
+         *
+         * Starts the game from the given lobby. Must be called by the host.
+         */
+        path("start") {
+          post {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
+                case gs @ GameStarted(_) => complete(gs)
+                case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
+                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              }
+            }
+          }
         }
       }
     }

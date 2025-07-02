@@ -16,10 +16,11 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.{LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -105,6 +106,41 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
+    "return metadata for a valid lobby" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      val expectedLobbyMetadata = LobbyMetadata(
+        gameId = gameId,
+        gameType = GameType.TicTacToe,
+        players = Map(aliceId -> alicePlayer),
+        hostId = aliceId,
+        status = GameLifecycleStatus.WaitingForPlayers
+      )
+
+      Get(s"/lobby/$gameId") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val response = responseAs[LobbyMetadata]
+        response shouldBe expectedLobbyMetadata
+      }
+    }
+
+    "return 400 if the gameId is not a valid UUID" in
+      Get("/lobby/not-a-uuid") ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Invalid UUID for game")
+      }
+
+    "return 404 if the lobby does not exist" in {
+      val fakeId = UUID.randomUUID()
+
+      Get(s"/lobby/$fakeId") ~> routes ~> check {
+        status shouldBe StatusCodes.NotFound
+        responseAs[String] should include("No game with gameId")
+      }
+    }
+
     "list all lobbies" in {
       // Create a new lobby
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
@@ -143,6 +179,10 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           replyTo ! GameManager.Ready // triggers /list fallback
           Behaviors.same
 
+        case GameManager.GetLobbyInfo(_, replyTo) =>
+          replyTo ! GameManager.Ready // triggers /join fallback
+          Behaviors.same
+
         case _ => Behaviors.same
       }
 
@@ -154,6 +194,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         ("POST /lobby/create", Post("/lobby/create/tictactoe").withHeaders(aliceHeader)),
         ("POST /lobby/join", Post(s"/lobby/$fakeId/join").withHeaders(aliceHeader)),
         ("POST /lobby/start", Post(s"/lobby/$fakeId/start").withHeaders(aliceHeader)),
+        ("GET /lobby", Get(s"/lobby/$fakeId").withHeaders(aliceHeader)),
         ("GET /lobby/list", Get("/lobby/list"))
       )
 
