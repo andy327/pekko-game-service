@@ -16,11 +16,13 @@ import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
 
 /**
- * A supervisor actor that handles creating and monitoring one child actor per game, provides an API for creating games
- * and forwarding arbitrary game-specific commands, and restores persisted games at start-up through the GameRepository.
+ * A supervisor actor responsible for game actor lifecycle and request routing.
  *
- * The GameManager keeps the message-handling behavior of the game service game-agnostic, by pattern-matching on the
- * GameType.
+ * GameManager owns the map of live game actors and handles actor spawning, game operation forwarding, and game
+ * completion. Lobby lifecycle state is delegated to a LobbyManager child actor.
+ *
+ * On startup, GameManager asynchronously restores persisted games from the database, stashing incoming messages until
+ * restoration is complete.
  */
 object GameManager {
   sealed trait Command
@@ -32,9 +34,18 @@ object GameManager {
   final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
-
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+
   final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
+
+  /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. */
+  final private[core] case class SpawnGame(
+      gameId: GameId,
+      gameType: GameType,
+      players: Set[PlayerId],
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
@@ -63,7 +74,8 @@ object GameManager {
       Behaviors.setup { context =>
         implicit val runtime: IORuntime = IORuntime.global
 
-        // Load games from DB on startup asynchronously, (IO.defer(...).attempt catches all exceptions)
+        val lobbyManager = context.spawn(LobbyManager(context.self), "lobby-manager")
+
         context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
           case Success(Right(games)) =>
             context.log.info(s"Restoring ${games.size} games from the database")
@@ -73,8 +85,7 @@ object GameManager {
             RestoreGames(Map.empty)
         }
 
-        // Enter initialization state while awaiting game restoration
-        initializing(persistActor, stash, onReady)
+        initializing(lobbyManager, persistActor, stash, onReady)
       }
     }
 
@@ -83,6 +94,7 @@ object GameManager {
     * Transitions to running state once restoration is complete.
     */
   private def initializing(
+      lobbyManager: ActorRef[LobbyManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       stash: StashBuffer[Command],
       onReady: Option[ActorRef[Ready.type]]
@@ -97,12 +109,8 @@ object GameManager {
         }
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
-
-        // tell the listener we are ready
         onReady.foreach(_ ! Ready)
-
-        // unstash everything and switch to running behavior (lobbies start fresh)
-        stash.unstashAll(running(Map.empty, restoredActors, persistActor))
+        stash.unstashAll(running(restoredActors, lobbyManager, persistActor))
 
       case other =>
         stash.stash(other)
@@ -111,154 +119,63 @@ object GameManager {
   }
 
   /**
-    * Running state: main loop handling live operations.
-    * Accepts new game creation and forwards commands to existing game actors.
+    * Running state: routes lobby commands to LobbyManager and handles game actor lifecycle.
     */
   private def running(
-      lobbies: Map[GameId, LobbyMetadata],
       games: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
+      lobbyManager: ActorRef[LobbyManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command]
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
         case CreateLobby(gameType, host, replyTo) =>
-          context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
-          val lobby = LobbyMetadata.newLobby(gameType, host)
-          replyTo ! LobbyCreated(lobby.gameId, host)
-          running(lobbies + (lobby.gameId -> lobby), games, persistActor)
+          lobbyManager ! LobbyManager.CreateLobby(gameType, host, replyTo)
+          Behaviors.same
 
         case JoinLobby(gameId, player, replyTo) =>
-          lobbies.get(gameId) match {
-            case Some(metadata) if metadata.status.isJoinable =>
-              if (metadata.players.contains(player.id)) {
-                replyTo ! LobbyErrorResponse(LobbyError.AlreadyInLobby(gameId))
-                Behaviors.same
-              } else if (metadata.players.size >= metadata.gameType.maxPlayers) {
-                replyTo ! LobbyErrorResponse(LobbyError.LobbyFull(gameId))
-                Behaviors.same
-              } else {
-                val updatedPlayers = metadata.players + (player.id -> player)
-                val updatedStatus =
-                  if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
-                  else GameLifecycleStatus.WaitingForPlayers
-
-                val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
-                replyTo ! LobbyJoined(gameId, updatedMetadata, player)
-                running(lobbies + (gameId -> updatedMetadata), games, persistActor)
-              }
-
-            case Some(_) =>
-              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotJoinable(gameId))
-              Behaviors.same
-
-            case None =>
-              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
-              Behaviors.same
-          }
+          lobbyManager ! LobbyManager.JoinLobby(gameId, player, replyTo)
+          Behaviors.same
 
         case LeaveLobby(gameId, player, replyTo) =>
-          lobbies.get(gameId) match {
-            case Some(metadata) =>
-              val updatedPlayers = metadata.players - player.id
-              val updatedStatus =
-                if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
-                else GameLifecycleStatus.WaitingForPlayers
-
-              val newMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
-
-              if (!metadata.players.contains(player.id)) {
-                context.log.info(s"Player ${player.name} already absent from lobby $gameId")
-                replyTo ! LobbyLeft(gameId, s"${player.name} already absent from lobby $gameId")
-                Behaviors.same
-              } else if (player.id == metadata.hostId) {
-                val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
-                context.log.info(s"Host (${player.name}) left lobby $gameId. Cancelling game...")
-                replyTo ! LobbyLeft(gameId, s"Lobby $gameId ended - host left")
-                running(lobbies + (gameId -> cancelled), games, persistActor)
-              } else {
-                context.log.info(s"Player ${player.name} left lobby $gameId")
-                replyTo ! LobbyLeft(gameId, s"${player.name} left lobby $gameId")
-                running(lobbies + (gameId -> newMetadata), games, persistActor)
-              }
-
-            case None =>
-              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
-              Behaviors.same
-          }
+          lobbyManager ! LobbyManager.LeaveLobby(gameId, player, replyTo)
+          Behaviors.same
 
         case StartGame(gameId, playerId, replyTo) =>
-          lobbies.get(gameId) match {
-            case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
-              val gameActor = GameRegistry.forType(metadata.gameType).actor
-              val players = metadata.players.keySet.toSeq
-              val (game, behavior) = gameActor.create(gameId, players, persistActor, context.self)
-
-              val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-
-              // Persist immediately after creation; no need to wait for acknowledgement
-              persistActor ! PersistenceProtocol.SaveSnapshot(
-                gameId,
-                metadata.gameType,
-                game.asInstanceOf[Game[_, _, _, _, _]],
-                replyTo = context.system.ignoreRef
-              )
-
-              context.log.info(s"Created and persisted new game with gameId: $gameId")
-              replyTo ! GameStarted(gameId)
-
-              running(
-                lobbies + (gameId -> metadata.copy(status = GameLifecycleStatus.InProgress)),
-                games + (gameId -> ((metadata.gameType, actorRef))),
-                persistActor
-              )
-
-            case Some(metadata) if metadata.hostId != playerId =>
-              replyTo ! LobbyErrorResponse(LobbyError.NotHostError(gameId))
-              Behaviors.same
-
-            case Some(_) =>
-              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotReady(gameId))
-              Behaviors.same
-
-            case None =>
-              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
-              Behaviors.same
-          }
+          lobbyManager ! LobbyManager.StartGame(gameId, playerId, replyTo)
+          Behaviors.same
 
         case ListLobbies(replyTo) =>
-          context.log.info("Listing available lobbies")
-          val activeLobbies = lobbies.values.filter(_.status.isJoinable).toList
-          replyTo ! LobbiesListed(activeLobbies)
+          lobbyManager ! LobbyManager.ListLobbies(replyTo)
           Behaviors.same
 
         case GetLobbyInfo(gameId, replyTo) =>
-          context.log.info(s"Getting lobby metadata for game $gameId")
-          lobbies.get(gameId) match {
-            case Some(metadata) => replyTo ! LobbyInfo(metadata)
-            case None           => replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
-          }
+          lobbyManager ! LobbyManager.GetLobbyInfo(gameId, replyTo)
           Behaviors.same
 
+        case SpawnGame(gameId, gameType, players, replyTo) =>
+          val gameActor = GameRegistry.forType(gameType).actor
+          val (game, behavior) = gameActor.create(gameId, players.toSeq, persistActor, context.self)
+          val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+
+          persistActor ! PersistenceProtocol.SaveSnapshot(
+            gameId,
+            gameType,
+            game.asInstanceOf[Game[_, _, _, _, _]],
+            replyTo = context.system.ignoreRef
+          )
+
+          context.log.info(s"Created and persisted new game with gameId: $gameId")
+          replyTo ! GameStarted(gameId)
+          running(games + (gameId -> (gameType, actorRef)), lobbyManager, persistActor)
+
         case GameCompleted(gameId, result) =>
-          lobbies.get(gameId) match {
-            case Some(metadata) =>
-              val updatedMetadata = metadata.copy(status = result)
-              context.log.info(s"Marking game $gameId as completed with result $result")
-
-              // TODO: Find a way to spin down actors, but still make their game state available for /status lookups
-
-              // Stop the game actor if it exists
-              // games.get(gameId).foreach(context.stop)
-
-              // Remove the game actor reference
-              // val updatedGames = games - gameId
-
-              running(lobbies + (gameId -> updatedMetadata), games, persistActor)
-
-            case None =>
-              context.log.warn(s"Tried to complete unknown game: $gameId")
-              Behaviors.same
+          if (games.contains(gameId)) {
+            context.log.info(s"Marking game $gameId as completed with result $result")
+            lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
+          } else {
+            context.log.warn(s"Tried to complete unknown game: $gameId")
           }
+          Behaviors.same
 
         case RunGameOperation(gameId, op, replyTo) =>
           games.get(gameId) match {
@@ -275,7 +192,6 @@ object GameManager {
               context.log.warn(s"No game found with gameId $gameId to forward operation $op")
               replyTo ! ErrorResponse(s"No game found with gameId $gameId")
           }
-
           Behaviors.same
 
         case WrappedGameResponse(response, replyTo) =>

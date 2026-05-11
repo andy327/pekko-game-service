@@ -151,6 +151,21 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
+    "reject starting a game if the requester is not the host" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Post(s"/lobby/$gameId/start").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Forbidden
+        responseAs[String] should include("Only the host can start")
+      }
+    }
+
     "reject starting a game with not enough players" in {
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
