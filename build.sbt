@@ -40,6 +40,9 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
   .dependsOn(model)
   .settings(
     name := s"$baseName-persistence",
+    // Docker Desktop 4.72+ requires API >= 1.40; testcontainers' shaded docker-java defaults to 1.32
+    Test / fork := true,
+    Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
     libraryDependencies ++= Seq(
       "org.tpolecat" %% "doobie-core" % versions("doobie"),
       "org.tpolecat" %% "doobie-postgres" % versions("doobie"),
