@@ -13,7 +13,7 @@ import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
 
 /**
  * A supervisor actor that handles creating and monitoring one child actor per game, provides an API for creating games
@@ -46,6 +46,7 @@ object GameManager {
   final case class LobbiesListed(lobbies: List[LobbyMetadata]) extends GameResponse
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
+  final case class LobbyErrorResponse(error: LobbyError) extends GameResponse
   final case class ErrorResponse(message: String) extends GameResponse
 
   /** Emitted once when the DB restore is complete. */
@@ -130,10 +131,10 @@ object GameManager {
           lobbies.get(gameId) match {
             case Some(metadata) if metadata.status.isJoinable =>
               if (metadata.players.contains(player.id)) {
-                replyTo ! ErrorResponse("Player already in game")
+                replyTo ! LobbyErrorResponse(LobbyError.AlreadyInLobby(gameId))
                 Behaviors.same
               } else if (metadata.players.size >= metadata.gameType.maxPlayers) {
-                replyTo ! ErrorResponse("Cannot join - lobby is full")
+                replyTo ! LobbyErrorResponse(LobbyError.LobbyFull(gameId))
                 Behaviors.same
               } else {
                 val updatedPlayers = metadata.players + (player.id -> player)
@@ -147,11 +148,11 @@ object GameManager {
               }
 
             case Some(_) =>
-              replyTo ! ErrorResponse("Cannot join - game already started or ended")
+              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotJoinable(gameId))
               Behaviors.same
 
             case None =>
-              replyTo ! ErrorResponse("No such lobby")
+              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
               Behaviors.same
           }
 
@@ -181,7 +182,7 @@ object GameManager {
               }
 
             case None =>
-              replyTo ! ErrorResponse("No such lobby")
+              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
               Behaviors.same
           }
 
@@ -211,12 +212,16 @@ object GameManager {
                 persistActor
               )
 
+            case Some(metadata) if metadata.hostId != playerId =>
+              replyTo ! LobbyErrorResponse(LobbyError.NotHostError(gameId))
+              Behaviors.same
+
             case Some(_) =>
-              replyTo ! ErrorResponse("Only host can start, and game must be ready to start")
+              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotReady(gameId))
               Behaviors.same
 
             case None =>
-              replyTo ! ErrorResponse("No such game")
+              replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
               Behaviors.same
           }
 
@@ -230,7 +235,7 @@ object GameManager {
           context.log.info(s"Getting lobby metadata for game $gameId")
           lobbies.get(gameId) match {
             case Some(metadata) => replyTo ! LobbyInfo(metadata)
-            case None           => replyTo ! ErrorResponse(s"No game with gameId: $gameId")
+            case None           => replyTo ! LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
           }
           Behaviors.same
 

@@ -82,7 +82,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
 
       Post(s"/lobby/$gameId/join").withHeaders(carlHeader) ~> routes ~> check {
-        status shouldBe StatusCodes.BadRequest
+        status shouldBe StatusCodes.Conflict
       }
     }
 
@@ -157,8 +157,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
 
       Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
-        status shouldBe StatusCodes.BadRequest
-        responseAs[String] should include("Only host can start, and game must be ready to start")
+        status shouldBe StatusCodes.Conflict
+        responseAs[String] should include("does not have enough players")
       }
     }
 
@@ -193,7 +193,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
 
       Get(s"/lobby/$fakeId") ~> routes ~> check {
         status shouldBe StatusCodes.NotFound
-        responseAs[String] should include("No game with gameId")
+        responseAs[String] should include("No such lobby")
       }
     }
 

@@ -18,7 +18,7 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
-import com.andy327.server.lobby.{GameLifecycleStatus, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, Player}
 
 /** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
@@ -144,8 +144,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.GetLobbyInfo(nonexistentGameId, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No game with gameId")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyNotFound(nonexistentGameId)
     }
 
     "allow a second player to join a lobby and change its status to ReadyToStart" in {
@@ -177,8 +177,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       gm ! GameManager.JoinLobby(gameId, alice, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("already in game")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.AlreadyInLobby(gameId)
 
       gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
@@ -197,8 +197,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.JoinLobby(nonexistentGameId, alice, responseProbe.ref)
 
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No such lobby")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyNotFound(nonexistentGameId)
     }
 
     "prevent too many players from joining a lobby" in {
@@ -222,8 +222,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Carl tries to join - should be rejected
       gm ! GameManager.JoinLobby(gameId, carl, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("lobby is full")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyFull(gameId)
     }
 
     "prevent a player from joining a lobby of a game that's already started" in {
@@ -251,8 +251,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Carl tries to join - should be rejected
       gm ! GameManager.JoinLobby(gameId, carl, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("game already started or ended")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyNotJoinable(gameId)
     }
 
     "allow a host to start a game from a ready lobby and persist the snapshot" in {
@@ -296,8 +296,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Bob tries to start the game
       gm ! GameManager.StartGame(gameId, joinedPlayer.id, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("Only host can start")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.NotHostError(gameId)
     }
 
     "prevent a player from starting a nonexistent game" in {
@@ -311,8 +311,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.StartGame(nonexistentGameId, alice.id, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No such game")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyNotFound(nonexistentGameId)
     }
 
     "list available lobbies" in {
@@ -438,8 +438,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       gm ! GameManager.LeaveLobby(nonexistentGameId, alice, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No such lobby")
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe LobbyError.LobbyNotFound(nonexistentGameId)
     }
 
     "forward a valid move to a game" in {

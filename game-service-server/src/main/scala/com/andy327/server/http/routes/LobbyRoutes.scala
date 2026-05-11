@@ -5,18 +5,18 @@ import scala.concurrent.duration._
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
-import org.apache.pekko.http.scaladsl.model.StatusCodes
+import org.apache.pekko.http.scaladsl.model.{StatusCode, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
-  ErrorResponse,
   GameResponse,
   GameStarted,
   LobbiesListed,
   LobbyCreated,
+  LobbyErrorResponse,
   LobbyInfo,
   LobbyJoined,
   LobbyLeft
@@ -24,6 +24,7 @@ import com.andy327.server.actors.core.GameManager.{
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._
+import com.andy327.server.lobby.LobbyError
 
 /**
  * LobbyRoutes defines the HTTP routes for interacting with multiplayer game lobbies.
@@ -40,6 +41,12 @@ import com.andy327.server.http.routes.RouteDirectives._
 class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
+
+  private def statusFor(error: LobbyError): StatusCode = error match {
+    case _: LobbyError.LobbyNotFound => StatusCodes.NotFound
+    case _: LobbyError.NotHostError  => StatusCodes.Forbidden
+    case _                           => StatusCodes.Conflict
+  }
 
   val routes: Route = pathPrefix("lobby") {
 
@@ -94,9 +101,9 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         pathEndOrSingleSlash {
           get {
             onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(gameId, replyTo))) {
-              case LobbyInfo(metadata) => complete(metadata)
-              case ErrorResponse(msg)  => complete(StatusCodes.NotFound -> msg)
-              case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              case LobbyInfo(metadata)       => complete(metadata)
+              case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
+              case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
             }
           }
         } ~
@@ -105,8 +112,8 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
          * @auth Requires Bearer token
          * @pathParam gameId The ID of the lobby to join
          * @response 200 LobbyJoined with metadata for the joined lobby
-         * @response 400 If the join request is invalid (e.g., already joined, lobby full)
          * @response 404 If the specified lobby does not exist
+         * @response 409 If the join request conflicts (already joined, lobby full, game started)
          * @response 500 If an unexpected error occurs while joining the lobby
          *
          * Joins an existing lobby using the authenticated player.
@@ -115,9 +122,9 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           post {
             authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
-                case joined: LobbyJoined => complete(joined)
-                case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
-                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case joined: LobbyJoined       => complete(joined)
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }
           }
@@ -136,8 +143,8 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           post {
             authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(gameId, player, replyTo))) {
-                case left @ LobbyLeft(_, _) => complete(left)
-                case ErrorResponse(msg)     => complete(StatusCodes.NotFound -> msg)
+                case left @ LobbyLeft(_, _)    => complete(left)
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }
@@ -148,8 +155,9 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
          * @auth Requires Bearer token
          * @pathParam gameId The ID of the lobby to start
          * @response 200 GameStarted with the new game ID
-         * @response 400 If the game cannot be started (e.g., not enough players, not host)
+         * @response 403 If the requester is not the host
          * @response 404 If the lobby does not exist
+         * @response 409 If the lobby does not have enough players to start
          * @response 500 If an unexpected error occurs while starting the game
          *
          * Starts the game from the given lobby. Must be called by the host.
@@ -158,9 +166,9 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           post {
             authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
-                case gs @ GameStarted(_) => complete(gs)
-                case ErrorResponse(msg)  => complete(StatusCodes.BadRequest -> msg)
-                case other               => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case gs @ GameStarted(_)       => complete(gs)
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }
           }
