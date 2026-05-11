@@ -13,6 +13,9 @@ ThisBuild / scalacOptions ++= Seq(
   "-Wunused:imports" // For OrganizeImports.removeUnused = true
 )
 
+addCommandAlias("formatAll", ";scalafixAll;scalafixAll;scalafmtAll;scalafmtAll;scalafmtSbt")
+addCommandAlias("ci", ";clean;scalafixAll --check;scalafmtCheckAll;scalafmtSbtCheck;coverage;test;coverageReport")
+
 val baseName = "game-service"
 
 val versions: Map[String, String] = Map(
