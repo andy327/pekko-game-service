@@ -9,13 +9,15 @@ import io.circe.generic.auto._
 import org.apache.pekko.actor.typed.ActorRef
 import spray.json._
 
-import com.andy327.model.core.GameError
-import com.andy327.model.tictactoe.Location
+import com.andy327.model.core.{Game, GameError}
+import com.andy327.model.tictactoe.{Location, TicTacToe}
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.MovePayload.TicTacToeMove
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, JsonProtocol, TicTacToeMoveRequest}
+import com.andy327.server.http.json.{GameState, GameStateConverters, JsonProtocol, TicTacToeMoveRequest, TicTacToeState}
+
+import TicTacToeState._
 
 /**
  * GameModule implementation for TicTacToe.
@@ -59,5 +61,13 @@ object TicTacToeModule extends GameModule {
 
     case GameOperation.GetState =>
       Right(TicTacToeActor.GetState(replyTo))
+  }
+
+  override def serialize(game: Game[_, _, _, _, _]): GameState = game match {
+    case ttt: TicTacToe => GameStateConverters.serializeGame(ttt)
+    case other          =>
+      throw new IllegalArgumentException(
+        s"TicTacToeModule.serialize expected TicTacToe, got: ${other.getClass.getSimpleName}"
+      )
   }
 }

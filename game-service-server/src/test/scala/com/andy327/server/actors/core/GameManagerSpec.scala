@@ -375,6 +375,107 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.Completed
     }
 
+    "serve game state from DB after the game actor is stopped on completion" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val playerX: PlayerId = UUID.randomUUID()
+      val playerO: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(playerX, playerO)
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
+      val response = responseProbe.expectMessageType[GameManager.GameStatus]
+      response.state shouldBe GameStateConverters.serializeGame(game)
+    }
+
+    "return an error when forwarding a move to a completed game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val playerX: PlayerId = UUID.randomUUID()
+      val playerO: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(playerX, playerO)
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(playerX, MovePayload.TicTacToeMove(0, 0)),
+        responseProbe.ref
+      )
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("Game has already ended")
+    }
+
+    "return an error when DB has no record for a completed game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val playerX: PlayerId = UUID.randomUUID()
+      val playerO: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(playerX, playerO)
+      val gameRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
+          IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
+      }
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("Game state not found in database")
+    }
+
+    "return an error when the DB call fails for a completed game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val playerX: PlayerId = UUID.randomUUID()
+      val playerO: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(playerX, playerO)
+      val gameRepo = new GameRepository {
+        def initialize(): IO[Unit] = IO.unit
+        def saveGame(id: GameId, tpe: GameType, g: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadGame(id: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] =
+          IO.raiseError(new RuntimeException("DB load failed") with NoStackTrace)
+        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
+          IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
+      }
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("Failed to retrieve game state")
+    }
+
     "handle trying to mark a nonexistent game as completed" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
