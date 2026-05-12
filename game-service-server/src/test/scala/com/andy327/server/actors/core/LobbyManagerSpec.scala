@@ -92,6 +92,56 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.Completed
     }
 
+    "serve lobby metadata from cache after MarkCompleted removes it from active lobbies" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      lm ! LobbyManager.StartGame(gameId, host.id, responseProbe.ref)
+      gmProbe.expectMessageType[GameManager.SpawnGame]
+
+      lm ! LobbyManager.MarkCompleted(gameId, GameLifecycleStatus.Completed)
+
+      // lobby is no longer in active map, so it must not appear in ListLobbies
+      lm ! LobbyManager.ListLobbies(responseProbe.ref)
+      val GameManager.LobbiesListed(listed) = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      listed.map(_.gameId) should not contain gameId
+
+      // but GetLobbyInfo should still find it via the cache
+      lm ! LobbyManager.GetLobbyInfo(gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.status shouldBe GameLifecycleStatus.Completed
+    }
+
+    "revert lobby status to WaitingForPlayers when a non-host player leaves" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      lm ! LobbyManager.LeaveLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyLeft]
+
+      lm ! LobbyManager.GetLobbyInfo(gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
+    }
+
     "ignore MarkCompleted for an unknown lobby" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()

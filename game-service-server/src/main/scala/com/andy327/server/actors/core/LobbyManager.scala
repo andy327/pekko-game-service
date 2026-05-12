@@ -1,5 +1,8 @@
 package com.andy327.server.actors.core
 
+import scala.concurrent.duration._
+
+import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
@@ -12,6 +15,10 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
  * LobbyManager handles lobby creation, player joins/leaves, and lobby status transitions. For StartGame, it validates
  * the request and delegates actor spawning back to GameManager via the private SpawnGame command, since only a parent
  * actor should spawn children.
+ *
+ * Active lobbies (WaitingForPlayers, ReadyToStart, InProgress) are kept in an immutable map. When a lobby ends
+ * (Completed or Cancelled), it is moved to a Scaffeine TTL cache and evicted after [[recentlyEndedTtl]]. This bounds
+ * memory growth while still allowing short-lived status queries for recently-finished games.
  *
  * All commands reply directly to the original replyTo ActorRef[GameManager.GameResponse], so callers see no difference
  * from before the extraction.
@@ -33,11 +40,18 @@ object LobbyManager {
   /** Sent by GameManager when a game ends, to update lobby status. */
   final private[core] case class MarkCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
 
-  def apply(gameManager: ActorRef[GameManager.Command]): Behavior[Command] =
-    running(Map.empty, gameManager)
+  val recentlyEndedTtl: FiniteDuration = 1.hour
+
+  def apply(gameManager: ActorRef[GameManager.Command]): Behavior[Command] = {
+    val recentlyEnded: Cache[GameId, LobbyMetadata] = Scaffeine()
+      .expireAfterWrite(recentlyEndedTtl)
+      .build[GameId, LobbyMetadata]()
+    running(Map.empty, recentlyEnded, gameManager)
+  }
 
   private def running(
       lobbies: Map[GameId, LobbyMetadata],
+      recentlyEnded: Cache[GameId, LobbyMetadata],
       gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
@@ -45,7 +59,7 @@ object LobbyManager {
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
         val lobby = LobbyMetadata.newLobby(gameType, host)
         replyTo ! GameManager.LobbyCreated(lobby.gameId, host)
-        running(lobbies + (lobby.gameId -> lobby), gameManager)
+        running(lobbies + (lobby.gameId -> lobby), recentlyEnded, gameManager)
 
       case JoinLobby(gameId, player, replyTo) =>
         lobbies.get(gameId) match {
@@ -63,7 +77,7 @@ object LobbyManager {
                 else GameLifecycleStatus.WaitingForPlayers
               val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
               replyTo ! GameManager.LobbyJoined(gameId, updatedMetadata, player)
-              running(lobbies + (gameId -> updatedMetadata), gameManager)
+              running(lobbies + (gameId -> updatedMetadata), recentlyEnded, gameManager)
             }
 
           case Some(_) =>
@@ -91,12 +105,13 @@ object LobbyManager {
             } else if (player.id == metadata.hostId) {
               context.log.info(s"Host (${player.name}) left lobby $gameId. Cancelling game...")
               val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
+              recentlyEnded.put(gameId, cancelled)
               replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
-              running(lobbies + (gameId -> cancelled), gameManager)
+              running(lobbies - gameId, recentlyEnded, gameManager)
             } else {
               context.log.info(s"Player ${player.name} left lobby $gameId")
               replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} left lobby $gameId")
-              running(lobbies + (gameId -> newMetadata), gameManager)
+              running(lobbies + (gameId -> newMetadata), recentlyEnded, gameManager)
             }
 
           case None =>
@@ -110,7 +125,7 @@ object LobbyManager {
             context.log.info(s"Lobby $gameId validated for start — delegating game actor spawn to GameManager")
             val updatedMetadata = metadata.copy(status = GameLifecycleStatus.InProgress)
             gameManager ! GameManager.SpawnGame(gameId, metadata.gameType, metadata.players.keySet, replyTo)
-            running(lobbies + (gameId -> updatedMetadata), gameManager)
+            running(lobbies + (gameId -> updatedMetadata), recentlyEnded, gameManager)
 
           case Some(metadata) if metadata.hostId != playerId =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
@@ -133,7 +148,7 @@ object LobbyManager {
 
       case GetLobbyInfo(gameId, replyTo) =>
         context.log.info(s"Getting lobby metadata for game $gameId")
-        lobbies.get(gameId) match {
+        lobbies.get(gameId).orElse(recentlyEnded.getIfPresent(gameId)) match {
           case Some(metadata) => replyTo ! GameManager.LobbyInfo(metadata)
           case None           => replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
         }
@@ -143,7 +158,9 @@ object LobbyManager {
         lobbies.get(gameId) match {
           case Some(metadata) =>
             context.log.info(s"Marking lobby $gameId as $result")
-            running(lobbies + (gameId -> metadata.copy(status = result)), gameManager)
+            val updated = metadata.copy(status = result)
+            recentlyEnded.put(gameId, updated)
+            running(lobbies - gameId, recentlyEnded, gameManager)
           case None =>
             context.log.warn(s"Tried to mark unknown lobby $gameId as completed")
             Behaviors.same

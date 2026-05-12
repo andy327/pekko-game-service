@@ -23,6 +23,9 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
  *
  * On startup, GameManager asynchronously restores persisted games from the database, stashing incoming messages until
  * restoration is complete.
+ *
+ * When a game completes, its actor is stopped and the game ID is moved to a completed set. Subsequent status queries
+ * for completed games are served directly from the database.
  */
 object GameManager {
   sealed trait Command
@@ -48,6 +51,13 @@ object GameManager {
 
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
+
+  /** Result of a DB fallback load for a completed game's state. */
+  final private case class CompletedGameLoaded(
+      result: Either[Throwable, Option[Game[_, _, _, _, _]]],
+      gameType: GameType,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
 
   sealed trait GameResponse
   final case class LobbyCreated(gameId: GameId, host: Player) extends GameResponse
@@ -85,7 +95,7 @@ object GameManager {
             RestoreGames(Map.empty)
         }
 
-        initializing(lobbyManager, persistActor, stash, onReady)
+        initializing(lobbyManager, persistActor, gameRepo, stash, onReady)
       }
     }
 
@@ -96,6 +106,7 @@ object GameManager {
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
+      gameRepo: GameRepository,
       stash: StashBuffer[Command],
       onReady: Option[ActorRef[Ready.type]]
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
@@ -110,7 +121,7 @@ object GameManager {
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
         onReady.foreach(_ ! Ready)
-        stash.unstashAll(running(restoredActors, lobbyManager, persistActor))
+        stash.unstashAll(running(restoredActors, Map.empty, lobbyManager, persistActor, gameRepo))
 
       case other =>
         stash.stash(other)
@@ -120,13 +131,21 @@ object GameManager {
 
   /**
     * Running state: routes lobby commands to LobbyManager and handles game actor lifecycle.
+    *
+    * Active games are tracked in activeGames. When a game completes its actor is stopped and its
+    * game type is retained in completedGameTypes so that subsequent status queries can fall back to
+    * the database.
     */
   private def running(
-      games: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
+      activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
+      completedGameTypes: Map[GameId, GameType],
       lobbyManager: ActorRef[LobbyManager.Command],
-      persistActor: ActorRef[PersistenceProtocol.Command]
+      persistActor: ActorRef[PersistenceProtocol.Command],
+      gameRepo: GameRepository
   ): Behavior[Command] =
     Behaviors.setup { implicit context =>
+      implicit val runtime: IORuntime = IORuntime.global
+
       Behaviors.receiveMessage {
         case CreateLobby(gameType, host, replyTo) =>
           lobbyManager ! LobbyManager.CreateLobby(gameType, host, replyTo)
@@ -166,19 +185,34 @@ object GameManager {
 
           context.log.info(s"Created and persisted new game with gameId: $gameId")
           replyTo ! GameStarted(gameId)
-          running(games + (gameId -> (gameType, actorRef)), lobbyManager, persistActor)
+          running(
+            activeGames + (gameId -> (gameType, actorRef)),
+            completedGameTypes,
+            lobbyManager,
+            persistActor,
+            gameRepo
+          )
 
         case GameCompleted(gameId, result) =>
-          if (games.contains(gameId)) {
-            context.log.info(s"Marking game $gameId as completed with result $result")
-            lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
-          } else {
-            context.log.warn(s"Tried to complete unknown game: $gameId")
+          activeGames.get(gameId) match {
+            case Some((gameType, gameActor)) =>
+              context.log.info(s"Game $gameId completed with result $result — stopping actor")
+              lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
+              context.stop(gameActor)
+              running(
+                activeGames - gameId,
+                completedGameTypes + (gameId -> gameType),
+                lobbyManager,
+                persistActor,
+                gameRepo
+              )
+            case None =>
+              context.log.warn(s"Received GameCompleted for unknown game: $gameId")
+              Behaviors.same
           }
-          Behaviors.same
 
         case RunGameOperation(gameId, op, replyTo) =>
-          games.get(gameId) match {
+          activeGames.get(gameId) match {
             case Some((gameType, gameActor)) =>
               val adaptedRef: ActorRef[Either[GameError, GameState]] =
                 context.messageAdapter(response => WrappedGameResponse(response, replyTo))
@@ -189,8 +223,32 @@ object GameManager {
               }
 
             case None =>
-              context.log.warn(s"No game found with gameId $gameId to forward operation $op")
-              replyTo ! ErrorResponse(s"No game found with gameId $gameId")
+              completedGameTypes.get(gameId) match {
+                case Some(gameType) =>
+                  op match {
+                    case GameOperation.GetState =>
+                      context.pipeToSelf(gameRepo.loadGame(gameId, gameType).attempt.unsafeToFuture()) {
+                        case Success(result) => CompletedGameLoaded(result, gameType, replyTo)
+                      }
+                    case _ =>
+                      replyTo ! ErrorResponse("Game has already ended")
+                  }
+                case None =>
+                  context.log.warn(s"No game found with gameId $gameId to forward operation $op")
+                  replyTo ! ErrorResponse(s"No game found with gameId $gameId")
+              }
+          }
+          Behaviors.same
+
+        case CompletedGameLoaded(result, gameType, replyTo) =>
+          result match {
+            case Right(Some(game)) =>
+              replyTo ! GameStatus(GameRegistry.forType(gameType).module.serialize(game))
+            case Right(None) =>
+              replyTo ! ErrorResponse("Game state not found in database")
+            case Left(ex) =>
+              context.log.error("Failed to load completed game state from DB", ex)
+              replyTo ! ErrorResponse("Failed to retrieve game state")
           }
           Behaviors.same
 
