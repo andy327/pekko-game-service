@@ -8,6 +8,7 @@ import spray.json._
 
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, GameStarted, LobbyCreated, LobbyJoined, LobbyLeft}
+import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
@@ -74,6 +75,34 @@ object JsonProtocol extends DefaultJsonProtocol {
     jsonFormat2(TicTacToeMoveRequest.apply)
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
+
+  /**
+   * Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
+   *
+   * Each variant is encoded as a JSON object with a `type` discriminator field so the client can
+   * dispatch on the event kind without additional out-of-band information:
+   *   - `{"type":"LobbyUpdated",    "metadata":{...}}`
+   *   - `{"type":"GameStateUpdated","state":{...}}`
+   *   - `{"type":"GameEnded",       "result":"Completed"}`
+   *
+   * Reading is not supported; deserializationError is raised if attempted.
+   */
+  implicit val playerEventFormat: RootJsonFormat[PlayerEvent] = new RootJsonFormat[PlayerEvent] {
+    def write(event: PlayerEvent): JsValue = event match {
+      case PlayerEvent.LobbyUpdated(metadata) =>
+        JsObject("type" -> JsString("LobbyUpdated"), "metadata" -> lobbyMetadataFormat.write(metadata))
+      case PlayerEvent.GameStateUpdated(state) =>
+        val stateJson = state match {
+          case s: TicTacToeState => ticTacToeStateFormat.write(s)
+        }
+        JsObject("type" -> JsString("GameStateUpdated"), "state" -> stateJson)
+      case PlayerEvent.GameEnded(result) =>
+        JsObject("type" -> JsString("GameEnded"), "result" -> gameLifecycleStatusFormat.write(result))
+    }
+
+    def read(json: JsValue): PlayerEvent =
+      deserializationError("PlayerEvent deserialization is not supported")
+  }
 
   /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
   implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =
