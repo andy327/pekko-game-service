@@ -27,6 +27,14 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
  *
  * When a game completes, its actor is stopped and the game ID is moved to a completed set. Subsequent status queries
  * for completed games are served directly from the database.
+ *
+ * Actor relationships:
+ *   - Parent: root (top-level, created by [[com.andy327.server.GameServer]])
+ *   - Children: [[LobbyManager]], [[PlayerManager]], one game actor per active game
+ *   - Receives from: HTTP route handlers (all public `Command` messages)
+ *   - Sends to: [[LobbyManager]] (lobby commands), [[PlayerManager]] (player session commands), game actors
+ *     (game operations via [[GameActor.GameCommand]]), [[com.andy327.server.actors.persistence.PersistenceProtocol]]
+ *     (`SaveSnapshot` on game start)
  */
 object GameManager {
   sealed trait Command
