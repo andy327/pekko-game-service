@@ -5,7 +5,7 @@ import org.apache.pekko.actor.typed.ActorRef
 import spray.json.JsValue
 
 import com.andy327.model.core.{Game, GameError}
-import com.andy327.server.actors.core.GameActor
+import com.andy327.server.actors.core.{GameActor, PlayerActor}
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.GameState
 
@@ -44,4 +44,10 @@ trait GameModule {
    * Used when a game actor has been stopped and state must be served from persistent storage.
    */
   def serialize(game: Game[_, _, _, _, _]): GameState
+
+  /**
+   * Produces a game-specific Subscribe command that can be sent to a game actor to register a PlayerActor as a
+   * subscriber for push events.
+   */
+  def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
 }

@@ -8,12 +8,14 @@ import scala.util.control.NoStackTrace
 import cats.effect.IO
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
+import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
+import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
@@ -598,6 +600,143 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("out of bounds")
+    }
+
+    "register a player and return its actor ref" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, replyProbe.ref)
+
+      val ref = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+      ref should not be null
+    }
+
+    "remove a player on PlayerDisconnected without crashing" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, registerProbe.ref)
+      registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.PlayerDisconnected(alice.id)
+
+      // GM is still responsive after disconnect
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.ListLobbies(responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+    }
+
+    "forward SubscribeToLobby so the subscriber receives the current lobby state" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
+
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      gm ! GameManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+
+      // subscriber receives initial lobby state immediately
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe a[PlayerEvent.LobbyUpdated]
+    }
+
+    "forward SubscribeToGame so the subscriber receives events after a move" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      gm ! GameManager.SubscribeToGame(gameId, subscriberProbe.ref)
+
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.GameStatus]
+
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe a[PlayerEvent.GameStateUpdated]
+    }
+
+    "deliver GameStateUpdated to a lobby subscriber after the game starts" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+
+      // Subscribe before the game starts — subscriber is held in LobbyManager
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      gm ! GameManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial LobbyUpdated snapshot
+
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // LobbyUpdated on join
+
+      // Start the game — LobbyManager passes subscriber in SpawnGame; line 210 fires
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Make a move; the subscriber should now receive GameStateUpdated from the game actor
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.GameStatus]
+
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe a[PlayerEvent.GameStateUpdated]
+    }
+
+    "handle SubscribeToGame for an unknown game without crashing" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val nonexistentId: GameId = java.util.UUID.randomUUID()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      gm ! GameManager.SubscribeToGame(nonexistentId, subscriberProbe.ref)
+
+      // GM is still responsive
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.ListLobbies(responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
     }
 
     "return an error when forwarding to a nonexistent game" in {

@@ -5,7 +5,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameId, PlayerId}
 import com.andy327.model.tictactoe._
-import com.andy327.server.actors.core.{GameActor, GameManager}
+import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
@@ -18,6 +18,7 @@ import com.andy327.server.lobby.GameLifecycleStatus
  * - Validating and applying game rules
  * - Persisting game state changes via a persistence actor
  * - Notifying the GameManager when a game has completed (win or draw)
+ * - Fanning out state updates and game-end events to subscribed PlayerActors
  * - Supporting recovery from snapshot-based persistence on startup
  *
  * It uses a game-agnostic `GameActor` interface, and plugs into the game service via the GameRegistry and GameModule.
@@ -25,6 +26,7 @@ import com.andy327.server.lobby.GameLifecycleStatus
  * Commands:
  * - `MakeMove`: attempts to apply a move by a player
  * - `GetState`: returns a snapshot of the current game state
+ * - `Subscribe` / `Unsubscribe`: register or deregister a PlayerActor for push events
  * - `SnapshotSaved` / `SnapshotLoaded`: internal protocol for persistence status
  */
 object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
@@ -34,6 +36,8 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
       extends Command
   final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
+  final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command
+  final case class Unsubscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command
 
   sealed trait Internal extends Command
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
@@ -59,7 +63,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
     val game = TicTacToe.empty(playerX, playerO)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
-      active(game, gameId, persist, gameManager)
+      active(game, gameId, persist, gameManager, Set.empty)
     }
 
     (game, behavior)
@@ -77,7 +81,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   ): Behavior[Command] =
     Behaviors.setup { context =>
       game match {
-        case ttt: TicTacToe => active(ttt, gameId, persist, gameManager)
+        case ttt: TicTacToe => active(ttt, gameId, persist, gameManager, Set.empty)
         case _              =>
           context.log.error(s"Unexpected snapshot type for game $gameId: $game")
           Behaviors.stopped
@@ -92,7 +96,8 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       game: TicTacToe,
       gameId: GameId,
       persist: ActorRef[PersistenceProtocol.Command],
-      gameManager: ActorRef[GameManager.Command]
+      gameManager: ActorRef[GameManager.Command],
+      subscribers: Set[ActorRef[PlayerActor.Command]]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
       case MakeMove(_, _, replyTo) if game.gameStatus != InProgress =>
@@ -107,23 +112,26 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
               case Right(nextState) =>
                 context.log.info(s"Game $gameId updated:\n${nextState.render}")
 
-                // Persist in background
                 persist ! PersistenceProtocol.SaveSnapshot(
                   gameId = gameId,
                   gameType = gameType,
                   game = nextState,
                   replyTo = context.messageAdapter(_ => SnapshotSaved(Right(())))
                 )
-                replyTo ! Right(GameStateConverters.serializeGame(nextState))
+
+                val serialized = GameStateConverters.serializeGame(nextState)
+                replyTo ! Right(serialized)
+                subscribers.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(serialized)))
 
                 nextState.gameStatus match {
                   case Won(_) | Draw =>
                     context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
+                    subscribers.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.GameEnded(GameLifecycleStatus.Completed)))
                     gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-                    active(nextState, gameId, persist, gameManager)
+                    active(nextState, gameId, persist, gameManager, subscribers)
 
                   case InProgress =>
-                    active(nextState, gameId, persist, gameManager)
+                    active(nextState, gameId, persist, gameManager, subscribers)
                 }
 
               case Left(err) =>
@@ -146,6 +154,12 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       case GetState(replyTo) =>
         replyTo ! Right(GameStateConverters.serializeGame(game))
         Behaviors.same
+
+      case Subscribe(playerRef) =>
+        active(game, gameId, persist, gameManager, subscribers + playerRef)
+
+      case Unsubscribe(playerRef) =>
+        active(game, gameId, persist, gameManager, subscribers - playerRef)
 
       case SnapshotSaved(result) =>
         result match {

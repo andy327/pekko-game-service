@@ -142,6 +142,75 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
     }
 
+    "push LobbyUpdated to a subscriber when a player joins" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      // immediate push of current state on subscribe
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+
+      lm ! LobbyManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe a[PlayerEvent.LobbyUpdated]
+    }
+
+    "push GameEnded(Cancelled) to subscribers when the host leaves" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
+
+      lm ! LobbyManager.LeaveLobby(gameId, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyLeft]
+
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled)
+    }
+
+    "pass subscriber refs to SpawnGame and remove them from the subscriber map" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
+
+      lm ! LobbyManager.StartGame(gameId, host.id, responseProbe.ref)
+      val spawnMsg = gmProbe.expectMessageType[GameManager.SpawnGame]
+      spawnMsg.subscribers should contain(subscriberProbe.ref)
+
+      // subscriber is removed from LobbyManager after handoff to game actor
+      lm ! LobbyManager.ListLobbies(responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      subscriberProbe.expectNoMessage()
+    }
+
     "ignore MarkCompleted for an unknown lobby" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()

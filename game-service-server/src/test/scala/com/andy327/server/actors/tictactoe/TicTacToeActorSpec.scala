@@ -11,7 +11,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameId, PlayerId}
 import com.andy327.model.tictactoe.{GameError, Location, O, TicTacToe, X}
-import com.andy327.server.actors.core.GameManager
+import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameState, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
@@ -282,6 +282,62 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       val result = replyProbe.receiveMessage()
       result shouldBe a[Right[_, _]]
+    }
+
+    "push GameStateUpdated to subscribers after a valid move" in {
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val actor = spawn(behavior)
+
+      actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
+      actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
+
+      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      event.event shouldBe a[PlayerEvent.GameStateUpdated]
+    }
+
+    "push GameEnded to subscribers when the game completes" in {
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+      val gameManagerProbe = createTestProbe[GameManager.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
+      val actor = spawn(behavior)
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
+
+      val moves = Seq(
+        (alice, Location(0, 0)),
+        (bob, Location(1, 0)),
+        (alice, Location(0, 1)),
+        (bob, Location(1, 1)),
+        (alice, Location(0, 2)) // X wins
+      )
+
+      moves.foreach { case (player, loc) =>
+        actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        subscriberProbe.expectMessageType[PlayerActor.SendEvent] // GameStateUpdated per move
+        val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      }
+
+      val endEvent = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
+      endEvent.event shouldBe PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+    }
+
+    "not push events to unsubscribed players" in {
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
+      val actor = spawn(behavior)
+
+      actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
+      actor ! TicTacToeActor.Unsubscribe(subscriberProbe.ref)
+      actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
+
+      subscriberProbe.expectNoMessage()
     }
 
     "notify the GameManager when a game completes" in {
