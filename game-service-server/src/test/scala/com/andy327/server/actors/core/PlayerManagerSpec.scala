@@ -4,6 +4,7 @@ import java.util.UUID
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
+import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -16,10 +17,11 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
   "PlayerManager" should {
     "register a player and return its actor ref" in {
       val pm = spawn(PlayerManager())
+      val wsProbe = TestProbe[Message]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
-      pm ! PlayerManager.RegisterPlayer(alice, replyProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
 
       val ref = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
       ref should not be null
@@ -27,11 +29,12 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "return Some(ref) for a registered player" in {
       val pm = spawn(PlayerManager())
+      val wsProbe = TestProbe[Message]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
 
-      pm ! PlayerManager.RegisterPlayer(alice, registerProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, registerProbe.ref)
       val ref = registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       pm ! PlayerManager.LookupPlayer(alice.id, lookupProbe.ref)
@@ -48,13 +51,14 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "stop the old actor and return a new ref on reconnect" in {
       val pm = spawn(PlayerManager())
+      val wsProbe = TestProbe[Message]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
-      pm ! PlayerManager.RegisterPlayer(alice, replyProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
       val firstRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      pm ! PlayerManager.RegisterPlayer(alice, replyProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
       val secondRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       secondRef should not be theSameInstanceAs(firstRef)
@@ -63,11 +67,12 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "remove a player on PlayerDisconnected" in {
       val pm = spawn(PlayerManager())
+      val wsProbe = TestProbe[Message]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
 
-      pm ! PlayerManager.RegisterPlayer(alice, registerProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, registerProbe.ref)
       registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       pm ! PlayerManager.PlayerDisconnected(alice.id)

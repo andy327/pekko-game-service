@@ -2,6 +2,7 @@ package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.http.scaladsl.model.ws.Message
 
 import com.andy327.model.core.PlayerId
 import com.andy327.server.lobby.Player
@@ -22,7 +23,11 @@ import com.andy327.server.lobby.Player
 object PlayerManager {
   sealed trait Command
 
-  final case class RegisterPlayer(player: Player, replyTo: ActorRef[ActorRef[PlayerActor.Command]]) extends Command
+  final case class RegisterPlayer(
+      player: Player,
+      wsOut: ActorRef[Message],
+      replyTo: ActorRef[ActorRef[PlayerActor.Command]]
+  ) extends Command
   final case class LookupPlayer(playerId: PlayerId, replyTo: ActorRef[Option[ActorRef[PlayerActor.Command]]])
       extends Command
   final case class PlayerDisconnected(playerId: PlayerId) extends Command
@@ -32,9 +37,9 @@ object PlayerManager {
   private def running(players: Map[PlayerId, ActorRef[PlayerActor.Command]], spawnCount: Int): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
-        case RegisterPlayer(player, replyTo) =>
+        case RegisterPlayer(player, wsOut, replyTo) =>
           players.get(player.id).foreach(context.stop)
-          val ref = context.spawn(PlayerActor(player), s"player-${player.id}-$spawnCount")
+          val ref = context.spawn(PlayerActor(player, wsOut), s"player-${player.id}-$spawnCount")
           replyTo ! ref
           running(players + (player.id -> ref), spawnCount + 1)
 

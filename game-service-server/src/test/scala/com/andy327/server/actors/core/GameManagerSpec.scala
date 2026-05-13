@@ -9,6 +9,7 @@ import cats.effect.IO
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
+import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -609,8 +610,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
+      val wsProbe = TestProbe[Message]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
-      gm ! GameManager.RegisterPlayer(alice, replyProbe.ref)
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
 
       val ref = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
       ref should not be null
@@ -623,8 +625,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo))
 
+      val wsProbe = TestProbe[Message]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
-      gm ! GameManager.RegisterPlayer(alice, registerProbe.ref)
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, registerProbe.ref)
       registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       gm ! GameManager.PlayerDisconnected(alice.id)
