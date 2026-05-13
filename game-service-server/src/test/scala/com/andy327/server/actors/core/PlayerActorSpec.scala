@@ -1,6 +1,7 @@
 package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
+import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -12,9 +13,10 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
   import testKit._
 
   "PlayerActor" should {
-    "remain alive after receiving SendEvent" in {
+    "forward SendEvent as a TextMessage to wsOut" in {
       val alice = Player("alice")
-      val actor = spawn(PlayerActor(alice))
+      val wsProbe = TestProbe[Message]()
+      val actor = spawn(PlayerActor(alice, wsProbe.ref))
 
       val dummyState = TicTacToeState(
         board = Vector.fill(3)(Vector.fill(3)("")),
@@ -24,16 +26,18 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
       )
 
       actor ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(dummyState))
+      val msg1 = wsProbe.expectMessageType[TextMessage.Strict]
+      msg1.text should include("GameStateUpdated")
 
-      // send a second event to confirm the actor is still processing messages
-      val replyProbe = TestProbe[GameManager.GameResponse]()
+      // send a second event to confirm the actor is still alive and processing
       actor ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(dummyState))
-      replyProbe.expectNoMessage()
+      wsProbe.expectMessageType[TextMessage.Strict]
     }
 
     "stop when it receives Disconnect" in {
       val alice = Player("alice")
-      val actor = spawn(PlayerActor(alice))
+      val wsProbe = TestProbe[Message]()
+      val actor = spawn(PlayerActor(alice, wsProbe.ref))
       val probe = TestProbe[PlayerActor.Command]()
 
       actor ! PlayerActor.Disconnect

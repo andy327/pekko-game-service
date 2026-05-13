@@ -79,8 +79,8 @@ object JsonProtocol extends DefaultJsonProtocol {
   /**
    * Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
    *
-   * Each variant is encoded as a JSON object with a `type` discriminator field so the client can
-   * dispatch on the event kind without additional out-of-band information:
+   * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the
+   * event kind without additional out-of-band information:
    *   - `{"type":"LobbyUpdated",    "metadata":{...}}`
    *   - `{"type":"GameStateUpdated","state":{...}}`
    *   - `{"type":"GameEnded",       "result":"Completed"}`

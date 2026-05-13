@@ -7,6 +7,7 @@ import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.http.scaladsl.model.ws.Message
 
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.GameRepository
@@ -49,7 +50,11 @@ object GameManager {
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
   final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
-  final case class RegisterPlayer(player: Player, replyTo: ActorRef[ActorRef[PlayerActor.Command]]) extends Command
+  final case class RegisterPlayer(
+      player: Player,
+      wsOut: ActorRef[Message],
+      replyTo: ActorRef[ActorRef[PlayerActor.Command]]
+  ) extends Command
   final case class PlayerDisconnected(playerId: PlayerId) extends Command
 
   final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
@@ -201,8 +206,8 @@ object GameManager {
           }
           Behaviors.same
 
-        case RegisterPlayer(player, replyTo) =>
-          playerManager ! PlayerManager.RegisterPlayer(player, replyTo)
+        case RegisterPlayer(player, wsOut, replyTo) =>
+          playerManager ! PlayerManager.RegisterPlayer(player, wsOut, replyTo)
           Behaviors.same
 
         case PlayerDisconnected(playerId) =>
