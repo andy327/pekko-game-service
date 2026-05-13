@@ -7,6 +7,7 @@ import spray.json._
 
 import com.andy327.model.core.GameError
 import com.andy327.model.tictactoe.Location
+import com.andy327.server.actors.core.PlayerActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.GameState
@@ -49,6 +50,22 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
 
         case other => fail(s"Unexpected result: $other")
       }
+    }
+
+    "convert GetState to a GetState GameCommand" in {
+      val replyProbe = TestProbe[Either[GameError, GameState]]()
+
+      val result = TicTacToeModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
+
+      result shouldBe Right(TicTacToeActor.GetState(replyProbe.ref))
+    }
+
+    "produce a Subscribe command for a given PlayerActor ref" in {
+      val playerProbe = TestProbe[PlayerActor.Command]()
+
+      val result = TicTacToeModule.subscribeCommand(playerProbe.ref)
+
+      result shouldBe TicTacToeActor.Subscribe(playerProbe.ref)
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {

@@ -1,6 +1,6 @@
 package com.andy327.server.actors.core
 
-import scala.util.Success
+import scala.util.{Failure, Success}
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
@@ -19,7 +19,8 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
  * A supervisor actor responsible for game actor lifecycle and request routing.
  *
  * GameManager owns the map of live game actors and handles actor spawning, game operation forwarding, and game
- * completion. Lobby lifecycle state is delegated to a LobbyManager child actor.
+ * completion. Lobby lifecycle state is delegated to a LobbyManager child actor. Player session tracking is delegated
+ * to a PlayerManager child actor.
  *
  * On startup, GameManager asynchronously restores persisted games from the database, stashing incoming messages until
  * restoration is complete.
@@ -38,6 +39,10 @@ object GameManager {
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+  final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+  final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+  final case class RegisterPlayer(player: Player, replyTo: ActorRef[ActorRef[PlayerActor.Command]]) extends Command
+  final case class PlayerDisconnected(playerId: PlayerId) extends Command
 
   final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
 
@@ -46,7 +51,8 @@ object GameManager {
       gameId: GameId,
       gameType: GameType,
       players: Set[PlayerId],
-      replyTo: ActorRef[GameResponse]
+      replyTo: ActorRef[GameResponse],
+      subscribers: Set[ActorRef[PlayerActor.Command]] = Set.empty
   ) extends Command
 
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
@@ -85,6 +91,7 @@ object GameManager {
         implicit val runtime: IORuntime = IORuntime.global
 
         val lobbyManager = context.spawn(LobbyManager(context.self), "lobby-manager")
+        val playerManager = context.spawn(PlayerManager(), "player-manager")
 
         context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
           case Success(Right(games)) =>
@@ -95,7 +102,7 @@ object GameManager {
             RestoreGames(Map.empty)
         }
 
-        initializing(lobbyManager, persistActor, gameRepo, stash, onReady)
+        initializing(lobbyManager, playerManager, persistActor, gameRepo, stash, onReady)
       }
     }
 
@@ -105,6 +112,7 @@ object GameManager {
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
+      playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       stash: StashBuffer[Command],
@@ -121,7 +129,7 @@ object GameManager {
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
         onReady.foreach(_ ! Ready)
-        stash.unstashAll(running(restoredActors, Map.empty, lobbyManager, persistActor, gameRepo))
+        stash.unstashAll(running(restoredActors, Map.empty, lobbyManager, playerManager, persistActor, gameRepo))
 
       case other =>
         stash.stash(other)
@@ -140,6 +148,7 @@ object GameManager {
       activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
       completedGameTypes: Map[GameId, GameType],
       lobbyManager: ActorRef[LobbyManager.Command],
+      playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository
   ): Behavior[Command] =
@@ -171,10 +180,34 @@ object GameManager {
           lobbyManager ! LobbyManager.GetLobbyInfo(gameId, replyTo)
           Behaviors.same
 
-        case SpawnGame(gameId, gameType, players, replyTo) =>
+        case SubscribeToLobby(gameId, playerRef) =>
+          lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerRef)
+          Behaviors.same
+
+        case SubscribeToGame(gameId, playerRef) =>
+          activeGames.get(gameId) match {
+            case Some((gameType, gameActor)) =>
+              gameActor ! GameRegistry.forType(gameType).module.subscribeCommand(playerRef)
+            case None =>
+              context.log.warn(s"SubscribeToGame: no active game found for $gameId")
+          }
+          Behaviors.same
+
+        case RegisterPlayer(player, replyTo) =>
+          playerManager ! PlayerManager.RegisterPlayer(player, replyTo)
+          Behaviors.same
+
+        case PlayerDisconnected(playerId) =>
+          playerManager ! PlayerManager.PlayerDisconnected(playerId)
+          Behaviors.same
+
+        case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>
           val gameActor = GameRegistry.forType(gameType).actor
           val (game, behavior) = gameActor.create(gameId, players.toSeq, persistActor, context.self)
           val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+
+          val module = GameRegistry.forType(gameType).module
+          subscribers.foreach(ref => actorRef ! module.subscribeCommand(ref))
 
           persistActor ! PersistenceProtocol.SaveSnapshot(
             gameId,
@@ -189,6 +222,7 @@ object GameManager {
             activeGames + (gameId -> (gameType, actorRef)),
             completedGameTypes,
             lobbyManager,
+            playerManager,
             persistActor,
             gameRepo
           )
@@ -203,6 +237,7 @@ object GameManager {
                 activeGames - gameId,
                 completedGameTypes + (gameId -> gameType),
                 lobbyManager,
+                playerManager,
                 persistActor,
                 gameRepo
               )
@@ -229,6 +264,9 @@ object GameManager {
                     case GameOperation.GetState =>
                       context.pipeToSelf(gameRepo.loadGame(gameId, gameType).attempt.unsafeToFuture()) {
                         case Success(result) => CompletedGameLoaded(result, gameType, replyTo)
+                        // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
+                        case Failure(ex) => CompletedGameLoaded(Left(ex), gameType, replyTo)
+                        // $COVERAGE-ON$
                       }
                     case _ =>
                       replyTo ! ErrorResponse("Game has already ended")
