@@ -28,6 +28,14 @@ import com.andy327.server.lobby.GameLifecycleStatus
  * - `GetState`: returns a snapshot of the current game state
  * - `Subscribe` / `Unsubscribe`: register or deregister a PlayerActor for push events
  * - `SnapshotSaved` / `SnapshotLoaded`: internal protocol for persistence status
+ *
+ * Actor relationships:
+ *   - Parent: [[com.andy327.server.actors.core.GameManager]]
+ *   - Receives from: [[com.andy327.server.actors.core.GameManager]] (`MakeMove`, `GetState`, `Subscribe`,
+ *     `Unsubscribe`)
+ *   - Sends to: [[com.andy327.server.actors.core.GameManager]] (`GameCompleted`),
+ *     [[com.andy327.server.actors.persistence.PersistenceProtocol]] (`SaveSnapshot` after each move),
+ *     [[com.andy327.server.actors.core.PlayerActor]] (fan-out `GameStateUpdated` and `GameEnded` via `SendEvent`)
  */
 object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._

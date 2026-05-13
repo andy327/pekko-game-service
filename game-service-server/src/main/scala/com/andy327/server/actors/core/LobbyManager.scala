@@ -25,6 +25,12 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
  *
  * All commands reply directly to the original replyTo ActorRef[GameManager.GameResponse], so callers see no difference
  * from before the extraction.
+ *
+ * Actor relationships:
+ *   - Parent: [[GameManager]]
+ *   - Receives from: [[GameManager]] (all lobby `Command` messages)
+ *   - Sends to: [[GameManager]] (`SpawnGame` to trigger game actor creation), [[PlayerActor]] (fan-out
+ *     `LobbyUpdated` and `GameEnded` events via `SendEvent`)
  */
 object LobbyManager {
   sealed trait Command

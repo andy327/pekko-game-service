@@ -9,7 +9,15 @@ import com.andy327.server.lobby.Player
 /**
  * A child actor of GameManager that tracks one PlayerActor per connected player.
  *
- * On reconnect (same PlayerId), the old PlayerActor is stopped and replaced with a new one.
+ * On reconnect (same PlayerId), the old PlayerActor is stopped and replaced with a new one. A monotonically
+ * increasing `spawnCount` is appended to each child name to avoid Pekko's uniqueness constraint during the brief
+ * window while the old actor is still stopping.
+ *
+ * Actor relationships:
+ *   - Parent: [[GameManager]]
+ *   - Children: [[PlayerActor]] (one per currently-connected player)
+ *   - Receives from: [[GameManager]] (`RegisterPlayer`, `LookupPlayer`, `PlayerDisconnected`)
+ *   - Sends to: [[PlayerActor]] (`Disconnect` on explicit disconnect or reconnect)
  */
 object PlayerManager {
   sealed trait Command

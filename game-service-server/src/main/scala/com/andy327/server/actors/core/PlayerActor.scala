@@ -10,6 +10,11 @@ import com.andy327.server.lobby.Player
  *
  * Receives push events from LobbyManager and game actors. In this commit the WebSocket sink is not yet wired; the
  * next commit adds the wsOut ref and serializes events to JSON for delivery to the client.
+ *
+ * Actor relationships:
+ *   - Parent: [[PlayerManager]]
+ *   - Receives from: [[LobbyManager]] and game actors (fan-out `SendEvent`), [[PlayerManager]] (`Disconnect`)
+ *   - Sends to: WebSocket client (not yet wired; planned for Issue #8)
  */
 object PlayerActor {
   sealed trait Command
