@@ -81,6 +81,7 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.apache.pekko" %% "pekko-actor-typed" % versions("pekko"),
       "org.apache.pekko" %% "pekko-http" % versions("pekko-http"),
       "org.apache.pekko" %% "pekko-stream" % versions("pekko"),
+      "org.apache.pekko" %% "pekko-stream-typed" % versions("pekko"),
       "org.apache.pekko" %% "pekko-http-spray-json" % versions("pekko-http"),
       "com.github.jwt-scala" %% "jwt-core" % versions("jwt-scala"),
       "com.github.jwt-scala" %% "jwt-circe" % versions("jwt-scala"),
