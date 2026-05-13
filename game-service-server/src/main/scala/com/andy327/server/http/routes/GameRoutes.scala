@@ -73,15 +73,15 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
     pathPrefix(Segment) { gameIdStr =>
       parseGameId(gameIdStr) { gameId =>
         /**
-         * @route POST /{gameType}/{gameId}/move
-         * @auth Requires Bearer token
-         * @pathParam gameType The type of the game (e.g., tictactoe)
-         * @pathParam gameId The ID of the game to make a move in
-         * @bodyParam MovePayload A game-specific JSON payload for the move (structure depends on gameType)
-         * @response 200 Updated game state after the move is applied
-         * @response 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game type
-         * @response 404 If the game is not found or the move is invalid
-         * @response 500 Unexpected response from GameManager
+         * Route: POST /{gameType}/{gameId}/move
+         * Auth: Requires Bearer token
+         * Path param: gameType The type of the game (e.g., tictactoe)
+         * Path param: gameId The ID of the game to make a move in
+         * Body: MovePayload A game-specific JSON payload for the move (structure depends on gameType)
+         * Response: 200 Updated game state after the move is applied
+         * Response: 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game type
+         * Response: 404 If the game is not found or the move is invalid
+         * Response: 500 Unexpected response from GameManager
          *
          * Submits a move to the specified game using the authenticated player ID and a dynamic, game-specific move
          * format.
@@ -107,13 +107,13 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           }
         } ~
         /**
-         * @route GET /{gameType}/{gameId}/status
-         * @pathParam gameType The type of the game (e.g., tictactoe)
-         * @pathParam gameId The ID of the game to check status
-         * @response 200 Current game state
-         * @response 400 If the game ID is not a valid UUID
-         * @response 404 If the game is not found
-         * @response 500 Unexpected response from GameManager
+         * Route: GET /{gameType}/{gameId}/status
+         * Path param: gameType The type of the game (e.g., tictactoe)
+         * Path param: gameId The ID of the game to check status
+         * Response: 200 Current game state
+         * Response: 400 If the game ID is not a valid UUID
+         * Response: 404 If the game is not found
+         * Response: 500 Unexpected response from GameManager
          *
          * Fetches the current state of the specified game.
          */

@@ -32,10 +32,10 @@ class AuthRoutes {
   val routes: Route = pathPrefix("auth") {
 
     /**
-     * @route POST /auth/token
-     * @bodyParam PlayerRequest JSON object with a required `name` (String) and optional `id` (UUID string)
-     * @response 200 JSON object containing a signed JWT token for the player: `{ "token": "<jwt>" }`
-     * @response 400 If the provided UUID is malformed
+     * Route: POST /auth/token
+     * Body: PlayerRequest JSON object with a required `name` (String) and optional `id` (UUID string)
+     * Response: 200 JSON object containing a signed JWT token for the player: `{ "token": "<jwt>" }`
+     * Response: 400 If the provided UUID is malformed
      *
      * Registers or authenticates a player using the provided name and optional ID.
      * - If `id` is provided, it must be a valid UUID and is used as the player's ID.
@@ -70,10 +70,10 @@ class AuthRoutes {
       }
     } ~
     /**
-     * @route GET /auth/whoami
-     * @auth Requires Bearer token in the Authorization header
-     * @response 200 JSON object with the authenticated player's `id` (UUID) and `name` (String)
-     * @response 401 If the Authorization header is missing, the token is invalid or expired,
+     * Route: GET /auth/whoami
+     * Auth: Requires Bearer token in the Authorization header
+     * Response: 200 JSON object with the authenticated player's `id` (UUID) and `name` (String)
+     * Response: 401 If the Authorization header is missing, the token is invalid or expired,
      *               the payload cannot be decoded into a `UserContext`, or the player ID is malformed
      *
      * Returns the identity of the currently authenticated player.
