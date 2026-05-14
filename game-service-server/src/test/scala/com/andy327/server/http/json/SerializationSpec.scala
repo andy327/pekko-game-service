@@ -9,6 +9,7 @@ import spray.json._
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined, LobbyLeft}
+import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.http.json.TicTacToeState._
 import com.andy327.server.lobby._
@@ -179,6 +180,48 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val view = GameStateConverters.serializeGame(game)
       val json = view.toJson
       json.convertTo[TicTacToeState] shouldBe view
+    }
+  }
+
+  "playerEventFormat" should {
+    "serialize LobbyUpdated with type discriminator and metadata" in {
+      val host = Player("host")
+      val metadata = LobbyMetadata(
+        gameId = java.util.UUID.randomUUID(),
+        gameType = GameType.TicTacToe,
+        players = Map(host.id -> host),
+        hostId = host.id,
+        status = GameLifecycleStatus.WaitingForPlayers
+      )
+      val event: PlayerEvent = PlayerEvent.LobbyUpdated(metadata)
+      val json = event.toJson.asJsObject
+      json.fields("type") shouldBe JsString("LobbyUpdated")
+      (json.fields should contain).key("metadata")
+    }
+
+    "serialize GameStateUpdated with type discriminator and state" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = TicTacToe.empty(alice.id, bob.id)
+      val state = GameStateConverters.serializeGame(game)
+      val event: PlayerEvent = PlayerEvent.GameStateUpdated(state)
+      val json = event.toJson.asJsObject
+      json.fields("type") shouldBe JsString("GameStateUpdated")
+      (json.fields should contain).key("state")
+    }
+
+    "serialize GameEnded with type discriminator and result" in {
+      val event: PlayerEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+      val json = event.toJson.asJsObject
+      json.fields("type") shouldBe JsString("GameEnded")
+      json.fields("result") shouldBe JsString("Completed")
+    }
+
+    "throw DeserializationException on read" in {
+      val ex = intercept[DeserializationException] {
+        JsObject("type" -> JsString("LobbyUpdated")).convertTo[PlayerEvent]
+      }
+      ex.getMessage should include("PlayerEvent deserialization is not supported")
     }
   }
 }
