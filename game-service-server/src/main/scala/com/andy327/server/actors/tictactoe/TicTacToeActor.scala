@@ -10,33 +10,32 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
 
-/**
- * An actor implementation for managing a single TicTacToe game instance.
- *
- * This actor encapsulates both the game state and game logic. It is responsible for:
- * - Receiving player commands to make moves or fetch game state
- * - Validating and applying game rules
- * - Persisting game state changes via a persistence actor
- * - Notifying the GameManager when a game has completed (win or draw)
- * - Fanning out state updates and game-end events to subscribed PlayerActors
- * - Supporting recovery from snapshot-based persistence on startup
- *
- * It uses a game-agnostic `GameActor` interface, and plugs into the game service via the GameRegistry and GameModule.
- *
- * Commands:
- * - `MakeMove`: attempts to apply a move by a player
- * - `GetState`: returns a snapshot of the current game state
- * - `Subscribe` / `Unsubscribe`: register or deregister a PlayerActor for push events
- * - `SnapshotSaved` / `SnapshotLoaded`: internal protocol for persistence status
- *
- * Actor relationships:
- *   - Parent: [[com.andy327.server.actors.core.GameManager]]
- *   - Receives from: [[com.andy327.server.actors.core.GameManager]] (`MakeMove`, `GetState`, `Subscribe`,
- *     `Unsubscribe`)
- *   - Sends to: [[com.andy327.server.actors.core.GameManager]] (`GameCompleted`),
- *     [[com.andy327.server.actors.persistence.PersistenceProtocol]] (`SaveSnapshot` after each move),
- *     [[com.andy327.server.actors.core.PlayerActor]] (fan-out `GameStateUpdated` and `GameEnded` via `SendEvent`)
- */
+/** An actor implementation for managing a single TicTacToe game instance.
+  *
+  * This actor encapsulates both the game state and game logic. It is responsible for:
+  *   - Receiving player commands to make moves or fetch game state
+  *   - Validating and applying game rules
+  *   - Persisting game state changes via a persistence actor
+  *   - Notifying the GameManager when a game has completed (win or draw)
+  *   - Fanning out state updates and game-end events to subscribed PlayerActors
+  *   - Supporting recovery from snapshot-based persistence on startup
+  *
+  * It uses a game-agnostic `GameActor` interface, and plugs into the game service via the GameRegistry and GameModule.
+  *
+  * Commands:
+  *   - `MakeMove`: attempts to apply a move by a player
+  *   - `GetState`: returns a snapshot of the current game state
+  *   - `Subscribe` / `Unsubscribe`: register or deregister a PlayerActor for push events
+  *   - `SnapshotSaved` / `SnapshotLoaded`: internal protocol for persistence status
+  *
+  * Actor relationships:
+  *   - Parent: [[com.andy327.server.actors.core.GameManager]]
+  *   - Receives from: [[com.andy327.server.actors.core.GameManager]] (`MakeMove`, `GetState`, `Subscribe`,
+  *     `Unsubscribe`)
+  *   - Sends to: [[com.andy327.server.actors.core.GameManager]] (`GameCompleted`),
+  *     [[com.andy327.server.actors.persistence.PersistenceProtocol]] (`SaveSnapshot` after each move),
+  *     [[com.andy327.server.actors.core.PlayerActor]] (fan-out `GameStateUpdated` and `GameEnded` via `SendEvent`)
+  */
 object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
 
@@ -56,9 +55,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
     else if (playerId == playerO) Some(O)
     else None
 
-  /**
-   * Initializes a new TicTacToeActor with an empty game.
-   */
+  /** Initializes a new TicTacToeActor with an empty game. */
   override def create(
       gameId: GameId,
       players: Seq[PlayerId],
@@ -77,10 +74,9 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
     (game, behavior)
   }
 
-  /**
-   * Creates a TicTacToeActor from a preloaded game snapshot.
-   * This is used during recovery of games from persistent storage.
-   */
+  /** Creates a TicTacToeActor from a preloaded game snapshot. This is used during recovery of games from persistent
+    * storage.
+    */
   override def fromSnapshot(
       gameId: GameId,
       game: Game[_, _, _, _, _],
@@ -96,10 +92,7 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       }
     }
 
-  /**
-   * Main actor behavior.
-   * Processes game logic and player interactions.
-   */
+  /** Main actor behavior. Processes game logic and player interactions. */
   private def active(
       game: TicTacToe,
       gameId: GameId,

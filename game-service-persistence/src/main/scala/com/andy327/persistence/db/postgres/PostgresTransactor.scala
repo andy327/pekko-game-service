@@ -7,9 +7,7 @@ import cats.effect.{IO, Resource}
 import doobie.hikari.HikariTransactor
 import doobie.util.ExecutionContexts
 
-/**
- * Creates a Resource that manages a Doobie HikariTransactor.
- */
+/** Creates a Resource that manages a Doobie HikariTransactor. */
 object PostgresTransactor {
   def apply(config: Config = ConfigFactory.load()): Resource[IO, HikariTransactor[IO]] = {
     val dbConfig = config.getConfig("pekko-game-service.db")

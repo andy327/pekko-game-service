@@ -27,18 +27,17 @@ import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._
 import com.andy327.server.lobby.LobbyError
 
-/**
- * LobbyRoutes defines the HTTP routes for interacting with multiplayer game lobbies.
- *
- * These routes handle the creation, joining, and starting of game lobbies, as well as listing open lobbies. All actions
- * that modify lobby state require player authentication.
- *
- * Route Summary:
- * - POST   /lobby/create/{gameType}  - Create a new lobby for a specific game type
- * - POST   /lobby/{gameId}/join      - Join an existing lobby
- * - POST   /lobby/{gameId}/start     - Start a game from a lobby (host only)
- * - GET    /lobby/list               - List all available open lobbies
- */
+/** LobbyRoutes defines the HTTP routes for interacting with multiplayer game lobbies.
+  *
+  * These routes handle the creation, joining, and starting of game lobbies, as well as listing open lobbies. All
+  * actions that modify lobby state require player authentication.
+  *
+  * Route Summary:
+  *   - POST /lobby/create/{gameType} - Create a new lobby for a specific game type
+  *   - POST /lobby/{gameId}/join - Join an existing lobby
+  *   - POST /lobby/{gameId}/start - Start a game from a lobby (host only)
+  *   - GET /lobby/list - List all available open lobbies
+  */
 class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
@@ -51,13 +50,11 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
 
   val routes: Route = pathPrefix("lobby") {
 
-    /**
-     * Route: GET /lobby/list
-     * Response: 200 List of LobbyMetadata objects representing all open lobbies
-     * Response: 500 If an unexpected error occurs while retrieving lobby list
-     *
-     * Lists metadata for all open lobbies.
-     */
+    /** Route: GET /lobby/list Response: 200 List of LobbyMetadata objects representing all open lobbies Response: 500
+      * If an unexpected error occurs while retrieving lobby list
+      *
+      * Lists metadata for all open lobbies.
+      */
     path("list") {
       get {
         parameters("gameType".?, "page".as[Int].withDefault(1), "limit".as[Int].withDefault(20)) {
@@ -80,16 +77,13 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         }
       }
     } ~
-    /**
-     * Route: POST /lobby/create/{gameType}
-     * Path param: gameType The type of game to create a lobby for (e.g., "tictactoe")
-     * Auth: Requires Bearer token
-     * Response: 200 LobbyCreated with the new game ID and host player info
-     * Response: 400 If the provided game type is invalid
-     * Response: 500 If an unexpected error occurs while creating the lobby
-     *
-     * Creates a new game lobby for the specified game type using the authenticated player.
-     */
+    /** Route: POST /lobby/create/{gameType} Path param: gameType The type of game to create a lobby for (e.g.,
+      * "tictactoe") Auth: Requires Bearer token Response: 200 LobbyCreated with the new game ID and host player info
+      * Response: 400 If the provided game type is invalid Response: 500 If an unexpected error occurs while creating
+      * the lobby
+      *
+      * Creates a new game lobby for the specified game type using the authenticated player.
+      */
     path("create" / Segment) { gameTypeStr =>
       parseGameType(gameTypeStr) { gameType =>
         post {
@@ -104,15 +98,12 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
     } ~
     pathPrefix(Segment) { gameIdStr =>
       parseGameId(gameIdStr) { gameId =>
-        /**
-         * Route: GET /lobby/{gameId}
-         * Path param: gameId The ID of the lobby to retrieve
-         * Response: 200 LobbyMetadata if found
-         * Response: 404 If the specified lobby does not exist
-         * Response: 500 If an unexpected error occurs while retrieving metadata
-         *
-         * Fetches metadata for a specific lobby.
-         */
+        /** Route: GET /lobby/{gameId} Path param: gameId The ID of the lobby to retrieve Response: 200 LobbyMetadata if
+          * found Response: 404 If the specified lobby does not exist Response: 500 If an unexpected error occurs while
+          * retrieving metadata
+          *
+          * Fetches metadata for a specific lobby.
+          */
         pathEndOrSingleSlash {
           get {
             onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(gameId, replyTo))) {
@@ -122,17 +113,13 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /**
-         * Route: POST /lobby/{gameId}/join
-         * Auth: Requires Bearer token
-         * Path param: gameId The ID of the lobby to join
-         * Response: 200 LobbyJoined with metadata for the joined lobby
-         * Response: 404 If the specified lobby does not exist
-         * Response: 409 If the join request conflicts (already joined, lobby full, game started)
-         * Response: 500 If an unexpected error occurs while joining the lobby
-         *
-         * Joins an existing lobby using the authenticated player.
-         */
+        /** Route: POST /lobby/{gameId}/join Auth: Requires Bearer token Path param: gameId The ID of the lobby to join
+          * Response: 200 LobbyJoined with metadata for the joined lobby Response: 404 If the specified lobby does not
+          * exist Response: 409 If the join request conflicts (already joined, lobby full, game started) Response: 500
+          * If an unexpected error occurs while joining the lobby
+          *
+          * Joins an existing lobby using the authenticated player.
+          */
         path("join") {
           post {
             authenticatePlayer { player =>
@@ -144,16 +131,12 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /**
-         * Route: POST /lobby/{gameId}/leave
-         * Auth: Requires Bearer token
-         * Path param: gameId The ID of the lobby to leave
-         * Response: 200 LobbyLeft with gameId and message
-         * Response: 404 If the specified lobby does not exist
-         * Response: 500 If an unexpected error occurs while leaving the lobby
-         *
-         * Leaves an existing lobby using the authenticated player.
-         */
+        /** Route: POST /lobby/{gameId}/leave Auth: Requires Bearer token Path param: gameId The ID of the lobby to
+          * leave Response: 200 LobbyLeft with gameId and message Response: 404 If the specified lobby does not exist
+          * Response: 500 If an unexpected error occurs while leaving the lobby
+          *
+          * Leaves an existing lobby using the authenticated player.
+          */
         path("leave") {
           post {
             authenticatePlayer { player =>
@@ -165,18 +148,13 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /**
-         * Route: POST /lobby/{gameId}/start
-         * Auth: Requires Bearer token
-         * Path param: gameId The ID of the lobby to start
-         * Response: 200 GameStarted with the new game ID
-         * Response: 403 If the requester is not the host
-         * Response: 404 If the lobby does not exist
-         * Response: 409 If the lobby does not have enough players to start
-         * Response: 500 If an unexpected error occurs while starting the game
-         *
-         * Starts the game from the given lobby. Must be called by the host.
-         */
+        /** Route: POST /lobby/{gameId}/start Auth: Requires Bearer token Path param: gameId The ID of the lobby to
+          * start Response: 200 GameStarted with the new game ID Response: 403 If the requester is not the host
+          * Response: 404 If the lobby does not exist Response: 409 If the lobby does not have enough players to start
+          * Response: 500 If an unexpected error occurs while starting the game
+          *
+          * Starts the game from the given lobby. Must be called by the host.
+          */
         path("start") {
           post {
             authenticatePlayer { player =>

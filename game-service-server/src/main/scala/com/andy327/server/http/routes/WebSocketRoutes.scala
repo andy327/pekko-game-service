@@ -16,20 +16,19 @@ import com.andy327.server.actors.core.{GameManager, PlayerActor}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.lobby.Player
 
-/**
- * HTTP route that upgrades connections to WebSocket sessions.
- *
- * On connect the client must supply a valid Bearer token (obtained via POST /auth/token). The server materializes an
- * ActorSource-backed stream, spawns a PlayerActor wired to it via GameManager.RegisterPlayer, and begins forwarding
- * push events (lobby updates, game state, game-end notifications) as JSON TextMessages. Inbound client messages are
- * currently discarded. When the WebSocket closes, PlayerDisconnected is sent to GameManager so that the associated
- * PlayerActor is stopped.
- *
- * Route: GET /ws   (Auth: Bearer token required)
- *
- * Actor relationships:
- *   - Sends to: `GameManager` (`RegisterPlayer` on connect, `PlayerDisconnected` on close)
- */
+/** HTTP route that upgrades connections to WebSocket sessions.
+  *
+  * On connect the client must supply a valid Bearer token (obtained via POST /auth/token). The server materializes an
+  * ActorSource-backed stream, spawns a PlayerActor wired to it via GameManager.RegisterPlayer, and begins forwarding
+  * push events (lobby updates, game state, game-end notifications) as JSON TextMessages. Inbound client messages are
+  * currently discarded. When the WebSocket closes, PlayerDisconnected is sent to GameManager so that the associated
+  * PlayerActor is stopped.
+  *
+  * Route: GET /ws (Auth: Bearer token required)
+  *
+  * Actor relationships:
+  *   - Sends to: `GameManager` (`RegisterPlayer` on connect, `PlayerDisconnected` on close)
+  */
 class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
   implicit private val system: ActorSystem[GameManager.Command] = gameManager
   implicit private val timeout: Timeout = Timeout(5.seconds)
@@ -41,14 +40,13 @@ class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
     }
   }
 
-  /**
-   * Builds a WebSocket Flow for the given authenticated player.
-   *
-   * Pre-materializes an ActorSource to obtain a `wsOut: ActorRef[Message]` before the stream starts, then asks
-   * GameManager to register the player (which spawns a PlayerActor bound to that ref). The outbound side of the flow
-   * carries server-push events; the inbound side is drained with Sink.ignore. When the stream terminates (WebSocket
-   * closed by either side), PlayerDisconnected is sent to GameManager to clean up the PlayerActor.
-   */
+  /** Builds a WebSocket Flow for the given authenticated player.
+    *
+    * Pre-materializes an ActorSource to obtain a `wsOut: ActorRef[Message]` before the stream starts, then asks
+    * GameManager to register the player (which spawns a PlayerActor bound to that ref). The outbound side of the flow
+    * carries server-push events; the inbound side is drained with Sink.ignore. When the stream terminates (WebSocket
+    * closed by either side), PlayerDisconnected is sent to GameManager to clean up the PlayerActor.
+    */
   private def buildFlow(player: Player): Flow[Message, Message, Any] = {
     // Materialize the ActorRef up front so we can pass it to RegisterPlayer before the stream runs
     val (wsOut, source) = ActorSource

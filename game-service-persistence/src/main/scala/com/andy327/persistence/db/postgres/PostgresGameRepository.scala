@@ -15,10 +15,9 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
-/**
- * GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states.
- * Game state is serialized to JSON using Circe and stored as a string in the database.
- */
+/** GameRepository implementation that uses PostgreSQL via Doobie to persist and retrieve game states. Game state is
+  * serialized to JSON using Circe and stored as a string in the database.
+  */
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
   import GameTypeCodecs._
   import io.circe.syntax._
@@ -31,9 +30,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       case other       => Left(new Exception(s"Unknown GameType: $other"))
     }
 
-  /**
-   * Creates the 'games' table with the appropriate schema if it doesn't already exit.
-   */
+  /** Creates the 'games' table with the appropriate schema if it doesn't already exit. */
   override def initialize(): IO[Unit] =
     sql"""
       CREATE TABLE IF NOT EXISTS games (
@@ -43,10 +40,9 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       )
     """.update.run.transact(xa).void
 
-  /**
-   * Saves the current state of a game of the given gameType into the database.
-   * If the gameId already exists, the existing row is updated.
-   */
+  /** Saves the current state of a game of the given gameType into the database. If the gameId already exists, the
+    * existing row is updated.
+    */
   override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
     val (jsonStr, gameTypeStr) = gameType match {
       case GameType.TicTacToe =>
@@ -63,10 +59,9 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
     """.update.run.transact(xa).void
   }
 
-  /**
-   * Loads the game state for a given gameId and gameType.
-   * If the game exists, it is deserialized from JSON into a TicTacToe object.
-   */
+  /** Loads the game state for a given gameId and gameType. If the game exists, it is deserialized from JSON into a
+    * TicTacToe object.
+    */
   override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
     sql"SELECT game_state FROM games WHERE game_id = ${gameId.toString}"
       .query[String]
@@ -83,10 +78,9 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
         case None => IO.pure(None)
       }
 
-  /**
-   * Loads all games stored in the database and returns them as a Map from gameId to game state.
-   * If any games fail to decode from JSON, their errors are logged and we proceed with loading.
-   */
+  /** Loads all games stored in the database and returns them as a Map from gameId to game state. If any games fail to
+    * decode from JSON, their errors are logged and we proceed with loading.
+    */
   override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     sql"SELECT game_id, game_type, game_state FROM games"
       .query[(String, String, String)]

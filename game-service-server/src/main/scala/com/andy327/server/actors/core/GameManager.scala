@@ -16,27 +16,26 @@ import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
 
-/**
- * A supervisor actor responsible for game actor lifecycle and request routing.
- *
- * GameManager owns the map of live game actors and handles actor spawning, game operation forwarding, and game
- * completion. Lobby lifecycle state is delegated to a LobbyManager child actor. Player session tracking is delegated
- * to a PlayerManager child actor.
- *
- * On startup, GameManager asynchronously restores persisted games from the database, stashing incoming messages until
- * restoration is complete.
- *
- * When a game completes, its actor is stopped and the game ID is moved to a completed set. Subsequent status queries
- * for completed games are served directly from the database.
- *
- * Actor relationships:
- *   - Parent: root (top-level, created by [[com.andy327.server.GameServer]])
- *   - Children: [[LobbyManager]], [[PlayerManager]], one game actor per active game
- *   - Receives from: HTTP route handlers (all public `Command` messages)
- *   - Sends to: [[LobbyManager]] (lobby commands), [[PlayerManager]] (player session commands), game actors
- *     (game operations via [[GameActor.GameCommand]]), [[com.andy327.server.actors.persistence.PersistenceProtocol]]
- *     (`SaveSnapshot` on game start)
- */
+/** A supervisor actor responsible for game actor lifecycle and request routing.
+  *
+  * GameManager owns the map of live game actors and handles actor spawning, game operation forwarding, and game
+  * completion. Lobby lifecycle state is delegated to a LobbyManager child actor. Player session tracking is delegated
+  * to a PlayerManager child actor.
+  *
+  * On startup, GameManager asynchronously restores persisted games from the database, stashing incoming messages until
+  * restoration is complete.
+  *
+  * When a game completes, its actor is stopped and the game ID is moved to a completed set. Subsequent status queries
+  * for completed games are served directly from the database.
+  *
+  * Actor relationships:
+  *   - Parent: root (top-level, created by [[com.andy327.server.GameServer]])
+  *   - Children: [[LobbyManager]], [[PlayerManager]], one game actor per active game
+  *   - Receives from: HTTP route handlers (all public `Command` messages)
+  *   - Sends to: [[LobbyManager]] (lobby commands), [[PlayerManager]] (player session commands), game actors (game
+  *     operations via [[GameActor.GameCommand]]), [[com.andy327.server.actors.persistence.PersistenceProtocol]]
+  *     (`SaveSnapshot` on game start)
+  */
 object GameManager {
   sealed trait Command
 
@@ -124,9 +123,8 @@ object GameManager {
       }
     }
 
-  /**
-    * Initialization state: waits for RestoreGames message after async DB load.
-    * Transitions to running state once restoration is complete.
+  /** Initialization state: waits for RestoreGames message after async DB load. Transitions to running state once
+    * restoration is complete.
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
@@ -155,12 +153,10 @@ object GameManager {
     }
   }
 
-  /**
-    * Running state: routes lobby commands to LobbyManager and handles game actor lifecycle.
+  /** Running state: routes lobby commands to LobbyManager and handles game actor lifecycle.
     *
-    * Active games are tracked in activeGames. When a game completes its actor is stopped and its
-    * game type is retained in completedGameTypes so that subsequent status queries can fall back to
-    * the database.
+    * Active games are tracked in activeGames. When a game completes its actor is stopped and its game type is retained
+    * in completedGameTypes so that subsequent status queries can fall back to the database.
     */
   private def running(
       activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],

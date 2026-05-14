@@ -7,13 +7,12 @@ import io.circe.{Codec, Decoder, Encoder}
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.{Mark, O, TicTacToe, X}
 
-/**
- * Circe codecs and utilities for working with GameType and serialized Game state.
- *
- * This object provides:
- *  - A Codec[GameType] for serializing/deserializing GameType values as JSON strings
- *  - A `deserializeGame` function to deserialize stored game state JSON into a typed Game instance
- */
+/** Circe codecs and utilities for working with GameType and serialized Game state.
+  *
+  * This object provides:
+  *   - A Codec[GameType] for serializing/deserializing GameType values as JSON strings
+  *   - A `deserializeGame` function to deserialize stored game state JSON into a typed Game instance
+  */
 object GameTypeCodecs {
   implicit val gameTypeCodec: Codec[GameType] = Codec.from(
     Decoder.decodeString.emap {
@@ -36,9 +35,7 @@ object GameTypeCodecs {
 
   implicit val ticTacToeCodec: Codec[TicTacToe] = deriveCodec[TicTacToe]
 
-  /**
-   * Deserializes a game state JSON string into a Game instance based on the provided GameType.
-   */
+  /** Deserializes a game state JSON string into a Game instance based on the provided GameType. */
   def deserializeGame(gameType: GameType, json: String): Either[Throwable, Game[_, _, _, _, _]] =
     gameType match {
       case GameType.TicTacToe => decode[TicTacToe](json).left.map(err => new Exception(err))

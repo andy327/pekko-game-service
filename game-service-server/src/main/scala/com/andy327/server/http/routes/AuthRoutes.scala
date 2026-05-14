@@ -18,32 +18,29 @@ import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.Player
 
-/**
- * HTTP routes for authentication and token generation.
- *
- * This class defines an endpoint that allows clients to authenticate as a player by supplying a name
- * and an optional UUID. The server responds with a JWT token representing the authenticated player.
- *
- * Route Summary:
- * - POST /auth/token   - Register or authenticate a player and receive a signed JWT
- * - GET  /auth/whoami  - Return the player's ID and name extracted from the Authorization token
- */
+/** HTTP routes for authentication and token generation.
+  *
+  * This class defines an endpoint that allows clients to authenticate as a player by supplying a name and an optional
+  * UUID. The server responds with a JWT token representing the authenticated player.
+  *
+  * Route Summary:
+  *   - POST /auth/token - Register or authenticate a player and receive a signed JWT
+  *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
+  */
 class AuthRoutes {
   val routes: Route = pathPrefix("auth") {
 
-    /**
-     * Route: POST /auth/token
-     * Body: PlayerRequest JSON object with a required `name` (String) and optional `id` (UUID string)
-     * Response: 200 JSON object containing a signed JWT token for the player: `{ "token": "<jwt>" }`
-     * Response: 400 If the provided UUID is malformed
-     *
-     * Registers or authenticates a player using the provided name and optional ID.
-     * - If `id` is provided, it must be a valid UUID and is used as the player's ID.
-     * - If `id` is omitted, a new UUID is generated for the player.
-     *
-     * A signed JWT is returned containing the player's ID and name, which can be used for authenticated requests to
-     * other parts of the API.
-     */
+    /** Route: POST /auth/token Body: PlayerRequest JSON object with a required `name` (String) and optional `id` (UUID
+      * string) Response: 200 JSON object containing a signed JWT token for the player: `{ "token": "<jwt>" }` Response:
+      * 400 If the provided UUID is malformed
+      *
+      * Registers or authenticates a player using the provided name and optional ID.
+      *   - If `id` is provided, it must be a valid UUID and is used as the player's ID.
+      *   - If `id` is omitted, a new UUID is generated for the player.
+      *
+      * A signed JWT is returned containing the player's ID and name, which can be used for authenticated requests to
+      * other parts of the API.
+      */
     path("token") {
       post {
         entity(as[PlayerRequest]) { req =>
@@ -69,19 +66,17 @@ class AuthRoutes {
         }
       }
     } ~
-    /**
-     * Route: GET /auth/whoami
-     * Auth: Requires Bearer token in the Authorization header
-     * Response: 200 JSON object with the authenticated player's `id` (UUID) and `name` (String)
-     * Response: 401 If the Authorization header is missing, the token is invalid or expired,
-     *               the payload cannot be decoded into a `UserContext`, or the player ID is malformed
-     *
-     * Returns the identity of the currently authenticated player.
-     *
-     * This endpoint extracts a Bearer token from the Authorization header, validates it using the server's JWT secret,
-     * and decodes the token into a `UserContext`. It then builds a `Player` object from the `UserContext` and returns
-     * the player's UUID and name.
-     */
+    /** Route: GET /auth/whoami Auth: Requires Bearer token in the Authorization header Response: 200 JSON object with
+      * the authenticated player's `id` (UUID) and `name` (String) Response: 401 If the Authorization header is missing,
+      * the token is invalid or expired, the payload cannot be decoded into a `UserContext`, or the player ID is
+      * malformed
+      *
+      * Returns the identity of the currently authenticated player.
+      *
+      * This endpoint extracts a Bearer token from the Authorization header, validates it using the server's JWT secret,
+      * and decodes the token into a `UserContext`. It then builds a `Player` object from the `UserContext` and returns
+      * the player's UUID and name.
+      */
     path("whoami") {
       authenticatePlayer { player =>
         get {

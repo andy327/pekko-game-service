@@ -9,29 +9,28 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
 
-/**
- * A child actor of GameManager that owns all lobby lifecycle state.
- *
- * LobbyManager handles lobby creation, player joins/leaves, and lobby status transitions. For StartGame, it validates
- * the request and delegates actor spawning back to GameManager via the private SpawnGame command, since only a parent
- * actor should spawn children.
- *
- * Active lobbies (WaitingForPlayers, ReadyToStart, InProgress) are kept in an immutable map. When a lobby ends
- * (Completed or Cancelled), it is moved to a Scaffeine TTL cache and evicted after [[recentlyEndedTtl]]. This bounds
- * memory growth while still allowing short-lived status queries for recently-finished games.
- *
- * PlayerActors subscribe to a lobby via SubscribeToLobby and receive LobbyUpdated events on each state change. When a
- * game starts, the subscriber set is handed off to the new GameActor via SpawnGame.
- *
- * All commands reply directly to the original replyTo ActorRef[GameManager.GameResponse], so callers see no difference
- * from before the extraction.
- *
- * Actor relationships:
- *   - Parent: [[GameManager]]
- *   - Receives from: [[GameManager]] (all lobby `Command` messages)
- *   - Sends to: [[GameManager]] (`SpawnGame` to trigger game actor creation), [[PlayerActor]] (fan-out
- *     `LobbyUpdated` and `GameEnded` events via `SendEvent`)
- */
+/** A child actor of GameManager that owns all lobby lifecycle state.
+  *
+  * LobbyManager handles lobby creation, player joins/leaves, and lobby status transitions. For StartGame, it validates
+  * the request and delegates actor spawning back to GameManager via the private SpawnGame command, since only a parent
+  * actor should spawn children.
+  *
+  * Active lobbies (WaitingForPlayers, ReadyToStart, InProgress) are kept in an immutable map. When a lobby ends
+  * (Completed or Cancelled), it is moved to a Scaffeine TTL cache and evicted after [[recentlyEndedTtl]]. This bounds
+  * memory growth while still allowing short-lived status queries for recently-finished games.
+  *
+  * PlayerActors subscribe to a lobby via SubscribeToLobby and receive LobbyUpdated events on each state change. When a
+  * game starts, the subscriber set is handed off to the new GameActor via SpawnGame.
+  *
+  * All commands reply directly to the original replyTo ActorRef[GameManager.GameResponse], so callers see no difference
+  * from before the extraction.
+  *
+  * Actor relationships:
+  *   - Parent: [[GameManager]]
+  *   - Receives from: [[GameManager]] (all lobby `Command` messages)
+  *   - Sends to: [[GameManager]] (`SpawnGame` to trigger game actor creation), [[PlayerActor]] (fan-out `LobbyUpdated`
+  *     and `GameEnded` events via `SendEvent`)
+  */
 object LobbyManager {
   sealed trait Command
 
@@ -64,12 +63,11 @@ object LobbyManager {
     running(Map.empty, recentlyEnded, Map.empty, gameManager)
   }
 
-  /**
-   * Sends a [[PlayerEvent]] to every PlayerActor subscribed to the given lobby.
-   *
-   * Called after any state-changing lobby command (join, leave, cancellation, completion) so that all connected players
-   * receive the update without the caller needing to know which actors are subscribed.
-   */
+  /** Sends a [[PlayerEvent]] to every PlayerActor subscribed to the given lobby.
+    *
+    * Called after any state-changing lobby command (join, leave, cancellation, completion) so that all connected
+    * players receive the update without the caller needing to know which actors are subscribed.
+    */
   private def fanOut(
       subscribers: Map[GameId, Set[ActorRef[PlayerActor.Command]]],
       gameId: GameId,

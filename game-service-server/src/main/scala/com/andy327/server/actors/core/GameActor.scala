@@ -8,18 +8,15 @@ import com.andy327.server.http.json.GameState
 
 object GameActor {
 
-  /**
-   * Super-type for all concrete commands that a game-specific actor understands.
-   *
-   * Every game actor defines its own sealed ADT that extends this trait so GameManager can treat them uniformly when
-   * forwarding messages.
-   */
+  /** Super-type for all concrete commands that a game-specific actor understands.
+    *
+    * Every game actor defines its own sealed ADT that extends this trait so GameManager can treat them uniformly when
+    * forwarding messages.
+    */
   trait GameCommand
 }
 
-/**
- * Type-class factory and helper interface implemented by every game-specific actor.
- */
+/** Type-class factory and helper interface implemented by every game-specific actor. */
 trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
 
   type Command <: GameActor.GameCommand

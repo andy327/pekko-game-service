@@ -21,20 +21,19 @@ import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._
 
-/**
- * HTTP routes for managing a specific type of game.
- *
- * This class defines endpoints for submitting player moves and retrieving game status for a given `GameType`. Requests
- * are authenticated using JWT tokens and forwarded to the `GameManager` actor, which routes messages to the appropriate
- * game actor instance.
- *
- * The route prefix is determined by the lowercase name of the game type (e.g., `tictactoe`). JSON payloads for moves
- * are dynamically decoded using the game-specific `MovePayload` decoder from the `GameRegistry`.
- *
- * Route Summary:
- * - POST   /{gameType}/{gameId}/move    - Submit a move to the specified game
- * - GET    /{gameType}/{gameId}/status  - Fetch the current state of a game
- */
+/** HTTP routes for managing a specific type of game.
+  *
+  * This class defines endpoints for submitting player moves and retrieving game status for a given `GameType`. Requests
+  * are authenticated using JWT tokens and forwarded to the `GameManager` actor, which routes messages to the
+  * appropriate game actor instance.
+  *
+  * The route prefix is determined by the lowercase name of the game type (e.g., `tictactoe`). JSON payloads for moves
+  * are dynamically decoded using the game-specific `MovePayload` decoder from the `GameRegistry`.
+  *
+  * Route Summary:
+  *   - POST /{gameType}/{gameId}/move - Submit a move to the specified game
+  *   - GET /{gameType}/{gameId}/status - Fetch the current state of a game
+  */
 class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
   implicit val scheduler: Scheduler = system.scheduler
   implicit val timeout: Timeout = 3.seconds
@@ -43,25 +42,23 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
 
   private val gameTypePrefix = gameType.toString.toLowerCase
 
-  /**
-   * Retrieves the game-specific module for the given `gameType` from the `GameRegistry`.
-   *
-   * This module provides typeclass instances (e.g., decoders) and logic specific to the game, and is required for
-   * decoding move payloads and interacting with the game actor.
-   */
+  /** Retrieves the game-specific module for the given `gameType` from the `GameRegistry`.
+    *
+    * This module provides typeclass instances (e.g., decoders) and logic specific to the game, and is required for
+    * decoding move payloads and interacting with the game actor.
+    */
   private val module = GameRegistry.forType(gameType).module
 
-  /**
-   * Parses and decodes a JSON payload from an HTTP request using the provided Circe decoder.
-   *
-   * This function is useful when the type to decode is not known at compile time and must be provided dynamically
-   * (e.g., game-specific `MovePayload` types). It converts the request entity to a strict (fully buffered) form with a
-   * timeout, interprets it as a UTF-8 string, and applies the given Circe `Decoder[T]` to parse it.
-   *
-   * @param decoder Circe decoder for the expected type `T`
-   * @tparam T The type to decode from the request body
-   * @return A `HttpRequest => Future[Either[String, T]]` function that returns the parse result or error message
-   */
+  /** Parses and decodes a JSON payload from an HTTP request using the provided Circe decoder.
+    *
+    * This function is useful when the type to decode is not known at compile time and must be provided dynamically
+    * (e.g., game-specific `MovePayload` types). It converts the request entity to a strict (fully buffered) form with a
+    * timeout, interprets it as a UTF-8 string, and applies the given Circe `Decoder[T]` to parse it.
+    *
+    * @param decoder Circe decoder for the expected type `T`
+    * @tparam T The type to decode from the request body
+    * @return A `HttpRequest => Future[Either[String, T]]` function that returns the parse result or error message
+    */
   private def decodeJsonEntity[T](decoder: Decoder[T]): HttpRequest => Future[Either[String, T]] = { req =>
     req.entity.toStrict(3.seconds).map { strict =>
       decode[T](strict.data.utf8String)(decoder).left.map(_.getMessage)
@@ -72,20 +69,16 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
 
     pathPrefix(Segment) { gameIdStr =>
       parseGameId(gameIdStr) { gameId =>
-        /**
-         * Route: POST /{gameType}/{gameId}/move
-         * Auth: Requires Bearer token
-         * Path param: gameType The type of the game (e.g., tictactoe)
-         * Path param: gameId The ID of the game to make a move in
-         * Body: MovePayload A game-specific JSON payload for the move (structure depends on gameType)
-         * Response: 200 Updated game state after the move is applied
-         * Response: 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game type
-         * Response: 404 If the game is not found or the move is invalid
-         * Response: 500 Unexpected response from GameManager
-         *
-         * Submits a move to the specified game using the authenticated player ID and a dynamic, game-specific move
-         * format.
-         */
+        /** Route: POST /{gameType}/{gameId}/move Auth: Requires Bearer token Path param: gameType The type of the game
+          * (e.g., tictactoe) Path param: gameId The ID of the game to make a move in Body: MovePayload A game-specific
+          * JSON payload for the move (structure depends on gameType) Response: 200 Updated game state after the move is
+          * applied Response: 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game
+          * type Response: 404 If the game is not found or the move is invalid Response: 500 Unexpected response from
+          * GameManager
+          *
+          * Submits a move to the specified game using the authenticated player ID and a dynamic, game-specific move
+          * format.
+          */
         path("move") {
           authenticatePlayer { player =>
             post {
@@ -106,17 +99,13 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
             }
           }
         } ~
-        /**
-         * Route: GET /{gameType}/{gameId}/status
-         * Path param: gameType The type of the game (e.g., tictactoe)
-         * Path param: gameId The ID of the game to check status
-         * Response: 200 Current game state
-         * Response: 400 If the game ID is not a valid UUID
-         * Response: 404 If the game is not found
-         * Response: 500 Unexpected response from GameManager
-         *
-         * Fetches the current state of the specified game.
-         */
+        /** Route: GET /{gameType}/{gameId}/status Path param: gameType The type of the game (e.g., tictactoe) Path
+          * param: gameId The ID of the game to check status Response: 200 Current game state Response: 400 If the game
+          * ID is not a valid UUID Response: 404 If the game is not found Response: 500 Unexpected response from
+          * GameManager
+          *
+          * Fetches the current state of the specified game.
+          */
         path("status") {
           get {
             onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, GameOperation.GetState, _))) {

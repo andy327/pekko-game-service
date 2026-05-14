@@ -19,9 +19,7 @@ import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
-/**
- * Spray-Json protocol + Pekko marshalling helpers.
- */
+/** Spray-Json protocol + Pekko marshalling helpers. */
 object JsonProtocol extends DefaultJsonProtocol {
   implicit val uuidFormat: RootJsonFormat[UUID] = new RootJsonFormat[UUID] {
     def write(uuid: UUID): JsValue = JsString(uuid.toString)
@@ -85,17 +83,16 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 
-  /**
-   * Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
-   *
-   * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the
-   * event kind without additional out-of-band information:
-   *   - `{"type":"LobbyUpdated",    "metadata":{...}}`
-   *   - `{"type":"GameStateUpdated","state":{...}}`
-   *   - `{"type":"GameEnded",       "result":"Completed"}`
-   *
-   * Reading is not supported; deserializationError is raised if attempted.
-   */
+  /** Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
+    *
+    * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the event
+    * kind without additional out-of-band information:
+    *   - `{"type":"LobbyUpdated",    "metadata":{...}}`
+    *   - `{"type":"GameStateUpdated","state":{...}}`
+    *   - `{"type":"GameEnded",       "result":"Completed"}`
+    *
+    * Reading is not supported; deserializationError is raised if attempted.
+    */
   implicit val playerEventFormat: RootJsonFormat[PlayerEvent] = new RootJsonFormat[PlayerEvent] {
     def write(event: PlayerEvent): JsValue = event match {
       case PlayerEvent.LobbyUpdated(metadata) =>

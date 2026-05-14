@@ -22,8 +22,7 @@ object PersistActor {
   final case class Saved(replyTo: ActorRef[SnapshotSaved], result: Either[Throwable, Unit]) extends Command
 }
 
-/**
-  * Base trait for persistence actors that interact with GameManager to load and save games.
+/** Base trait for persistence actors that interact with GameManager to load and save games.
   *
   * Concrete implementations only need to supply the loading and saving behavior.
   */

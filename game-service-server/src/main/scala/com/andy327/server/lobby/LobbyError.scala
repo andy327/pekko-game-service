@@ -2,12 +2,11 @@ package com.andy327.server.lobby
 
 import com.andy327.model.core.GameId
 
-/**
- * Represents a typed error that can occur during lobby or game lifecycle operations.
- *
- * LobbyError cases are returned by the GameManager in place of unstructured error strings, allowing routes to map each
- * error to an appropriate HTTP status code (e.g. 404 for not found, 409 for conflict, 403 for authorization failures).
- */
+/** Represents a typed error that can occur during lobby or game lifecycle operations.
+  *
+  * LobbyError cases are returned by the GameManager in place of unstructured error strings, allowing routes to map each
+  * error to an appropriate HTTP status code (e.g. 404 for not found, 409 for conflict, 403 for authorization failures).
+  */
 sealed trait LobbyError {
   def message: String
 }
@@ -34,7 +33,8 @@ object LobbyError {
     def message: String = s"Cannot join lobby $gameId - game has already started or ended"
   }
 
-  /** The requesting player is not the host of the lobby and is not permitted to perform the action. Maps to HTTP 403. */
+  /** The requesting player is not the host of the lobby and is not permitted to perform the action. Maps to HTTP 403.
+    */
   case class NotHostError(gameId: GameId) extends LobbyError {
     def message: String = s"Only the host can start game $gameId"
   }

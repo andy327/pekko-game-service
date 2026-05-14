@@ -23,10 +23,8 @@ import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
 
-/**
- * GameServer is the main entry point of the game-service.
- * It initializes the database, actor system, and HTTP server.
- */
+/** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
+  */
 object GameServer {
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -56,10 +54,7 @@ object GameServer {
     }.unsafeRunSync()
   }
 
-  /**
-   * Starts the actor system and HTTP server and returns both.
-   * Can be reused in tests.
-   */
+  /** Starts the actor system and HTTP server and returns both. Can be reused in tests. */
   def startServer(
       host: String,
       port: Int,

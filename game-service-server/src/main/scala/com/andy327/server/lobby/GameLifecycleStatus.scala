@@ -1,19 +1,17 @@
 package com.andy327.server.lobby
 
-/**
- * Represents the lifecycle state of a game lobby or active game session.
- *
- * This is used by the GameManager and LobbyManager to track the current state of a game throughout its lifecycle, from
- * creation to completion or cancellation.
- */
+/** Represents the lifecycle state of a game lobby or active game session.
+  *
+  * This is used by the GameManager and LobbyManager to track the current state of a game throughout its lifecycle, from
+  * creation to completion or cancellation.
+  */
 sealed trait GameLifecycleStatus {
 
-  /**
-   * Indicates whether a game is in a lifecycle state that permits players to attempt joining.
-   *
-   * Note: This does not check whether the lobby has room for additional players. That check must still be done
-   * separately based on player count and game type limits.
-   */
+  /** Indicates whether a game is in a lifecycle state that permits players to attempt joining.
+    *
+    * Note: This does not check whether the lobby has room for additional players. That check must still be done
+    * separately based on player count and game type limits.
+    */
   def isJoinable: Boolean = this match {
     case GameLifecycleStatus.WaitingForPlayers | GameLifecycleStatus.ReadyToStart =>
       true

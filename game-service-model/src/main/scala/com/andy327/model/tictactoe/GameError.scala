@@ -2,14 +2,13 @@ package com.andy327.model.tictactoe
 
 import com.andy327.model.core.{GameError => CoreGameError, PlayerId}
 
-/**
- * Game-specific error types for TicTacToe.
- *
- * These errors represent invalid game actions or states, such as attempting to move out of turn, making an illegal
- * move, or interacting with a finished game.
- *
- * Each case object or class provides a user-friendly message describing the issue.
- */
+/** Game-specific error types for TicTacToe.
+  *
+  * These errors represent invalid game actions or states, such as attempting to move out of turn, making an illegal
+  * move, or interacting with a finished game.
+  *
+  * Each case object or class provides a user-friendly message describing the issue.
+  */
 sealed trait GameError extends CoreGameError
 
 object GameError {
