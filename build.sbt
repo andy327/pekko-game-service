@@ -89,7 +89,8 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
-      "org.apache.pekko" %% "pekko-http-testkit" % versions("pekko-http") % Test
+      "org.apache.pekko" %% "pekko-http-testkit" % versions("pekko-http") % Test,
+      "org.apache.pekko" %% "pekko-stream-testkit" % versions("pekko") % Test
     )
   )
 
