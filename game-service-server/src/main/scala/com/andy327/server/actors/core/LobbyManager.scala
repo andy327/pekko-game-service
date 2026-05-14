@@ -43,7 +43,12 @@ object LobbyManager {
       extends Command
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
-  final case class ListLobbies(replyTo: ActorRef[GameManager.GameResponse]) extends Command
+  final case class ListLobbies(
+      gameType: Option[GameType],
+      page: Int,
+      limit: Int,
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
   final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
 
@@ -174,10 +179,13 @@ object LobbyManager {
             Behaviors.same
         }
 
-      case ListLobbies(replyTo) =>
+      case ListLobbies(gameTypeFilter, page, limit, replyTo) =>
         context.log.info("Listing available lobbies")
-        val activeLobbies = lobbies.values.filter(_.status.isJoinable).toList
-        replyTo ! GameManager.LobbiesListed(activeLobbies)
+        val all = lobbies.values.filter(_.status.isJoinable).toList
+        val filtered = gameTypeFilter.fold(all)(gt => all.filter(_.gameType == gt))
+        val total = filtered.size
+        val paged = filtered.drop((page - 1) * limit).take(limit)
+        replyTo ! GameManager.LobbiesListed(paged, page, limit, total)
         Behaviors.same
 
       case GetLobbyInfo(gameId, replyTo) =>

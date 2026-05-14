@@ -10,6 +10,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
+import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
   GameResponse,
@@ -59,9 +60,23 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
      */
     path("list") {
       get {
-        onSuccess(system.ask[GameResponse](GameManager.ListLobbies)) {
-          case LobbiesListed(lobbies) => complete(lobbies)
-          case other                  => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+        parameters("gameType".?, "page".as[Int].withDefault(1), "limit".as[Int].withDefault(20)) {
+          (gameTypeStr, page, limit) =>
+            val gameTypeResult: Either[String, Option[GameType]] = gameTypeStr match {
+              case None    => Right(None)
+              case Some(s) => GameType.fromString(s).toRight(s"Unknown game type: $s").map(Some(_))
+            }
+            gameTypeResult match {
+              case Left(err)                            => complete(StatusCodes.BadRequest -> err)
+              case Right(_) if page < 1                 => complete(StatusCodes.BadRequest -> "page must be >= 1")
+              case Right(_) if limit < 1 || limit > 100 =>
+                complete(StatusCodes.BadRequest -> "limit must be between 1 and 100")
+              case Right(gameTypeFilter) =>
+                onSuccess(system.ask[GameResponse](GameManager.ListLobbies(gameTypeFilter, page, limit, _))) {
+                  case listed: LobbiesListed => complete(listed)
+                  case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                }
+            }
         }
       }
     } ~

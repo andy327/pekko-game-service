@@ -112,7 +112,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Sanity check: send a valid command and expect the proper response
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(responseProbe.ref)
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
 
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
       assert(response.lobbies.isEmpty)
@@ -346,7 +346,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
       val GameManager.LobbyCreated(gameId3, _) = responseProbe.receiveMessage()
 
-      gm ! GameManager.ListLobbies(responseProbe.ref)
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
       response.lobbies.map(_.gameId) should contain only (gameId2, gameId3)
     }
@@ -492,7 +492,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.GameCompleted(nonexistentGameId, GameLifecycleStatus.Completed)
 
       // no-op: behavior remains the same and GameManager can continue receiving messages
-      gm ! GameManager.ListLobbies(responseProbe.ref)
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
       response.lobbies.size shouldBe 0
     }
@@ -634,7 +634,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // GM is still responsive after disconnect
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(responseProbe.ref)
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbiesListed]
     }
 
@@ -738,7 +738,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // GM is still responsive
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(responseProbe.ref)
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbiesListed]
     }
 

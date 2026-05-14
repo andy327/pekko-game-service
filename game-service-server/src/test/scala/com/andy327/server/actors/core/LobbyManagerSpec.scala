@@ -111,8 +111,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       lm ! LobbyManager.MarkCompleted(gameId, GameLifecycleStatus.Completed)
 
       // lobby is no longer in active map, so it must not appear in ListLobbies
-      lm ! LobbyManager.ListLobbies(responseProbe.ref)
-      val GameManager.LobbiesListed(listed) = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      val listed = responseProbe.expectMessageType[GameManager.LobbiesListed].lobbies
       listed.map(_.gameId) should not contain gameId
 
       // but GetLobbyInfo should still find it via the cache
@@ -206,7 +206,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       spawnMsg.subscribers should contain(subscriberProbe.ref)
 
       // subscriber is removed from LobbyManager after handoff to game actor
-      lm ! LobbyManager.ListLobbies(responseProbe.ref)
+      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbiesListed]
       subscriberProbe.expectNoMessage()
     }
@@ -220,9 +220,55 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       lm ! LobbyManager.MarkCompleted(unknownId, GameLifecycleStatus.Completed)
 
       // sanity check: LobbyManager is still responsive
-      lm ! LobbyManager.ListLobbies(responseProbe.ref)
-      val GameManager.LobbiesListed(lobbies) = responseProbe.expectMessageType[GameManager.LobbiesListed]
-      lobbies shouldBe empty
+      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed].lobbies shouldBe empty
+    }
+
+    "return pagination metadata with the lobby list" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val carol = Player("carol")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, carol, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.ListLobbies(None, 1, 2, responseProbe.ref)
+      val page1 = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      page1.lobbies should have size 2
+      page1.page shouldBe 1
+      page1.limit shouldBe 2
+      page1.total shouldBe 3
+
+      lm ! LobbyManager.ListLobbies(None, 2, 2, responseProbe.ref)
+      val page2 = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      page2.lobbies should have size 1
+      page2.total shouldBe 3
+    }
+
+    "filter lobbies by game type" in {
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val lm = spawn(LobbyManager(gmProbe.ref))
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.ListLobbies(Some(GameType.TicTacToe), 1, 20, responseProbe.ref)
+      val result = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      result.lobbies should have size 2
+      result.total shouldBe 2
+      result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
     }
 
     "return NotHostError when a non-host tries to start the game" in {

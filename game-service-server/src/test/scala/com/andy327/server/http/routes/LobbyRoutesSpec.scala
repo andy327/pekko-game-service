@@ -212,18 +212,50 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "list all lobbies" in {
-      // Create a new lobby
+    "list all lobbies with pagination metadata" in {
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      // Check for lobby in list of active lobbies
       Get("/lobby/list") ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[List[LobbyMetadata]].map(_.gameId) should contain(gameId)
+        val result = responseAs[GameManager.LobbiesListed]
+        result.lobbies.map(_.gameId) should contain(gameId)
+        result.page shouldBe 1
+        result.limit shouldBe 20
+        result.total should be >= 1
       }
     }
+
+    "filter lobbies by game type" in {
+      Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Get("/lobby/list?gameType=tictactoe") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val result = responseAs[GameManager.LobbiesListed]
+        result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
+      }
+    }
+
+    "return 400 for an unknown game type filter" in
+      Get("/lobby/list?gameType=unknowngame") ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Unknown game type")
+      }
+
+    "return 400 for page < 1" in
+      Get("/lobby/list?page=0") ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("page must be >= 1")
+      }
+
+    "return 400 for limit out of range" in
+      Get("/lobby/list?limit=0") ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("limit must be between 1 and 100")
+      }
 
     "return 500 for unexpected responses" in {
       val fakeId = UUID.randomUUID()
@@ -244,7 +276,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           replyTo ! GameManager.Ready // triggers /start fallback
           Behaviors.same
 
-        case GameManager.ListLobbies(replyTo) =>
+        case GameManager.ListLobbies(_, _, _, replyTo) =>
           replyTo ! GameManager.Ready // triggers /list fallback
           Behaviors.same
 

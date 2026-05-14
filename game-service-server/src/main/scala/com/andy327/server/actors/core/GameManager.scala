@@ -44,7 +44,12 @@ object GameManager {
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
-  final case class ListLobbies(replyTo: ActorRef[GameResponse]) extends Command
+  final case class ListLobbies(
+      gameType: Option[GameType],
+      page: Int,
+      limit: Int,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
   final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
@@ -83,7 +88,7 @@ object GameManager {
   final case class LobbyJoined(gameId: GameId, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
   final case class LobbyLeft(gameId: GameId, message: String) extends GameResponse
   final case class GameStarted(gameId: GameId) extends GameResponse
-  final case class LobbiesListed(lobbies: List[LobbyMetadata]) extends GameResponse
+  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
   final case class LobbyErrorResponse(error: LobbyError) extends GameResponse
@@ -185,8 +190,8 @@ object GameManager {
           lobbyManager ! LobbyManager.StartGame(gameId, playerId, replyTo)
           Behaviors.same
 
-        case ListLobbies(replyTo) =>
-          lobbyManager ! LobbyManager.ListLobbies(replyTo)
+        case ListLobbies(gameType, page, limit, replyTo) =>
+          lobbyManager ! LobbyManager.ListLobbies(gameType, page, limit, replyTo)
           Behaviors.same
 
         case GetLobbyInfo(gameId, replyTo) =>
