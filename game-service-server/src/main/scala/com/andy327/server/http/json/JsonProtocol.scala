@@ -19,8 +19,15 @@ import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
 
-/** Spray-Json protocol + Pekko marshalling helpers. */
+/** Spray-JSON read/write formats and Pekko HTTP marshallers for all API types.
+  *
+  * Case-class formats are derived via `jsonFormatN`; enums and sum types use hand-written instances so the wire format
+  * stays stable even if the class name changes. The [[playerEventFormat]] is write-only (server-push only).
+  * The [[gameStateMarshaller]] handles polymorphic `GameState` → `HttpResponse` conversion.
+  */
 object JsonProtocol extends DefaultJsonProtocol {
+
+  /** Serialises UUIDs as plain strings; rejects non-UUID strings at read time. */
   implicit val uuidFormat: RootJsonFormat[UUID] = new RootJsonFormat[UUID] {
     def write(uuid: UUID): JsValue = JsString(uuid.toString)
     def read(value: JsValue): UUID = value match {
@@ -38,6 +45,7 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
 
+  /** Serialises GameType as its `toString` name; rejects unknown strings at read time. */
   implicit val gameTypeFormat: RootJsonFormat[GameType] = new RootJsonFormat[GameType] {
     def write(gt: GameType): JsValue = JsString(gt.toString)
 
@@ -48,6 +56,7 @@ object JsonProtocol extends DefaultJsonProtocol {
     }
   }
 
+  /** Serialises GameLifecycleStatus as its `toString` name; rejects unknown strings at read time. */
   implicit val gameLifecycleStatusFormat: RootJsonFormat[GameLifecycleStatus] =
     new RootJsonFormat[GameLifecycleStatus] {
       def write(status: GameLifecycleStatus): JsValue = JsString(status.toString)

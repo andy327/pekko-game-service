@@ -7,8 +7,13 @@ import org.apache.pekko.actor.typed.Behavior
 import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.persistence.db.GameRepository
 
-/** Concrete persistence-actor that stores snapshots in PostgreSQL via a GameRepository. */
+/** Concrete [[PersistActor]] that stores game snapshots in PostgreSQL via a `GameRepository`.
+  *
+  * Spawned once at startup by [[com.andy327.server.actors.core.GameManager]] and shared across all game actors.
+  */
 object PostgresActor {
+
+  /** @param gameRepo the repository used to read and write game snapshots */
   def apply(gameRepo: GameRepository): Behavior[PersistenceProtocol.Command] =
     new Impl(gameRepo).behavior
 

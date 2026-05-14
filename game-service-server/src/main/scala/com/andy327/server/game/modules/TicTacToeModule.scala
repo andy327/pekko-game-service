@@ -32,8 +32,10 @@ object TicTacToeModule extends GameModule {
 
   override val moveDecoder: Decoder[MovePayload] = Decoder[TicTacToeMove].widen
 
-  /** Parses a TicTacToeMoveRequest from JSON and converts it to a MovePayload. If parsing fails, returns a Left with an
-    * error message.
+  /** Parses a TicTacToeMoveRequest from JSON and converts it to a MovePayload.
+    *
+    * @param json the raw JSON value submitted by the client
+    * @return `Right(TicTacToeMove)` on success, or `Left(errorMessage)` if the JSON is malformed
     */
   override def parseMove(json: JsValue): Either[String, MovePayload] =
     Try(json.convertTo[TicTacToeMoveRequest])
@@ -42,8 +44,11 @@ object TicTacToeModule extends GameModule {
       .left
       .map(_.getMessage)
 
-  /** Converts a generic GameOperation into a TicTacToe-specific GameCommand. Returns an error if the MovePayload is not
-    * valid for TicTacToe.
+  /** Converts a generic GameOperation into a TicTacToe-specific GameCommand.
+    *
+    * @param op the game-agnostic operation from the HTTP layer
+    * @param replyTo the actor that should receive the operation result
+    * @return `Right(command)` ready to send to TicTacToeActor, or `Left(GameError)` if the payload type is wrong
     */
   override def toGameCommand(
       op: GameOperation,
@@ -63,6 +68,12 @@ object TicTacToeModule extends GameModule {
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
     TicTacToeActor.Subscribe(playerRef)
 
+  /** Serialises a TicTacToe game model into a [[com.andy327.server.http.json.GameState]] for HTTP/WebSocket delivery.
+    *
+    * @param game the game model to serialise; must be a `TicTacToe` instance
+    * @return the corresponding [[com.andy327.server.http.json.TicTacToeState]]
+    * @throws java.lang.IllegalArgumentException if `game` is not a TicTacToe
+    */
   override def serialize(game: Game[_, _, _, _, _]): GameState = game match {
     case ttt: TicTacToe => GameStateConverters.serializeGame(ttt)
     case other          =>

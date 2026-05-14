@@ -31,7 +31,10 @@ trait PersistActor {
   import PersistenceProtocol._
   import PersistActor._
 
+  /** Load a previously saved game snapshot. Returns None if no snapshot exists for the given ID. */
   def loadFromStore(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
+
+  /** Persist the current game snapshot, overwriting any previously saved state for the same ID. */
   def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
   final def behavior: Behavior[Command] =

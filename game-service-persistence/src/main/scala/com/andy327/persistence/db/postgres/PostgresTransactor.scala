@@ -7,8 +7,14 @@ import cats.effect.{IO, Resource}
 import doobie.hikari.HikariTransactor
 import doobie.util.ExecutionContexts
 
-/** Creates a Resource that manages a Doobie HikariTransactor. */
+/** Builds a managed Doobie `HikariTransactor` from application config.
+  *
+  * Connection settings are read from `pekko-game-service.db`: `url`, `user`, `pass`, and `poolSize`. The returned
+  * `Resource` handles pool lifecycle — acquire on open, shutdown on release.
+  */
 object PostgresTransactor {
+
+  /** @param config Typesafe Config to read database settings from; defaults to the application classpath config */
   def apply(config: Config = ConfigFactory.load()): Resource[IO, HikariTransactor[IO]] = {
     val dbConfig = config.getConfig("pekko-game-service.db")
 

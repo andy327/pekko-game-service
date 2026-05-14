@@ -24,7 +24,14 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
   /** Resolves to the compile-time `GameType` matching `G` via an implicit tag. */
   def gameType(implicit tag: GameTypeTag[G]): GameType = tag.value
 
-  /** Spawn a fresh game actor given players, ids, etc. */
+  /** Spawn a fresh game actor for a newly created game.
+    *
+    * @param gameId the unique identifier for the game
+    * @param players the ordered list of players; game type determines how many are required
+    * @param persist the shared persistence actor used to save snapshots
+    * @param gameManager the parent GameManager actor, used to report game-end events
+    * @return the initial game model and a `Behavior` ready to receive commands
+    */
   def create(
       gameId: GameId,
       players: Seq[PlayerId],
@@ -32,7 +39,14 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
       gameManager: ActorRef[GameManager.Command]
   ): (G, Behavior[Command])
 
-  /** Re-hydrate an actor from a snapshot already loaded from the database. */
+  /** Re-hydrate an actor from a snapshot already loaded from the database.
+    *
+    * @param gameId the unique identifier for the game being restored
+    * @param snap the snapshot returned by the persistence layer; must be a valid `G`
+    * @param persist the shared persistence actor used to save future snapshots
+    * @param gameManager the parent GameManager actor
+    * @return a `Behavior` initialised from the snapshot state
+    */
   def fromSnapshot(
       gameId: GameId,
       snap: Game[_, _, _, _, _],
