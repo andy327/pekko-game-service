@@ -4,7 +4,6 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.GameState
 
 object GameActor {
 
@@ -17,7 +16,7 @@ object GameActor {
 }
 
 /** Type-class factory and helper interface implemented by every game-specific actor. */
-trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
+trait GameActor[G <: Game[_, _, _, _, _]] {
 
   type Command <: GameActor.GameCommand
 
@@ -53,4 +52,7 @@ trait GameActor[G <: Game[_, _, _, _, _], S <: GameState] {
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command]
+
+  /** Produce the game-specific Subscribe command that registers `playerRef` for push events. */
+  def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
 }

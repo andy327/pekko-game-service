@@ -261,7 +261,7 @@ object GameManager {
         case SubscribeToGame(gameId, playerRef) =>
           activeGames.get(gameId) match {
             case Some((gameType, gameActor)) =>
-              gameActor ! GameRegistry.forType(gameType).module.subscribeCommand(playerRef)
+              gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef)
             case None =>
               context.log.warn(s"SubscribeToGame: no active game found for $gameId")
           }
@@ -280,8 +280,8 @@ object GameManager {
           val (game, behavior) = gameActor.create(gameId, players.toSeq, persistActor, context.self)
           val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
-          val module = GameRegistry.forType(gameType).module
-          subscribers.foreach(ref => actorRef ! module.subscribeCommand(ref))
+          val bundle = GameRegistry.forType(gameType)
+          subscribers.foreach(ref => actorRef ! bundle.actor.subscribeCommand(ref))
 
           persistActor ! PersistenceProtocol.SaveSnapshot(
             gameId,
@@ -355,7 +355,7 @@ object GameManager {
         case CompletedGameLoaded(result, gameType, replyTo) =>
           result match {
             case Right(Some(game)) =>
-              replyTo ! GameStatus(GameRegistry.forType(gameType).module.serialize(game))
+              replyTo ! GameStatus(GameRegistry.forType(gameType).serializeGame(game))
             case Right(None) =>
               replyTo ! ErrorResponse("Game state not found in database")
             case Left(ex) =>

@@ -36,7 +36,7 @@ import com.andy327.server.lobby.GameLifecycleStatus
   *     [[com.andy327.server.actors.persistence.PersistenceProtocol]] (`SaveSnapshot` after each move),
   *     [[com.andy327.server.actors.core.PlayerActor]] (fan-out `GameStateUpdated` and `GameEnded` via `SendEvent`)
   */
-object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
+object TicTacToeActor extends GameActor[TicTacToe] {
   import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
@@ -66,6 +66,9 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
 
   /** Delivered by a `messageAdapter` after PersistenceProtocol.LoadSnapshot completes. */
   final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
+
+  override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
+    Subscribe(playerRef)
 
   /** Resolves `playerId` to `X` or `O` based on which seat they occupy; `None` if not a participant. */
   private def markForPlayer(playerId: PlayerId, playerX: PlayerId, playerO: PlayerId): Option[Mark] =

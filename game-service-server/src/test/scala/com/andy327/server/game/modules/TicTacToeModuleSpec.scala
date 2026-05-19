@@ -1,9 +1,9 @@
 package com.andy327.server.game.modules
 
+import io.circe.parser.decode
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
-import spray.json._
 
 import com.andy327.model.core.GameError
 import com.andy327.model.tictactoe.Location
@@ -18,21 +18,14 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
   import testKit._
 
   "TicTacToeModule" should {
-    "successfully parse a valid TicTacToe move JSON" in {
-      val validJson = JsObject("row" -> JsNumber(1), "col" -> JsNumber(2))
-
-      val result = TicTacToeModule.parseMove(validJson)
-      result shouldBe Right(MovePayload.TicTacToeMove(1, 2))
+    "successfully decode a valid TicTacToe move JSON" in {
+      val json = """{"row":1,"col":2}"""
+      decode[MovePayload](json)(TicTacToeModule.moveDecoder) shouldBe Right(MovePayload.TicTacToeMove(1, 2))
     }
 
-    "fail to parse an invalid TicTacToe move JSON" in {
-      val malformedJson = JsObject("bad" -> JsString("data"))
-
-      val result = TicTacToeModule.parseMove(malformedJson)
-      result.isLeft shouldBe true
-      result.swap.getOrElse(sys.error("Expected Left but got Right")) should include(
-        "Object is missing required member"
-      )
+    "fail to decode an invalid TicTacToe move JSON" in {
+      val json = """{"bad":"data"}"""
+      decode[MovePayload](json)(TicTacToeModule.moveDecoder).isLeft shouldBe true
     }
 
     "convert a valid GameOperation.MakeMove to a GameCommand" in {
@@ -63,7 +56,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
     "produce a Subscribe command for a given PlayerActor ref" in {
       val playerProbe = TestProbe[PlayerActor.Command]()
 
-      val result = TicTacToeModule.subscribeCommand(playerProbe.ref)
+      val result = TicTacToeActor.subscribeCommand(playerProbe.ref)
 
       result shouldBe TicTacToeActor.Subscribe(playerProbe.ref)
     }
