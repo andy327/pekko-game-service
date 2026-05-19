@@ -24,12 +24,6 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private def parseGameType(str: String): Either[Throwable, GameType] =
-    str match {
-      case "TicTacToe" => Right(GameType.TicTacToe)
-      case other       => Left(new Exception(s"Unknown GameType: $other"))
-    }
-
   /** Creates the 'games' table with the appropriate schema if it doesn't already exit. */
   override def initialize(): IO[Unit] =
     sql"""
@@ -89,7 +83,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       .flatMap { rows =>
         rows.flatTraverse { case (idStr, gameTypeStr, jsonStr) =>
           val maybeId = Either.catchOnly[IllegalArgumentException](UUID.fromString(idStr))
-          val maybeGameType = parseGameType(gameTypeStr)
+          val maybeGameType = GameType.fromString(gameTypeStr).toRight(new Exception(s"Unknown GameType: $gameTypeStr"))
 
           (maybeId, maybeGameType) match {
             case (Right(gameId), Right(gameType)) =>

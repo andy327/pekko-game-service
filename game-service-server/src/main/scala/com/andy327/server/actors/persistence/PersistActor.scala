@@ -1,6 +1,6 @@
 package com.andy327.server.actors.persistence
 
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
@@ -43,26 +43,16 @@ trait PersistActor {
 
       Behaviors.receiveMessage {
         case LoadSnapshot(gameId, gameType, replyTo) =>
-          val result = Try(loadFromStore(gameId, gameType).unsafeToFuture())
-          result match {
-            case Success(fut) =>
-              context.pipeToSelf(fut) {
-                case Success(value) => Loaded(replyTo, Right(value))
-                case Failure(ex)    => Loaded(replyTo, Left(ex))
-              }
-            case Failure(ex) => replyTo ! SnapshotLoaded(Left(ex))
+          context.pipeToSelf(loadFromStore(gameId, gameType).unsafeToFuture()) {
+            case Success(value) => Loaded(replyTo, Right(value))
+            case Failure(ex)    => Loaded(replyTo, Left(ex))
           }
           Behaviors.same
 
         case SaveSnapshot(gameId, gameType, game, replyTo) =>
-          val result = Try(saveToStore(gameId, gameType, game).unsafeToFuture())
-          result match {
-            case Success(fut) =>
-              context.pipeToSelf(fut) {
-                case Success(value) => Saved(replyTo, Right(value))
-                case Failure(ex)    => Saved(replyTo, Left(ex))
-              }
-            case Failure(ex) => replyTo ! SnapshotSaved(Left(ex))
+          context.pipeToSelf(saveToStore(gameId, gameType, game).unsafeToFuture()) {
+            case Success(value) => Saved(replyTo, Right(value))
+            case Failure(ex)    => Saved(replyTo, Left(ex))
           }
           Behaviors.same
 
