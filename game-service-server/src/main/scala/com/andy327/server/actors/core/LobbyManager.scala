@@ -34,28 +34,47 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
 object LobbyManager {
   sealed trait Command
 
+  // --- Commands received from GameManager (all handled locally by LobbyManager) ---
+
+  /** Create a new lobby for `gameType` hosted by `host`; replies with [[GameManager.LobbyCreated]]. */
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
+
+  /** Add `player` to an existing joinable lobby; replies with [[GameManager.LobbyJoined]] or an error. */
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
+
+  /** Remove `player` from a lobby; cancels the lobby if the departing player is the host. */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
+
+  /** Validate the start request and, if valid, ask GameManager to spawn the game actor via a `SpawnGame` message. */
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
+
+  /** Return a paginated, optionally filtered list of joinable lobbies; replies with [[LobbiesListed]]. */
   final case class ListLobbies(
       gameType: Option[GameType],
       page: Int,
       limit: Int,
       replyTo: ActorRef[LobbyManager.LobbiesListed]
   ) extends Command
+
+  /** Return full metadata for one lobby (active or recently ended); replies with [[GameManager.LobbyInfo]]. */
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
 
-  /** Response type owned by LobbyManager for lobby-listing results. */
-  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
+  /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `gameId`. */
   final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
 
-  /** Sent by GameManager when a game ends, to update lobby status. */
+  // --- Internal command (sent by GameManager, not reachable from HTTP) ---
+
+  /** Move the lobby to the recently-ended cache and fan-out a [[PlayerEvent.GameEnded]] to subscribers. */
   final private[core] case class MarkCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
+
+  // --- Response type owned by LobbyManager ---
+
+  /** Paginated lobby-list result; adapted into [[GameManager.LobbiesListed]] by a GameManager message adapter. */
+  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
 
   val recentlyEndedTtl: FiniteDuration = 1.hour
 
@@ -78,6 +97,13 @@ object LobbyManager {
   ): Unit =
     subscribers.getOrElse(gameId, Set.empty).foreach(_ ! PlayerActor.SendEvent(event))
 
+  /** Steady-state behavior holding all lobby data.
+    *
+    * @param lobbies map of active lobbies (WaitingForPlayers, ReadyToStart, InProgress)
+    * @param recentlyEnded TTL cache of recently completed/cancelled lobbies, evicted after [[recentlyEndedTtl]]
+    * @param subscribers per-lobby set of PlayerActor refs registered to receive push events
+    * @param gameManager parent ref used to send [[GameManager.SpawnGame]] on a valid start request
+    */
   private def running(
       lobbies: Map[GameId, LobbyMetadata],
       recentlyEnded: Cache[GameId, LobbyMetadata],

@@ -22,17 +22,28 @@ import com.andy327.server.lobby.Player
 object PlayerManager {
   sealed trait Command
 
+  /** Spawn (or replace) a PlayerActor for `player`, wired to `wsOut`; replies with the new actor ref. */
   final case class RegisterPlayer(
       player: Player,
       wsOut: ActorRef[Message],
       replyTo: ActorRef[ActorRef[PlayerActor.Command]]
   ) extends Command
+
+  /** Look up the live PlayerActor for `playerId`; replies `None` if the player is not connected. */
   final case class LookupPlayer(playerId: PlayerId, replyTo: ActorRef[Option[ActorRef[PlayerActor.Command]]])
       extends Command
+
+  /** Stop the PlayerActor for `playerId` and remove it from the registry. */
   final case class PlayerDisconnected(playerId: PlayerId) extends Command
 
   def apply(): Behavior[Command] = running(Map.empty, 0)
 
+  /** Tracks the live player registry.
+    *
+    * @param players map from PlayerId to the currently running PlayerActor ref
+    * @param spawnCount monotonically increasing counter appended to child names to satisfy Pekko's uniqueness
+    *                   constraint during the brief overlap when an old actor is still stopping on reconnect
+    */
   private def running(players: Map[PlayerId, ActorRef[PlayerActor.Command]], spawnCount: Int): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {

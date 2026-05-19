@@ -39,28 +39,62 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
 object GameManager {
   sealed trait Command
 
+  // --- Lobby commands (forwarded verbatim to LobbyManager) ---
+
+  /** Create a new lobby; replies with [[LobbyCreated]]. */
   final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Join an existing lobby; replies with [[LobbyJoined]] or a [[LobbyErrorResponse]]. */
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Leave a lobby; cancels the lobby if the departing player is the host. */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Start a game in a lobby the caller hosts; replies with [[GameStarted]] or a [[LobbyErrorResponse]]. */
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** List joinable lobbies with optional game-type filter and pagination; replies with [[LobbiesListed]]. */
   final case class ListLobbies(
       gameType: Option[GameType],
       page: Int,
       limit: Int,
       replyTo: ActorRef[GameResponse]
   ) extends Command
+
+  /** Fetch metadata for a specific lobby (active or recently ended); replies with [[LobbyInfo]]. */
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
-  final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
-  final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Subscribe `playerRef` to lobby push events via LobbyManager. */
   final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  // --- Game operation commands (routed to a specific game actor via GameRegistry) ---
+
+  /** Forward `op` to the game actor for `gameId`; replies with [[GameStatus]] or [[ErrorResponse]]. */
+  final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  // --- Player session commands (forwarded to PlayerManager) ---
+
+  /** Register (or reconnect) a player; replies with the spawned [[PlayerActor]] ref. */
   final case class RegisterPlayer(
       player: Player,
       wsOut: ActorRef[Message],
       replyTo: ActorRef[ActorRef[PlayerActor.Command]]
   ) extends Command
+
+  /** Clean up the PlayerActor and session state for a disconnected player. */
   final case class PlayerDisconnected(playerId: PlayerId) extends Command
 
+  // --- Lifecycle commands ---
+
+  /** Sent by a game actor when its game reaches a terminal state (won or draw). */
+  final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
+
+  // --- Internal commands (not reachable from HTTP) ---
+
+  /** Carries the result of the async DB restore initiated at startup; transitions from initializing to running. */
   final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
 
   /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. */
@@ -72,35 +106,51 @@ object GameManager {
       subscribers: Set[ActorRef[PlayerActor.Command]] = Set.empty
   ) extends Command
 
+  /** Adapter wrapper — converts a game actor's `Either[GameError, GameState]` reply into a [[GameResponse]]. */
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
-  /** Adapter wrapper for LobbyManager.LobbiesListed — converts the child's own response type into a GameResponse. */
+  /** Adapter wrapper — converts [[LobbyManager.LobbiesListed]] into a [[GameResponse]] for the HTTP caller. */
   final private case class WrappedLobbiesListed(listed: LobbyManager.LobbiesListed, replyTo: ActorRef[GameResponse])
       extends Command
 
-  /** Result of a DB fallback load for a completed game's state. */
+  /** Result of a DB fallback load for a completed game's current state. */
   final private case class CompletedGameLoaded(
       result: Either[Throwable, Option[Game[_, _, _, _, _]]],
       gameType: GameType,
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  // --- Response types (sent back to HTTP route handlers) ---
+
   sealed trait GameResponse
+
+  // Lobby responses
   final case class LobbyCreated(gameId: GameId, host: Player) extends GameResponse
   final case class LobbyJoined(gameId: GameId, metadata: LobbyMetadata, joinedPlayer: Player) extends GameResponse
   final case class LobbyLeft(gameId: GameId, message: String) extends GameResponse
-  final case class GameStarted(gameId: GameId) extends GameResponse
-  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
+
+  /** Paginated list of joinable lobbies. */
+  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
+
+  // Game responses
+  final case class GameStarted(gameId: GameId) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
+
+  // Error responses
   final case class LobbyErrorResponse(error: LobbyError) extends GameResponse
   final case class ErrorResponse(message: String) extends GameResponse
 
-  /** Emitted once when the DB restore is complete. */
+  /** Emitted once when the DB restore is complete; used in tests to await the running state. */
   case object Ready extends GameResponse
 
-  /** Factory used from GameServer */
+  /** Create the GameManager, kick off an async DB restore, and stash messages until restoration completes.
+    *
+    * @param persistActor shared actor for all persistence I/O
+    * @param gameRepo the repository used for the initial game restore and completed-game state lookups
+    * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
+    */
   @annotation.nowarn("msg=match may not be exhaustive")
   def apply(
       persistActor: ActorRef[PersistenceProtocol.Command],
@@ -127,8 +177,10 @@ object GameManager {
       }
     }
 
-  /** Initialization state: waits for RestoreGames message after async DB load. Transitions to running state once
-    * restoration is complete.
+  /** Startup behavior: stashes all incoming messages until the async DB restore completes.
+    *
+    * Waits for a single [[RestoreGames]] message, spawns actors for every recovered game, then unstashes
+    * all buffered messages and transitions to [[running]].
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
@@ -157,10 +209,13 @@ object GameManager {
     }
   }
 
-  /** Running state: routes lobby commands to LobbyManager and handles game actor lifecycle.
+  /** Steady-state behavior: routes commands to child actors and owns the active game registry.
     *
-    * Active games are tracked in activeGames. When a game completes its actor is stopped and its game type is retained
-    * in completedGameTypes so that subsequent status queries can fall back to the database.
+    * Lobby and player session commands are forwarded to [[LobbyManager]] and [[PlayerManager]] respectively.
+    * Game operation commands are dispatched to the appropriate game actor via [[GameRegistry]].
+    *
+    * @param activeGames map from GameId to (GameType, game actor ref) for all currently running games
+    * @param completedGameTypes retains the GameType of finished games so GetState queries can fall back to the DB
     */
   private def running(
       activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],

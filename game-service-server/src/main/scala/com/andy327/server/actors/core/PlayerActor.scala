@@ -20,7 +20,11 @@ import com.andy327.server.lobby.Player
   */
 object PlayerActor {
   sealed trait Command
+
+  /** Serialize `event` to JSON and forward it to the player's WebSocket sink. */
   final case class SendEvent(event: PlayerEvent) extends Command
+
+  /** Terminate this actor and close the associated WebSocket stream. */
   case object Disconnect extends Command
 
   def apply(player: Player, wsOut: ActorRef[Message]): Behavior[Command] =

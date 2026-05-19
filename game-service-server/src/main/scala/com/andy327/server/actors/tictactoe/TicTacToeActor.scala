@@ -40,16 +40,34 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
   import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
+
+  // --- Commands received from GameManager (via GameRegistry routing) ---
+
+  /** Attempt to apply a move at `loc` on behalf of `playerId`. */
   final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
       extends Command
+
+  /** Return the current serialized board state without mutating it. */
   final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
+
+  /** Register a PlayerActor to receive push events (state updates and game-end notifications). */
   final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  /** Deregister a previously subscribed PlayerActor. */
   final case class Unsubscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command
 
+  // --- Internal messages (adapter results from the persistence actor) ---
+
+  /** Wraps the result of a fire-and-forget snapshot save; logged but never causes a state change. */
   sealed trait Internal extends Command
+
+  /** Delivered by a `messageAdapter` after PersistenceProtocol.SaveSnapshot completes. */
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
+
+  /** Delivered by a `messageAdapter` after PersistenceProtocol.LoadSnapshot completes. */
   final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
 
+  /** Resolves `playerId` to `X` or `O` based on which seat they occupy; `None` if not a participant. */
   private def markForPlayer(playerId: PlayerId, playerX: PlayerId, playerO: PlayerId): Option[Mark] =
     if (playerId == playerX) Some(X)
     else if (playerId == playerO) Some(O)
@@ -74,8 +92,10 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
     (game, behavior)
   }
 
-  /** Creates a TicTacToeActor from a preloaded game snapshot. This is used during recovery of games from persistent
-    * storage.
+  /** Creates a TicTacToeActor from a preloaded game snapshot.
+    *
+    * Used during server startup to re-hydrate in-progress games from persistent storage. Stops the actor if the
+    * snapshot type does not match `TicTacToe`.
     */
   override def fromSnapshot(
       gameId: GameId,
@@ -92,7 +112,12 @@ object TicTacToeActor extends GameActor[TicTacToe, TicTacToeState] {
       }
     }
 
-  /** Main actor behavior. Processes game logic and player interactions. */
+  /** Core recursive behavior that drives a single game from first move to completion.
+    *
+    * Each state-changing message (MakeMove) produces a new `active` behavior with updated game and subscriber state.
+    * Read-only messages (GetState, SnapshotSaved) return `Behaviors.same`. Subscribe/Unsubscribe update the subscriber
+    * set. The behavior does not stop itself — GameManager calls `context.stop` after receiving `GameCompleted`.
+    */
   private def active(
       game: TicTacToe,
       gameId: GameId,
