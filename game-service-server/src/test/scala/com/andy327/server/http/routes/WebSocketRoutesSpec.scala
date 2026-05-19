@@ -1,5 +1,7 @@
 package com.andy327.server.http.routes
 
+import cats.effect.unsafe.IORuntime
+
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.model.StatusCodes
@@ -14,6 +16,8 @@ import com.andy327.server.lobby.Player
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
+  implicit val runtime: IORuntime = IORuntime.global
+
   private val typedKit = ActorTestKit()
   private val persistProbe = typedKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo

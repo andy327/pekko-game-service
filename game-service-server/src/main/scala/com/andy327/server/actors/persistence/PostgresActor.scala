@@ -1,6 +1,7 @@
 package com.andy327.server.actors.persistence
 
 import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.typed.Behavior
 
@@ -13,8 +14,10 @@ import com.andy327.persistence.db.GameRepository
   */
 object PostgresActor {
 
-  /** @param gameRepo the repository used to read and write game snapshots */
-  def apply(gameRepo: GameRepository): Behavior[PersistenceProtocol.Command] =
+  /** @param gameRepo the repository used to read and write game snapshots
+    * @param runtime the Cats Effect runtime used to execute IO operations
+    */
+  def apply(gameRepo: GameRepository)(implicit runtime: IORuntime): Behavior[PersistenceProtocol.Command] =
     new Impl(gameRepo).behavior
 
   private class Impl(gameRepo: GameRepository) extends PersistActor {

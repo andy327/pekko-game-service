@@ -156,11 +156,9 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       onReady: Option[ActorRef[Ready.type]] = None
-  ): Behavior[Command] =
+  )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
       Behaviors.setup { context =>
-        implicit val runtime: IORuntime = IORuntime.global
-
         val lobbyManager = context.spawn(LobbyManager(context.self), "lobby-manager")
         val playerManager = context.spawn(PlayerManager(), "player-manager")
 
@@ -189,7 +187,7 @@ object GameManager {
       gameRepo: GameRepository,
       stash: StashBuffer[Command],
       onReady: Option[ActorRef[Ready.type]]
-  ): Behavior[Command] = Behaviors.receive { (context, message) =>
+  )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games) =>
         val restoredActors = games.map { case (gameId, (gameType, game)) =>
@@ -201,7 +199,9 @@ object GameManager {
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
         onReady.foreach(_ ! Ready)
-        stash.unstashAll(running(restoredActors, Map.empty, lobbyManager, playerManager, persistActor, gameRepo))
+        stash.unstashAll(
+          running(restoredActors, Map.empty, lobbyManager, playerManager, persistActor, gameRepo)(runtime)
+        )
 
       case other =>
         stash.stash(other)
@@ -224,10 +224,8 @@ object GameManager {
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository
-  ): Behavior[Command] =
+  )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.setup { implicit context =>
-      implicit val runtime: IORuntime = IORuntime.global
-
       Behaviors.receiveMessage {
         case CreateLobby(gameType, host, replyTo) =>
           lobbyManager ! LobbyManager.CreateLobby(gameType, host, replyTo)

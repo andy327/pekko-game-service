@@ -4,6 +4,8 @@ import java.util.UUID
 
 import scala.concurrent.duration._
 
+import cats.effect.unsafe.IORuntime
+
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -25,6 +27,7 @@ import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   private val testKit = ActorTestKit()
+  implicit val runtime: IORuntime = IORuntime.global
   implicit val timeout: Timeout = Timeout(3.seconds)
 
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()

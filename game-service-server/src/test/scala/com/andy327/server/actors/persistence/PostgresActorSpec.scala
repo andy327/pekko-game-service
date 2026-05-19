@@ -5,6 +5,7 @@ import java.util.UUID
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.scalatest.matchers.should.Matchers
@@ -15,6 +16,8 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 
 class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike with Matchers {
+  implicit val runtime: IORuntime = IORuntime.global
+
   class DummyRepo(
       loadResult: Either[Throwable, Option[Game[_, _, _, _, _]]] = Right(None),
       saveResult: Either[Throwable, Unit] = Right(())

@@ -6,6 +6,7 @@ import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
@@ -42,6 +43,8 @@ class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map
 class GameManagerSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
   import testKit._
+
+  implicit val runtime: IORuntime = IORuntime.global
 
   val alice: PlayerId = UUID.randomUUID()
   val bob: PlayerId = UUID.randomUUID()

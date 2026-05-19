@@ -37,10 +37,8 @@ trait PersistActor {
   /** Persist the current game snapshot, overwriting any previously saved state for the same ID. */
   def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
-  final def behavior: Behavior[Command] =
+  final def behavior(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.setup { context =>
-      implicit val runtime: IORuntime = IORuntime.global
-
       Behaviors.receiveMessage {
         case LoadSnapshot(gameId, gameType, replyTo) =>
           context.pipeToSelf(loadFromStore(gameId, gameType).unsafeToFuture()) {

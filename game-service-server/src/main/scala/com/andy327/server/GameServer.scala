@@ -59,7 +59,7 @@ object GameServer {
       host: String,
       port: Int,
       gameRepo: GameRepository
-  ): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
+  )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
       GameManager(persistActor, gameRepo)
