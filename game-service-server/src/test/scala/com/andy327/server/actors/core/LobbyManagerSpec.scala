@@ -95,6 +95,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
     "serve lobby metadata from cache after MarkCompleted removes it from active lobbies" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val lm = spawn(LobbyManager(gmProbe.ref))
       val alice = Player("alice")
       val bob = Player("bob")
@@ -111,8 +112,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       lm ! LobbyManager.MarkCompleted(gameId, GameLifecycleStatus.Completed)
 
       // lobby is no longer in active map, so it must not appear in ListLobbies
-      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      val listed = responseProbe.expectMessageType[GameManager.LobbiesListed].lobbies
+      lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      val listed = listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies
       listed.map(_.gameId) should not contain gameId
 
       // but GetLobbyInfo should still find it via the cache
@@ -187,6 +188,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
     "pass subscriber refs to SpawnGame and remove them from the subscriber map" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val subscriberProbe = TestProbe[PlayerActor.Command]()
       val lm = spawn(LobbyManager(gmProbe.ref))
       val alice = Player("alice")
@@ -206,27 +208,28 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       spawnMsg.subscribers should contain(subscriberProbe.ref)
 
       // subscriber is removed from LobbyManager after handoff to game actor
-      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      listProbe.expectMessageType[LobbyManager.LobbiesListed]
       subscriberProbe.expectNoMessage()
     }
 
     "ignore MarkCompleted for an unknown lobby" in {
       val gmProbe = TestProbe[GameManager.Command]()
-      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val lm = spawn(LobbyManager(gmProbe.ref))
       val unknownId = UUID.randomUUID()
 
       lm ! LobbyManager.MarkCompleted(unknownId, GameLifecycleStatus.Completed)
 
       // sanity check: LobbyManager is still responsive
-      lm ! LobbyManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed].lobbies shouldBe empty
+      lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies shouldBe empty
     }
 
     "return pagination metadata with the lobby list" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val lm = spawn(LobbyManager(gmProbe.ref))
       val alice = Player("alice")
       val bob = Player("bob")
@@ -239,15 +242,15 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       lm ! LobbyManager.CreateLobby(GameType.TicTacToe, carol, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      lm ! LobbyManager.ListLobbies(None, 1, 2, responseProbe.ref)
-      val page1 = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      lm ! LobbyManager.ListLobbies(None, 1, 2, listProbe.ref)
+      val page1 = listProbe.expectMessageType[LobbyManager.LobbiesListed]
       page1.lobbies should have size 2
       page1.page shouldBe 1
       page1.limit shouldBe 2
       page1.total shouldBe 3
 
-      lm ! LobbyManager.ListLobbies(None, 2, 2, responseProbe.ref)
-      val page2 = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      lm ! LobbyManager.ListLobbies(None, 2, 2, listProbe.ref)
+      val page2 = listProbe.expectMessageType[LobbyManager.LobbiesListed]
       page2.lobbies should have size 1
       page2.total shouldBe 3
     }
@@ -255,6 +258,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
     "filter lobbies by game type" in {
       val gmProbe = TestProbe[GameManager.Command]()
       val responseProbe = TestProbe[GameManager.GameResponse]()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val lm = spawn(LobbyManager(gmProbe.ref))
       val alice = Player("alice")
       val bob = Player("bob")
@@ -264,8 +268,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       lm ! LobbyManager.CreateLobby(GameType.TicTacToe, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      lm ! LobbyManager.ListLobbies(Some(GameType.TicTacToe), 1, 20, responseProbe.ref)
-      val result = responseProbe.expectMessageType[GameManager.LobbiesListed]
+      lm ! LobbyManager.ListLobbies(Some(GameType.TicTacToe), 1, 20, listProbe.ref)
+      val result = listProbe.expectMessageType[LobbyManager.LobbiesListed]
       result.lobbies should have size 2
       result.total shouldBe 2
       result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)

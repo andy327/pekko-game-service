@@ -46,9 +46,12 @@ object LobbyManager {
       gameType: Option[GameType],
       page: Int,
       limit: Int,
-      replyTo: ActorRef[GameManager.GameResponse]
+      replyTo: ActorRef[LobbyManager.LobbiesListed]
   ) extends Command
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
+
+  /** Response type owned by LobbyManager for lobby-listing results. */
+  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
   final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
 
   /** Sent by GameManager when a game ends, to update lobby status. */
@@ -183,7 +186,7 @@ object LobbyManager {
         val filtered = gameTypeFilter.fold(all)(gt => all.filter(_.gameType == gt))
         val total = filtered.size
         val paged = filtered.drop((page - 1) * limit).take(limit)
-        replyTo ! GameManager.LobbiesListed(paged, page, limit, total)
+        replyTo ! LobbyManager.LobbiesListed(paged, page, limit, total)
         Behaviors.same
 
       case GetLobbyInfo(gameId, replyTo) =>

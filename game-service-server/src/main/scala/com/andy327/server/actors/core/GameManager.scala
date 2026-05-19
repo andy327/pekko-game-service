@@ -75,6 +75,10 @@ object GameManager {
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
+  /** Adapter wrapper for LobbyManager.LobbiesListed — converts the child's own response type into a GameResponse. */
+  final private case class WrappedLobbiesListed(listed: LobbyManager.LobbiesListed, replyTo: ActorRef[GameResponse])
+      extends Command
+
   /** Result of a DB fallback load for a completed game's state. */
   final private case class CompletedGameLoaded(
       result: Either[Throwable, Option[Game[_, _, _, _, _]]],
@@ -187,7 +191,8 @@ object GameManager {
           Behaviors.same
 
         case ListLobbies(gameType, page, limit, replyTo) =>
-          lobbyManager ! LobbyManager.ListLobbies(gameType, page, limit, replyTo)
+          val adapter = context.messageAdapter[LobbyManager.LobbiesListed](r => WrappedLobbiesListed(r, replyTo))
+          lobbyManager ! LobbyManager.ListLobbies(gameType, page, limit, adapter)
           Behaviors.same
 
         case GetLobbyInfo(gameId, replyTo) =>
@@ -302,6 +307,10 @@ object GameManager {
               context.log.error("Failed to load completed game state from DB", ex)
               replyTo ! ErrorResponse("Failed to retrieve game state")
           }
+          Behaviors.same
+
+        case WrappedLobbiesListed(listed, replyTo) =>
+          replyTo ! LobbiesListed(listed.lobbies, listed.page, listed.limit, listed.total)
           Behaviors.same
 
         case WrappedGameResponse(response, replyTo) =>
