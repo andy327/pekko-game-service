@@ -653,7 +653,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
 
       val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      gm ! GameManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
 
       // subscriber receives initial lobby state immediately
       val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
@@ -706,7 +706,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Subscribe before the game starts — subscriber is held in LobbyManager
       val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      gm ! GameManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial LobbyUpdated snapshot
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)

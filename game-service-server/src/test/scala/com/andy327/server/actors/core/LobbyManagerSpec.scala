@@ -115,6 +115,28 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
     }
 
+    "not push events to a player after they leave the lobby" in {
+      val f = newLobby()
+      val carol = Player("carol")
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val (gameId, _) = createReadyLobby(f)
+
+      // Bob subscribes to lobby events
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, bob.id, subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial lobby state
+
+      // Bob leaves — he receives LobbyUpdated for his own departure, then is removed from subscribers
+      f.lm ! LobbyManager.LeaveLobby(gameId, bob, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // LobbyUpdated from own leave
+
+      // Carol joins — lobby state changes, but Bob is no longer subscribed
+      f.lm ! LobbyManager.JoinLobby(gameId, carol, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      subscriberProbe.expectNoMessage()
+    }
+
     "push LobbyUpdated to a subscriber when a player joins" in {
       val f = newLobby()
       val subscriberProbe = TestProbe[PlayerActor.Command]()
@@ -122,7 +144,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, f.responseProbe.ref)
       val GameManager.LobbyCreated(gameId, _) = f.responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      f.lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // immediate push of current state on subscribe
 
       f.lm ! LobbyManager.JoinLobby(gameId, bob, f.responseProbe.ref)
@@ -138,7 +160,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, f.responseProbe.ref)
       val GameManager.LobbyCreated(gameId, _) = f.responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      f.lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
 
       f.lm ! LobbyManager.LeaveLobby(gameId, alice, f.responseProbe.ref)
@@ -155,7 +177,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
 
       val (gameId, _) = createReadyLobby(f)
 
-      f.lm ! LobbyManager.SubscribeToLobby(gameId, subscriberProbe.ref)
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
 
       f.lm ! LobbyManager.StartGame(gameId, alice.id, f.responseProbe.ref)

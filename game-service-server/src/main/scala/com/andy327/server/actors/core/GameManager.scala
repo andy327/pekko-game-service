@@ -65,7 +65,8 @@ object GameManager {
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
   /** Subscribe `playerRef` to lobby push events via LobbyManager. */
-  final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+  final case class SubscribeToLobby(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
+      extends Command
 
   // --- Game operation commands (routed to a specific game actor via GameRegistry) ---
 
@@ -252,8 +253,8 @@ object GameManager {
           lobbyManager ! LobbyManager.GetLobbyInfo(gameId, replyTo)
           Behaviors.same
 
-        case SubscribeToLobby(gameId, playerRef) =>
-          lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerRef)
+        case SubscribeToLobby(gameId, playerId, playerRef) =>
+          lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, playerRef)
           Behaviors.same
 
         case SubscribeToGame(gameId, playerRef) =>

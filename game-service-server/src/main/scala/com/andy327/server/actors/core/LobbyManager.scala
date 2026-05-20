@@ -64,7 +64,8 @@ object LobbyManager {
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
 
   /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `gameId`. */
-  final case class SubscribeToLobby(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+  final case class SubscribeToLobby(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
+      extends Command
 
   // --- Internal command (sent by GameManager, not reachable from HTTP) ---
 
@@ -91,23 +92,23 @@ object LobbyManager {
     * players receive the update without the caller needing to know which actors are subscribed.
     */
   private def fanOut(
-      subscribers: Map[GameId, Set[ActorRef[PlayerActor.Command]]],
+      subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
       gameId: GameId,
       event: PlayerEvent
   ): Unit =
-    subscribers.getOrElse(gameId, Set.empty).foreach(_ ! PlayerActor.SendEvent(event))
+    subscribers.getOrElse(gameId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
 
   /** Steady-state behavior holding all lobby data.
     *
     * @param lobbies map of active lobbies (WaitingForPlayers, ReadyToStart, InProgress)
     * @param recentlyEnded TTL cache of recently completed/cancelled lobbies, evicted after [[recentlyEndedTtl]]
-    * @param subscribers per-lobby set of PlayerActor refs registered to receive push events
+    * @param subscribers per-lobby map from PlayerId to PlayerActor ref for players registered to receive push events
     * @param gameManager parent ref used to send [[GameManager.SpawnGame]] on a valid start request
     */
   private def running(
       lobbies: Map[GameId, LobbyMetadata],
       recentlyEnded: Cache[GameId, LobbyMetadata],
-      subscribers: Map[GameId, Set[ActorRef[PlayerActor.Command]]],
+      subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
       gameManager: ActorRef[GameManager.Command]
   ): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
@@ -170,7 +171,8 @@ object LobbyManager {
               context.log.info(s"Player ${player.name} left lobby $gameId")
               replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} left lobby $gameId")
               fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(newMetadata))
-              running(lobbies + (gameId -> newMetadata), recentlyEnded, subscribers, gameManager)
+              val updatedSubscribers = subscribers.updatedWith(gameId)(_.map(_ - player.id))
+              running(lobbies + (gameId -> newMetadata), recentlyEnded, updatedSubscribers, gameManager)
             }
 
           case None =>
@@ -183,7 +185,7 @@ object LobbyManager {
           case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
             context.log.info(s"Lobby $gameId validated for start — delegating game actor spawn to GameManager")
             val updatedMetadata = metadata.copy(status = GameLifecycleStatus.InProgress)
-            val lobbySubscribers = subscribers.getOrElse(gameId, Set.empty)
+            val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty).values.toSet
             gameManager ! GameManager.SpawnGame(
               gameId,
               metadata.gameType,
@@ -223,8 +225,8 @@ object LobbyManager {
         }
         Behaviors.same
 
-      case SubscribeToLobby(gameId, playerRef) =>
-        val updated = subscribers.getOrElse(gameId, Set.empty) + playerRef
+      case SubscribeToLobby(gameId, playerId, playerRef) =>
+        val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
         lobbies.get(gameId).foreach(meta => playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(meta)))
         running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager)
 
