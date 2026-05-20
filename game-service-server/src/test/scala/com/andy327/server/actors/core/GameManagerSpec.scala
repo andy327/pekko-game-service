@@ -761,5 +761,19 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("No game found with gameId")
     }
+
+    "return an error when SpawnGame is sent with the wrong number of players" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val gameId: GameId = UUID.randomUUID()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.SpawnGame(gameId, GameType.TicTacToe, Set(alice), responseProbe.ref)
+
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("players required")
+    }
   }
 }

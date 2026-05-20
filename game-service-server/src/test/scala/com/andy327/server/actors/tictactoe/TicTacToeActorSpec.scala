@@ -47,16 +47,6 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
     }
 
-    "reject game creation with wrong number of players" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-
-      val thrown = intercept[IllegalArgumentException] {
-        TicTacToeActor.create(UUID.randomUUID(), Seq(alice), persistProbe.ref, dummyGameManager)
-      }
-
-      thrown.getMessage should include("Tic-Tac-Toe needs exactly two players")
-    }
-
     "restore a game state from snapshot" in {
       val snapshotState = TicTacToe(
         playerX = alice,

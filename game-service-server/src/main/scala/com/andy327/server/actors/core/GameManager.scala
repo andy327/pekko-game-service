@@ -274,30 +274,39 @@ object GameManager {
           Behaviors.same
 
         case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>
-          val gameActor = GameRegistry.forType(gameType).actor
-          val (game, behavior) = gameActor.create(gameId, players.toSeq, persistActor, context.self)
-          val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+          val n = players.size
+          if (n < gameType.minPlayers || n > gameType.maxPlayers) {
+            val expected =
+              if (gameType.minPlayers == gameType.maxPlayers) s"${gameType.minPlayers}"
+              else s"${gameType.minPlayers}–${gameType.maxPlayers}"
+            context.log.error(s"SpawnGame rejected for $gameId: $n players supplied, expected $expected")
+            replyTo ! ErrorResponse(s"$expected players required, got $n")
+            Behaviors.same
+          } else {
+            val bundle = GameRegistry.forType(gameType)
+            val (game, behavior) = bundle.actor.create(gameId, players.toSeq, persistActor, context.self)
+            val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
-          val bundle = GameRegistry.forType(gameType)
-          subscribers.foreach(ref => actorRef ! bundle.actor.subscribeCommand(ref))
+            subscribers.foreach(ref => actorRef ! bundle.actor.subscribeCommand(ref))
 
-          persistActor ! PersistenceProtocol.SaveSnapshot(
-            gameId,
-            gameType,
-            game.asInstanceOf[Game[_, _, _, _, _]],
-            replyTo = context.system.ignoreRef
-          )
+            persistActor ! PersistenceProtocol.SaveSnapshot(
+              gameId,
+              gameType,
+              game.asInstanceOf[Game[_, _, _, _, _]],
+              replyTo = context.system.ignoreRef
+            )
 
-          context.log.info(s"Created and persisted new game with gameId: $gameId")
-          replyTo ! GameStarted(gameId)
-          running(
-            activeGames + (gameId -> (gameType, actorRef)),
-            completedGameTypes,
-            lobbyManager,
-            playerManager,
-            persistActor,
-            gameRepo
-          )
+            context.log.info(s"Created and persisted new game with gameId: $gameId")
+            replyTo ! GameStarted(gameId)
+            running(
+              activeGames + (gameId -> (gameType, actorRef)),
+              completedGameTypes,
+              lobbyManager,
+              playerManager,
+              persistActor,
+              gameRepo
+            )
+          }
 
         case GameCompleted(gameId, result) =>
           activeGames.get(gameId) match {

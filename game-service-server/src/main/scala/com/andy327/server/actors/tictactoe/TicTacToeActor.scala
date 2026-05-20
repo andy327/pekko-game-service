@@ -83,7 +83,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
   ): (TicTacToe, Behavior[Command]) = {
-    require(players.size == 2, "Tic-Tac-Toe needs exactly two players")
     val (playerX, playerO) = (players(0), players(1))
 
     val game = TicTacToe.empty(playerX, playerO)
