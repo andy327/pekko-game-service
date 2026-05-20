@@ -2,16 +2,19 @@ package com.andy327.server.http.routes
 
 import java.util.UUID
 
+import scala.concurrent.Await
 import scala.concurrent.duration._
 
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
-import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
+import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
@@ -19,7 +22,7 @@ import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.{GameManager, InMemRepo}
+import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
@@ -29,6 +32,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
   private val testKit = ActorTestKit()
   implicit val runtime: IORuntime = IORuntime.global
   implicit val timeout: Timeout = Timeout(3.seconds)
+  implicit lazy val scheduler = typedSystem.scheduler
 
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo
@@ -98,10 +102,15 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.OK
       }
 
-      // Bob leaves
+      // Bob leaves — lobby drops from ReadyToStart back to WaitingForPlayers
       Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
         val leftLobby = responseAs[GameManager.LobbyLeft]
         leftLobby.gameId shouldBe gameId
+      }
+
+      Get(s"/lobby/$gameId") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[LobbyMetadata].status shouldBe GameLifecycleStatus.WaitingForPlayers
       }
 
       // Bob tries to leave again (OK)
@@ -287,6 +296,10 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           replyTo ! GameManager.Ready // triggers /join fallback
           Behaviors.same
 
+        case GameManager.SubscribePlayerToLobby(_, _, replyTo) =>
+          replyTo ! GameManager.Ready // triggers /subscribe fallback
+          Behaviors.same
+
         case _ => Behaviors.same
       }
 
@@ -299,6 +312,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         ("POST /lobby/join", Post(s"/lobby/$fakeId/join").withHeaders(aliceHeader)),
         ("POST /lobby/leave", Post(s"/lobby/$fakeId/leave").withHeaders(aliceHeader)),
         ("POST /lobby/start", Post(s"/lobby/$fakeId/start").withHeaders(aliceHeader)),
+        ("POST /lobby/subscribe", Post(s"/lobby/$fakeId/subscribe").withHeaders(aliceHeader)),
         ("GET /lobby", Get(s"/lobby/$fakeId").withHeaders(aliceHeader)),
         ("GET /lobby/list", Get("/lobby/list"))
       )
@@ -311,6 +325,25 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           }
         }
       }
+    }
+
+    "return 200 when subscribing to a lobby with an active WebSocket connection" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      val wsProbe = testKit.createTestProbe[Message]()
+      Await.result(
+        typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
+        3.seconds
+      )
+
+      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+      }
+
+      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
     }
 
     "return 400 when subscribing to a lobby without an active WebSocket connection" in {

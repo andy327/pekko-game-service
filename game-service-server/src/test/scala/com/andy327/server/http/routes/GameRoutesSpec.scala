@@ -2,15 +2,18 @@ package com.andy327.server.http.routes
 
 import java.util.UUID
 
+import scala.concurrent.Await
 import scala.concurrent.duration._
 
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
-import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
+import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
@@ -21,7 +24,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import spray.json._
 
 import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.{GameManager, InMemRepo}
+import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.json.{TicTacToeMoveRequest, TicTacToeState}
@@ -32,6 +35,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   private val testKit = ActorTestKit()
   implicit val runtime: IORuntime = IORuntime.global
   implicit val timeout: Timeout = Timeout(3.seconds)
+  implicit lazy val scheduler = typedSystem.scheduler
 
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo
@@ -164,6 +168,10 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             replyTo ! GameManager.Ready // triggers /move + /status fallback
             Behaviors.same
 
+          case GameManager.SubscribePlayerToGame(_, _, replyTo) =>
+            replyTo ! GameManager.Ready // triggers /subscribe fallback
+            Behaviors.same
+
           case _ => Behaviors.same
         }
 
@@ -176,7 +184,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         val requests = Table(
           ("description", "request"),
           ("POST /move", Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
-          ("GET /status", Get(s"/tictactoe/$fakeId/status"))
+          ("GET /status", Get(s"/tictactoe/$fakeId/status")),
+          ("POST /subscribe", Post(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader))
         )
 
         forAll(requests) { (description, req) =>
@@ -187,6 +196,31 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             }
           }
         }
+      }
+
+      "return 200 when subscribing to an active game with a WebSocket connection" in {
+        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val wsProbe = testKit.createTestProbe[Message]()
+        Await.result(
+          typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
+          3.seconds
+        )
+
+        Post(s"/tictactoe/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+        }
+
+        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
       }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {

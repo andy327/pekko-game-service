@@ -196,7 +196,7 @@ object GameManager {
   /** Emitted once when the DB restore is complete; used in tests to await the running state. */
   case object Ready extends GameResponse
 
-  /** Timeout for internal `context.ask` calls used to look up player refs during lobby auto-subscribe. */
+  /** Timeout for internal `context.ask` calls used to look up player refs during subscribe flows. */
   private val subscribeAskTimeout: Timeout = Timeout(3.seconds)
 
   /** Create the GameManager, kick off an async DB restore, and stash messages until restoration completes.

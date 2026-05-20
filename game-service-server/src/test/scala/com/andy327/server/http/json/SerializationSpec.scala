@@ -8,7 +8,13 @@ import spray.json._
 
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.server.actors.core.GameManager.{ErrorResponse, LobbyCreated, LobbyJoined, LobbyLeft}
+import com.andy327.server.actors.core.GameManager.{
+  ErrorResponse,
+  LobbyCreated,
+  LobbyJoined,
+  LobbyLeft,
+  SubscribeAcknowledged
+}
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.http.json.TicTacToeState._
@@ -161,6 +167,14 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val error = ErrorResponse("Something went wrong")
       val json = error.toJson
       json.convertTo[ErrorResponse] shouldBe error
+    }
+  }
+
+  "SubscribeAcknowledged JSON format" should {
+    "round-trip serialize and deserialize" in {
+      val ack = SubscribeAcknowledged(UUID.randomUUID())
+      val json = ack.toJson
+      json.convertTo[SubscribeAcknowledged] shouldBe ack
     }
   }
 

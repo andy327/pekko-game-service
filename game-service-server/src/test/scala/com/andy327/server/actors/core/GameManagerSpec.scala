@@ -949,5 +949,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")
     }
+
   }
 }
