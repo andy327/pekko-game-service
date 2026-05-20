@@ -21,9 +21,7 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
 
     "allow a player to make a move" in {
       val game = TicTacToe.empty(alice, bob)
-      val result = game.play(X, Location(0, 0))
-      result.isRight shouldBe true
-      val newState = result.toOption.get
+      val Right(newState) = game.play(X, Location(0, 0))
       newState.board(0)(0) shouldBe Some(X)
       newState.currentPlayer shouldBe O
       newState.gameStatus shouldBe InProgress

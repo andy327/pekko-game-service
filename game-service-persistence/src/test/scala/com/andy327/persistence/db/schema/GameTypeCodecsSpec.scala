@@ -29,15 +29,13 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     "fail to decode an unknown GameType string" in {
       val json = "\"UnknownGame\""
       val result = decode[GameType](json)
-      result.isLeft shouldBe true
-      result.swap.getOrElse(fail("Expected a Left but got a Right")).getMessage should include("Unknown GameType")
+      val Left(err) = result
+      err.getMessage should include("Unknown GameType")
     }
 
     "deserialize a valid TicTacToe game from JSON" in {
       val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
       val json = game.asJson.noSpaces
-      println(json)
-
       val result = deserializeGame(GameType.TicTacToe, json)
       result shouldBe Right(game)
     }

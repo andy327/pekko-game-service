@@ -4,7 +4,7 @@ import java.util.UUID
 
 import scala.util.control.NoStackTrace
 
-import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
+import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -25,26 +25,39 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
   private val dummyGameManager: ActorRef[GameManager.Command] = createTestProbe[GameManager.Command]().ref
 
+  /** Spawn a fresh game actor backed by a new persist probe.
+    * Optionally override the GameManager ref or supply a specific gameId.
+    */
+  private def newActor(
+      gmRef: ActorRef[GameManager.Command] = dummyGameManager,
+      gameId: GameId = UUID.randomUUID()
+  ): (ActorRef[TicTacToeActor.Command], TestProbe[PersistenceProtocol.Command]) = {
+    val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef)
+    (spawn(behavior), persistProbe)
+  }
+
+  /** Five moves in which X wins the top row. */
+  private val xWinsMoves: Seq[(PlayerId, Location)] = Seq(
+    (alice, Location(0, 0)),
+    (bob, Location(1, 0)),
+    (alice, Location(0, 1)),
+    (bob, Location(1, 1)),
+    (alice, Location(0, 2))
+  )
+
   "TicTacToeActor" should {
     "return an empty 3×3 board on GetState" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+      val (actor, _) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
       actor ! TicTacToeActor.GetState(replyProbe.ref)
 
-      val result = replyProbe.receiveMessage()
-
-      result match {
-        case Right(TicTacToeState(board, current, winner, draw)) =>
-          board.flatten should contain only "" // no moves yet
-          current shouldBe "X"
-          winner shouldBe None
-          draw shouldBe false
-        case other =>
-          fail(s"Unexpected response: $other")
-      }
+      val Right(TicTacToeState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      board.flatten should contain only ""
+      current shouldBe "X"
+      winner shouldBe None
+      draw shouldBe false
     }
 
     "restore a game state from snapshot" in {
@@ -62,27 +75,18 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       )
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-
-      // build behavior from snapshot and spawn it
       val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), snapshotState, persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
-      // ask for state and verify it matches the snapshot
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TicTacToeActor.GetState(replyProbe.ref)
 
-      val result = replyProbe.receiveMessage()
-
-      result match {
-        case Right(TicTacToeState(board, current, winner, draw)) =>
-          board(0)(0) shouldBe "X"
-          board(1)(1) shouldBe "O"
-          current shouldBe "O"
-          winner shouldBe Some("X")
-          draw shouldBe false
-        case other =>
-          fail(s"Unexpected response: $other")
-      }
+      val Right(TicTacToeState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      board(0)(0) shouldBe "X"
+      board(1)(1) shouldBe "O"
+      current shouldBe "O"
+      winner shouldBe Some("X")
+      draw shouldBe false
     }
 
     "fail to restore state from snapshot with an invalid game type" in {
@@ -94,8 +98,6 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-
-      // build behavior from snapshot and spawn it
       val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), dummyGame, persistProbe.ref, dummyGameManager)
       val actor = spawn(behavior)
 
@@ -103,75 +105,44 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     }
 
     "apply a valid move and switch currentPlayer" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+      val (actor, _) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      // Alice (X) plays (0,0)
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      val state1 = replyProbe.receiveMessage()
+      val Right(TicTacToeState(board1, current1, _, _)) = replyProbe.receiveMessage()
+      board1(0)(0) shouldBe "X"
+      current1 shouldBe "O"
 
-      state1 match {
-        case Right(TicTacToeState(board, current, _, _)) =>
-          board(0)(0) shouldBe "X"
-          current shouldBe "O"
-        case other => fail(s"Unexpected: $other")
-      }
-
-      // Bob (O) plays (1,1)
       actor ! TicTacToeActor.MakeMove(bob, Location(1, 1), replyProbe.ref)
-      val state2 = replyProbe.receiveMessage()
-
-      state2 match {
-        case Right(TicTacToeState(board, current, _, _)) =>
-          board(0)(0) shouldBe "X"
-          board(1)(1) shouldBe "O"
-          current shouldBe "X"
-        case other => fail(s"Unexpected: $other")
-      }
+      val Right(TicTacToeState(board2, current2, _, _)) = replyProbe.receiveMessage()
+      board2(0)(0) shouldBe "X"
+      board2(1)(1) shouldBe "O"
+      current2 shouldBe "X"
     }
 
     "reject a move when it is not the player's turn" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+      val (actor, _) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      // Bob tries to move first (but it's Alice's turn)
       actor ! TicTacToeActor.MakeMove(bob, Location(0, 0), replyProbe.ref)
-
-      val result = replyProbe.receiveMessage()
-      result shouldBe Left(GameError.InvalidTurn)
+      replyProbe.receiveMessage() shouldBe Left(GameError.InvalidTurn)
     }
 
     "reject a move from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+      val (actor, _) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
-      actor ! TicTacToeActor.MakeMove(eve, Location(0, 0), replyProbe.ref)
 
-      val result = replyProbe.receiveMessage()
-      result shouldBe Left(GameError.InvalidPlayer(eve))
+      actor ! TicTacToeActor.MakeMove(eve, Location(0, 0), replyProbe.ref)
+      replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
     }
 
     "reject an invalid move" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+      val (actor, _) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      // Alice (X) tries to play (0,3)
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 3), replyProbe.ref)
-
-      val result = replyProbe.receiveMessage()
-      result shouldBe Left(GameError.OutOfBounds)
+      replyProbe.receiveMessage() shouldBe Left(GameError.OutOfBounds)
     }
 
     "reject a move on a completed game" in {
@@ -192,136 +163,91 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         spawn(TicTacToeActor.fromSnapshot(UUID.randomUUID(), completedGame, persistProbe.ref, dummyGameManager))
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
-
-      // Alice (X) tries to play (0,0)
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-
-      val result = replyProbe.receiveMessage()
-      result shouldBe Left(GameError.GameOver)
+      replyProbe.receiveMessage() shouldBe Left(GameError.GameOver)
     }
 
-    "log success and continue when SnapShotSaved succeeds" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
+    "log success and continue when SnapshotSaved succeeds" in {
+      val (actor, persistProbe) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       // Trigger a move, which will cause a SaveSnapshot to be sent
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
+      val _ = replyProbe.receiveMessage()
 
-      // Expect the SaveSnapshot command from the actor
+      // Simulate the persistence callback via the actor's message adapter
       val saveMsg = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
-
-      // Simulate a successful persistence callback by sending a message to the replyTo adapter
       saveMsg.replyTo ! PersistenceProtocol.SnapshotSaved(Right(()))
 
       // Confirm the actor is still functioning
-      val getStateProbe = createTestProbe[Either[GameError, GameState]]()
-      actor ! TicTacToeActor.GetState(getStateProbe.ref)
-
-      val state = getStateProbe.receiveMessage()
-      state shouldBe a[Right[_, _]]
+      actor ! TicTacToeActor.GetState(replyProbe.ref)
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
 
     "log error and continue when SnapshotSaved fails" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
-      // Send SnapshotSaved failure message
+      val (actor, _) = newActor()
       val ex = new RuntimeException("artificial test failure") with NoStackTrace
+
       actor ! TicTacToeActor.SnapshotSaved(Left(ex))
 
-      // Confirm actor is still alive and behavior is intact
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TicTacToeActor.GetState(replyProbe.ref)
-      val response = replyProbe.receiveMessage()
-
-      response shouldBe a[Right[_, _]]
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
 
     "log success and continue when SnapshotLoaded succeeds" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
+      val (actor, _) = newActor()
 
-      // Simulate successful snapshot load (with no restored game)
       actor ! TicTacToeActor.SnapshotLoaded(Right(None))
 
-      // Verify actor is still alive
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TicTacToeActor.GetState(replyProbe.ref)
-
-      val result = replyProbe.receiveMessage()
-      result shouldBe a[Right[_, _]]
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
 
     "log error and continue when SnapshotLoaded fails" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
-
-      // Simulate a snapshot load failure
+      val (actor, _) = newActor()
       val ex = new RuntimeException("load failed") with NoStackTrace
+
       actor ! TicTacToeActor.SnapshotLoaded(Left(ex))
 
-      // Verify actor is still alive by sending GetState
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TicTacToeActor.GetState(replyProbe.ref)
-
-      val result = replyProbe.receiveMessage()
-      result shouldBe a[Right[_, _]]
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
 
     "push GameStateUpdated to subscribers after a valid move" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
 
       actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
 
-      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
-      event.event shouldBe a[PlayerEvent.GameStateUpdated]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
     }
 
     "push GameEnded to subscribers when the game completes" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val subscriberProbe = createTestProbe[PlayerActor.Command]()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val gameId: GameId = UUID.randomUUID()
-      val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
-      val actor = spawn(behavior)
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref)
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
 
-      val moves = Seq(
-        (alice, Location(0, 0)),
-        (bob, Location(1, 0)),
-        (alice, Location(0, 1)),
-        (bob, Location(1, 1)),
-        (alice, Location(0, 2)) // X wins
-      )
-
-      moves.foreach { case (player, loc) =>
+      xWinsMoves.foreach { case (player, loc) =>
         actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
         subscriberProbe.expectMessageType[PlayerActor.SendEvent] // GameStateUpdated per move
         val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
       }
 
-      val endEvent = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
-      endEvent.event shouldBe PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
+        PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
     }
 
     "not push events to unsubscribed players" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      val (_, behavior) = TicTacToeActor.create(UUID.randomUUID(), Seq(alice, bob), persistProbe.ref, dummyGameManager)
-      val actor = spawn(behavior)
 
       actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
       actor ! TicTacToeActor.Unsubscribe(subscriberProbe.ref)
@@ -331,31 +257,18 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     }
 
     "notify the GameManager when a game completes" in {
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val gameId: GameId = UUID.randomUUID()
-      val (_, behavior) =
-        TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gameManagerProbe.ref)
-      val actor = spawn(behavior)
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      val moves = Seq(
-        (alice, Location(0, 0)), // X
-        (bob, Location(1, 0)), // O
-        (alice, Location(0, 1)), // X
-        (bob, Location(1, 1)), // O
-        (alice, Location(0, 2)) // X wins
-      )
-
-      moves.foreach { case (player, loc) =>
+      xWinsMoves.foreach { case (player, loc) =>
         actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage() shouldBe a[Right[_, _]]
         val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
       }
 
-      // Confirm GameManager was notified
-      val completedMsg = gameManagerProbe.receiveMessage()
-      completedMsg shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
     }
   }
 }

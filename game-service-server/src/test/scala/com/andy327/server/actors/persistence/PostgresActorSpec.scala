@@ -53,8 +53,8 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotLoaded]()
       persistActor ! PersistenceProtocol.LoadSnapshot(UUID.randomUUID(), GameType.TicTacToe, replyProbe.ref)
 
-      val result = replyProbe.receiveMessage()
-      result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe loadError
+      val Left(err) = replyProbe.receiveMessage().result
+      err shouldBe loadError
     }
 
     "reply with SnapshotSaved on successful SaveSnapshot" in {
@@ -74,8 +74,8 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
       persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
 
-      val result = replyProbe.receiveMessage()
-      result.result.swap.getOrElse(fail("Expected a Left but got a Right")) shouldBe saveError
+      val Left(err) = replyProbe.receiveMessage().result
+      err shouldBe saveError
     }
 
   }

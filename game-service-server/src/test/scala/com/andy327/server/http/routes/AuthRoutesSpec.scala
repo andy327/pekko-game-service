@@ -56,7 +56,6 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       Post("/auth/token", entity) ~> routes ~> check {
         val json = responseAs[String].parseJson.asJsObject
         val token = json.fields("token").convertTo[String]
-        println(s"token: $token")
 
         Get("/auth/whoami").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
           status shouldBe StatusCodes.OK

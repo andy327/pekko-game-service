@@ -71,10 +71,8 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
         replyProbe.ref
       )
 
-      result.isLeft shouldBe true
-      result.swap.getOrElse(sys.error("Expected Left but got Right")).message should include(
-        "Unsupported move type for TicTacToe"
-      )
+      val Left(err) = result
+      err.message should include("Unsupported move type for TicTacToe")
     }
   }
 }

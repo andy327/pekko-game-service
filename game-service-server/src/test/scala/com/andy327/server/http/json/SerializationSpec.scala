@@ -187,7 +187,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "serialize LobbyUpdated with type discriminator and metadata" in {
       val host = Player("host")
       val metadata = LobbyMetadata(
-        gameId = java.util.UUID.randomUUID(),
+        gameId = UUID.randomUUID(),
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host),
         hostId = host.id,
