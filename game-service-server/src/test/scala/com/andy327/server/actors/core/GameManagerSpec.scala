@@ -10,7 +10,7 @@ import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
-import org.apache.pekko.http.scaladsl.model.ws.Message
+import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -639,6 +639,58 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbiesListed]
+    }
+
+    "auto-subscribe a connected player to lobby events when they create a lobby" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      // Alice connects via WebSocket
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // Alice creates a lobby
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      // Auto-subscribe fires: alice's PlayerActor receives SendEvent(LobbyUpdated) and forwards it as a TextMessage
+      wsProbe.expectMessageType[TextMessage]
+
+      // Bob joins — alice should receive another push event as she is subscribed
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      wsProbe.expectMessageType[TextMessage]
+    }
+
+    "auto-subscribe a connected player to lobby events when they join a lobby" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      // Alice creates a lobby without a WebSocket connection — no auto-subscribe for alice
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      // Bob connects via WebSocket, then joins
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(bob, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      // Auto-subscribe fires: bob's PlayerActor receives SendEvent(LobbyUpdated) and forwards it as a TextMessage
+      wsProbe.expectMessageType[TextMessage]
     }
 
     "forward SubscribeToLobby so the subscriber receives the current lobby state" in {

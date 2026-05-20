@@ -1,5 +1,6 @@
 package com.andy327.server.actors.core
 
+import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 import cats.effect.IO
@@ -8,6 +9,7 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.http.scaladsl.model.ws.Message
+import org.apache.pekko.util.Timeout
 
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.GameRepository
@@ -115,6 +117,24 @@ object GameManager {
   final private case class WrappedLobbiesListed(listed: LobbyManager.LobbiesListed, replyTo: ActorRef[GameResponse])
       extends Command
 
+  /** Intercepts a [[LobbyManager]] response for [[CreateLobby]] or [[JoinLobby]] before forwarding to the caller,
+    * carrying the requesting player's ID so GameManager can look up their actor ref and auto-subscribe them.
+    */
+  final private case class LobbyResponseIntercepted(
+      response: GameResponse,
+      playerId: PlayerId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
+  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask initiated during auto-subscribe on lobby create/join. */
+  final private case class PlayerRefForSubscribe(
+      playerRef: Option[ActorRef[PlayerActor.Command]],
+      gameId: GameId,
+      playerId: PlayerId,
+      response: GameResponse,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   /** Result of a DB fallback load for a completed game's current state. */
   final private case class CompletedGameLoaded(
       result: Either[Throwable, Option[Game[_, _, _, _, _]]],
@@ -145,6 +165,9 @@ object GameManager {
 
   /** Emitted once when the DB restore is complete; used in tests to await the running state. */
   case object Ready extends GameResponse
+
+  /** Timeout for internal `context.ask` calls used to look up player refs during lobby auto-subscribe. */
+  private val subscribeAskTimeout: Timeout = Timeout(3.seconds)
 
   /** Create the GameManager, kick off an async DB restore, and stash messages until restoration completes.
     *
@@ -229,11 +252,13 @@ object GameManager {
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
         case CreateLobby(gameType, host, replyTo) =>
-          lobbyManager ! LobbyManager.CreateLobby(gameType, host, replyTo)
+          val adapter = context.messageAdapter[GameResponse](LobbyResponseIntercepted(_, host.id, replyTo))
+          lobbyManager ! LobbyManager.CreateLobby(gameType, host, adapter)
           Behaviors.same
 
         case JoinLobby(gameId, player, replyTo) =>
-          lobbyManager ! LobbyManager.JoinLobby(gameId, player, replyTo)
+          val adapter = context.messageAdapter[GameResponse](LobbyResponseIntercepted(_, player.id, replyTo))
+          lobbyManager ! LobbyManager.JoinLobby(gameId, player, adapter)
           Behaviors.same
 
         case LeaveLobby(gameId, player, replyTo) =>
@@ -251,6 +276,29 @@ object GameManager {
 
         case GetLobbyInfo(gameId, replyTo) =>
           lobbyManager ! LobbyManager.GetLobbyInfo(gameId, replyTo)
+          Behaviors.same
+
+        case LobbyResponseIntercepted(response, playerId, replyTo) =>
+          val maybeGameId = response match {
+            case LobbyCreated(gameId, _)   => Some(gameId)
+            case LobbyJoined(gameId, _, _) => Some(gameId)
+            case _                         => None
+          }
+          maybeGameId match {
+            case Some(gameId) =>
+              implicit val t: Timeout = subscribeAskTimeout
+              context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
+                case Success(ref) => PlayerRefForSubscribe(ref, gameId, playerId, response, replyTo)
+                case Failure(_)   => PlayerRefForSubscribe(None, gameId, playerId, response, replyTo)
+              }
+            case None =>
+              replyTo ! response
+          }
+          Behaviors.same
+
+        case PlayerRefForSubscribe(playerRefOpt, gameId, playerId, response, replyTo) =>
+          playerRefOpt.foreach(ref => lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref))
+          replyTo ! response
           Behaviors.same
 
         case SubscribeToLobby(gameId, playerId, playerRef) =>
