@@ -13,7 +13,8 @@ import com.andy327.server.actors.core.GameManager.{
   LobbiesListed,
   LobbyCreated,
   LobbyJoined,
-  LobbyLeft
+  LobbyLeft,
+  SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.auth.PlayerRequest
@@ -84,6 +85,9 @@ object JsonProtocol extends DefaultJsonProtocol {
   implicit val lobbiesListedFormat: RootJsonFormat[LobbiesListed] = jsonFormat4(LobbiesListed.apply)
 
   implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
+
+  implicit val subscribeAcknowledgedFormat: RootJsonFormat[SubscribeAcknowledged] =
+    jsonFormat1(SubscribeAcknowledged.apply)
 
   // Tic-tac-toe
 

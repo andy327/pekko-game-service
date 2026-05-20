@@ -70,6 +70,12 @@ object GameManager {
   final case class SubscribeToLobby(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
       extends Command
 
+  /** Subscribe the authenticated player to lobby push events as a spectator; replies with [[SubscribeAcknowledged]] or
+    * [[ErrorResponse]].
+    */
+  final case class SubscribePlayerToLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
+
   // --- Game operation commands (routed to a specific game actor via GameRegistry) ---
 
   /** Forward `op` to the game actor for `gameId`; replies with [[GameStatus]] or [[ErrorResponse]]. */
@@ -77,6 +83,12 @@ object GameManager {
 
   /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  /** Subscribe the authenticated player to game push events as a spectator; replies with [[SubscribeAcknowledged]] or
+    * [[ErrorResponse]].
+    */
+  final case class SubscribePlayerToGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
 
   // --- Player session commands (forwarded to PlayerManager) ---
 
@@ -126,6 +138,21 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask for a [[SubscribePlayerToLobby]] request. */
+  final private case class PlayerRefForLobbySpectate(
+      playerRef: Option[ActorRef[PlayerActor.Command]],
+      gameId: GameId,
+      playerId: PlayerId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
+  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask for a [[SubscribePlayerToGame]] request. */
+  final private case class PlayerRefForGameSpectate(
+      playerRef: Option[ActorRef[PlayerActor.Command]],
+      gameId: GameId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   /** Carries the result of a [[PlayerManager.LookupPlayer]] ask initiated during auto-subscribe on lobby create/join. */
   final private case class PlayerRefForSubscribe(
       playerRef: Option[ActorRef[PlayerActor.Command]],
@@ -162,6 +189,9 @@ object GameManager {
   // Error responses
   final case class LobbyErrorResponse(error: LobbyError) extends GameResponse
   final case class ErrorResponse(message: String) extends GameResponse
+
+  /** Sent in response to a successful [[SubscribePlayerToLobby]] or [[SubscribePlayerToGame]] request. */
+  final case class SubscribeAcknowledged(gameId: GameId) extends GameResponse
 
   /** Emitted once when the DB restore is complete; used in tests to await the running state. */
   case object Ready extends GameResponse
@@ -305,12 +335,55 @@ object GameManager {
           lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, playerRef)
           Behaviors.same
 
+        case SubscribePlayerToLobby(gameId, playerId, replyTo) =>
+          implicit val t: Timeout = subscribeAskTimeout
+          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
+            case Success(ref) => PlayerRefForLobbySpectate(ref, gameId, playerId, replyTo)
+            case Failure(_)   => PlayerRefForLobbySpectate(None, gameId, playerId, replyTo)
+          }
+          Behaviors.same
+
+        case PlayerRefForLobbySpectate(playerRefOpt, gameId, playerId, replyTo) =>
+          playerRefOpt match {
+            case Some(ref) =>
+              lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref)
+              replyTo ! SubscribeAcknowledged(gameId)
+            case None =>
+              context.log.warn(s"SubscribePlayerToLobby: player $playerId is not connected")
+              replyTo ! ErrorResponse("Player is not connected via WebSocket")
+          }
+          Behaviors.same
+
         case SubscribeToGame(gameId, playerRef) =>
           activeGames.get(gameId) match {
             case Some((gameType, gameActor)) =>
               gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef)
             case None =>
               context.log.warn(s"SubscribeToGame: no active game found for $gameId")
+          }
+          Behaviors.same
+
+        case SubscribePlayerToGame(gameId, playerId, replyTo) =>
+          implicit val t: Timeout = subscribeAskTimeout
+          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
+            case Success(ref) => PlayerRefForGameSpectate(ref, gameId, replyTo)
+            case Failure(_)   => PlayerRefForGameSpectate(None, gameId, replyTo)
+          }
+          Behaviors.same
+
+        case PlayerRefForGameSpectate(playerRefOpt, gameId, replyTo) =>
+          playerRefOpt match {
+            case Some(ref) =>
+              activeGames.get(gameId) match {
+                case Some((gameType, gameActor)) =>
+                  gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(ref)
+                  replyTo ! SubscribeAcknowledged(gameId)
+                case None =>
+                  replyTo ! ErrorResponse(s"No active game found for $gameId")
+              }
+            case None =>
+              context.log.warn(s"SubscribePlayerToGame: player is not connected for game $gameId")
+              replyTo ! ErrorResponse("Player is not connected via WebSocket")
           }
           Behaviors.same
 

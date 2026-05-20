@@ -30,16 +30,14 @@ import com.andy327.server.lobby.Player
 class AuthRoutes {
   val routes: Route = pathPrefix("auth") {
 
-    /** Route: POST /auth/token Body: PlayerRequest JSON object with a required `name` (String) and optional `id` (UUID
-      * string) Response: 200 JSON object containing a signed JWT token for the player: `{ "token": "<jwt>" }` Response:
-      * 400 If the provided UUID is malformed
+    /** Registers or authenticates a player and returns a signed JWT for use in subsequent requests.
       *
-      * Registers or authenticates a player using the provided name and optional ID.
-      *   - If `id` is provided, it must be a valid UUID and is used as the player's ID.
-      *   - If `id` is omitted, a new UUID is generated for the player.
+      * If `id` is provided it must be a valid UUID and is used as the player's identity; if omitted, a new UUID is
+      * generated. The returned token encodes the player's ID and name and is accepted by all authenticated endpoints.
       *
-      * A signed JWT is returned containing the player's ID and name, which can be used for authenticated requests to
-      * other parts of the API.
+      * - Body: `PlayerRequest` — `name` (String, required), `id` (UUID string, optional)
+      * - 200: `{ "token": "<jwt>" }` — signed JWT for the player
+      * - 400: malformed UUID in the `id` field
       */
     path("token") {
       post {
@@ -66,16 +64,13 @@ class AuthRoutes {
         }
       }
     } ~
-    /** Route: GET /auth/whoami Auth: Requires Bearer token in the Authorization header Response: 200 JSON object with
-      * the authenticated player's `id` (UUID) and `name` (String) Response: 401 If the Authorization header is missing,
-      * the token is invalid or expired, the payload cannot be decoded into a `UserContext`, or the player ID is
-      * malformed
+    /** Returns the identity of the currently authenticated player.
       *
-      * Returns the identity of the currently authenticated player.
+      * Validates the Bearer token, decodes it into a `UserContext`, and returns the player's UUID and name.
       *
-      * This endpoint extracts a Bearer token from the Authorization header, validates it using the server's JWT secret,
-      * and decodes the token into a `UserContext`. It then builds a `Player` object from the `UserContext` and returns
-      * the player's UUID and name.
+      * - Auth: Bearer token required
+      * - 200: `Player` with the authenticated player's `id` (UUID) and `name` (String)
+      * - 401: missing token, invalid or expired token, undecodable payload, or malformed player ID
       */
     path("whoami") {
       authenticatePlayer { player =>

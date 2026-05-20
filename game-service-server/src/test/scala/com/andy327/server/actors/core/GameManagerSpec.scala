@@ -693,6 +693,128 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       wsProbe.expectMessageType[TextMessage]
     }
 
+    "subscribe a connected spectator to lobby events via SubscribePlayerToLobby" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val spectator = Player("spectator")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      // Spectator connects via WebSocket
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // Alice creates a lobby
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      // Spectator subscribes to lobby events
+      gm ! GameManager.SubscribePlayerToLobby(gameId, spectator.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+
+      // Initial lobby state push arrives on subscribe; bob joining triggers another
+      wsProbe.expectMessageType[TextMessage]
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      wsProbe.expectMessageType[TextMessage]
+    }
+
+    "return an error when SubscribePlayerToLobby is called for a disconnected player" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      // Alice has no WebSocket connection
+      gm ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("not connected")
+    }
+
+    "subscribe a connected spectator to game events via SubscribePlayerToGame" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val spectator = Player("spectator")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      // Spectator connects via WebSocket
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // Start a game
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Spectator subscribes to game events
+      gm ! GameManager.SubscribePlayerToGame(gameId, spectator.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+
+      // A move is made — spectator should receive a push event
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.GameStatus]
+      wsProbe.expectMessageType[TextMessage]
+    }
+
+    "return an error when SubscribePlayerToGame is called for a disconnected player" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Alice has no WebSocket connection
+      gm ! GameManager.SubscribePlayerToGame(gameId, alice.id, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("not connected")
+    }
+
+    "return an error when SubscribePlayerToGame targets a nonexistent active game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val spectator = Player("spectator")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      // Spectator is connected
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.SubscribePlayerToGame(UUID.randomUUID(), spectator.id, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("No active game found")
+    }
+
     "forward SubscribeToLobby so the subscriber receives the current lobby state" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo

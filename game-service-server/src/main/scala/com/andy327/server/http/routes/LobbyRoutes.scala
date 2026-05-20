@@ -13,6 +13,7 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
+  ErrorResponse,
   GameResponse,
   GameStarted,
   LobbiesListed,
@@ -20,7 +21,8 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyErrorResponse,
   LobbyInfo,
   LobbyJoined,
-  LobbyLeft
+  LobbyLeft,
+  SubscribeAcknowledged
 }
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
@@ -50,10 +52,14 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
 
   val routes: Route = pathPrefix("lobby") {
 
-    /** Route: GET /lobby/list Response: 200 List of LobbyMetadata objects representing all open lobbies Response: 500
-      * If an unexpected error occurs while retrieving lobby list
+    /** Lists metadata for all joinable lobbies with optional filtering and pagination.
       *
-      * Lists metadata for all open lobbies.
+      * - Query `gameType` (optional): filter by game type (e.g., `tictactoe`)
+      * - Query `page` (default 1): page number
+      * - Query `limit` (default 20, max 100): results per page
+      * - 200: paginated list of `LobbyMetadata` objects
+      * - 400: invalid `gameType`, `page`, or `limit` value
+      * - 500: unexpected error
       */
     path("list") {
       get {
@@ -77,12 +83,14 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         }
       }
     } ~
-    /** Route: POST /lobby/create/{gameType} Path param: gameType The type of game to create a lobby for (e.g.,
-      * "tictactoe") Auth: Requires Bearer token Response: 200 LobbyCreated with the new game ID and host player info
-      * Response: 400 If the provided game type is invalid Response: 500 If an unexpected error occurs while creating
-      * the lobby
+    /** Creates a new game lobby for the specified game type using the authenticated player as host.
       *
-      * Creates a new game lobby for the specified game type using the authenticated player.
+      * - Auth: Bearer token required
+      * - Path: `gameType` — the type of game to create (e.g., `tictactoe`)
+      * - 200: `LobbyCreated` with the new game ID and host player info
+      * - 400: invalid game type
+      * - 401: missing or invalid token
+      * - 500: unexpected error
       */
     path("create" / Segment) { gameTypeStr =>
       parseGameType(gameTypeStr) { gameType =>
@@ -98,11 +106,13 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
     } ~
     pathPrefix(Segment) { gameIdStr =>
       parseGameId(gameIdStr) { gameId =>
-        /** Route: GET /lobby/{gameId} Path param: gameId The ID of the lobby to retrieve Response: 200 LobbyMetadata if
-          * found Response: 404 If the specified lobby does not exist Response: 500 If an unexpected error occurs while
-          * retrieving metadata
+        /** Fetches metadata for a specific lobby.
           *
-          * Fetches metadata for a specific lobby.
+          * - Path: `gameId` — the UUID of the lobby to retrieve
+          * - 200: `LobbyMetadata` for the specified lobby
+          * - 400: invalid UUID format
+          * - 404: lobby not found
+          * - 500: unexpected error
           */
         pathEndOrSingleSlash {
           get {
@@ -113,12 +123,16 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /** Route: POST /lobby/{gameId}/join Auth: Requires Bearer token Path param: gameId The ID of the lobby to join
-          * Response: 200 LobbyJoined with metadata for the joined lobby Response: 404 If the specified lobby does not
-          * exist Response: 409 If the join request conflicts (already joined, lobby full, game started) Response: 500
-          * If an unexpected error occurs while joining the lobby
+        /** Joins an existing lobby using the authenticated player.
           *
-          * Joins an existing lobby using the authenticated player.
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the lobby to join
+          * - 200: `LobbyJoined` with metadata for the joined lobby
+          * - 400: invalid UUID format
+          * - 401: missing or invalid token
+          * - 404: lobby not found
+          * - 409: already joined, lobby full, or game already started
+          * - 500: unexpected error
           */
         path("join") {
           post {
@@ -131,11 +145,15 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /** Route: POST /lobby/{gameId}/leave Auth: Requires Bearer token Path param: gameId The ID of the lobby to
-          * leave Response: 200 LobbyLeft with gameId and message Response: 404 If the specified lobby does not exist
-          * Response: 500 If an unexpected error occurs while leaving the lobby
+        /** Leaves an existing lobby using the authenticated player.
           *
-          * Leaves an existing lobby using the authenticated player.
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the lobby to leave
+          * - 200: `LobbyLeft` with the game ID and a status message
+          * - 400: invalid UUID format
+          * - 401: missing or invalid token
+          * - 404: lobby not found
+          * - 500: unexpected error
           */
         path("leave") {
           post {
@@ -148,12 +166,17 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             }
           }
         } ~
-        /** Route: POST /lobby/{gameId}/start Auth: Requires Bearer token Path param: gameId The ID of the lobby to
-          * start Response: 200 GameStarted with the new game ID Response: 403 If the requester is not the host
-          * Response: 404 If the lobby does not exist Response: 409 If the lobby does not have enough players to start
-          * Response: 500 If an unexpected error occurs while starting the game
+        /** Starts the game from the given lobby. Only the host may call this endpoint.
           *
-          * Starts the game from the given lobby. Must be called by the host.
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the lobby to start
+          * - 200: `GameStarted` with the game ID
+          * - 400: invalid UUID format
+          * - 401: missing or invalid token
+          * - 403: requester is not the host
+          * - 404: lobby not found
+          * - 409: not enough players to start
+          * - 500: unexpected error
           */
         path("start") {
           post {
@@ -161,6 +184,30 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
               onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
                 case gs @ GameStarted(_)       => complete(gs)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              }
+            }
+          }
+        } ~
+        /** Subscribes the authenticated player to push events for the specified lobby.
+          *
+          * The player must have an active WebSocket connection established before calling this endpoint.
+          *
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the lobby to observe
+          * - 200: `SubscribeAcknowledged` confirming the subscription was registered
+          * - 400: invalid UUID format, or player has no active WebSocket connection
+          * - 401: missing or invalid token
+          * - 500: unexpected error
+          */
+        path("subscribe") {
+          post {
+            authenticatePlayer { player =>
+              onSuccess(
+                system.ask[GameResponse](replyTo => GameManager.SubscribePlayerToLobby(gameId, player.id, replyTo))
+              ) {
+                case ack: SubscribeAcknowledged => complete(ack)
+                case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }

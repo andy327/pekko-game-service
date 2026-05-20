@@ -8,6 +8,7 @@ import io.circe.parser.decode
 import org.apache.pekko.actor.ClassicActorSystemProvider
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
+import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model._
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
@@ -15,7 +16,13 @@ import org.apache.pekko.util.Timeout
 
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.core.GameManager.{Command, ErrorResponse, GameResponse, GameStatus}
+import com.andy327.server.actors.core.GameManager.{
+  Command,
+  ErrorResponse,
+  GameResponse,
+  GameStatus,
+  SubscribeAcknowledged
+}
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
@@ -69,15 +76,18 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
 
     pathPrefix(Segment) { gameIdStr =>
       parseGameId(gameIdStr) { gameId =>
-        /** Route: POST /{gameType}/{gameId}/move Auth: Requires Bearer token Path param: gameType The type of the game
-          * (e.g., tictactoe) Path param: gameId The ID of the game to make a move in Body: MovePayload A game-specific
-          * JSON payload for the move (structure depends on gameType) Response: 200 Updated game state after the move is
-          * applied Response: 400 If the game ID is invalid, or the JSON payload is malformed or invalid for the game
-          * type Response: 404 If the game is not found or the move is invalid Response: 500 Unexpected response from
-          * GameManager
+        /** Submits a move to the specified game using the authenticated player's ID.
           *
-          * Submits a move to the specified game using the authenticated player ID and a dynamic, game-specific move
-          * format.
+          * The move payload format is game-specific and decoded dynamically via the `GameRegistry`.
+          *
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the active game
+          * - Body: game-specific `MovePayload` JSON (structure depends on game type)
+          * - 200: updated game state after the move is applied
+          * - 400: invalid UUID format, or malformed/invalid JSON payload
+          * - 401: missing or invalid token
+          * - 404: game not found, or move rejected as invalid
+          * - 500: unexpected error
           */
         path("move") {
           authenticatePlayer { player =>
@@ -99,12 +109,13 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
             }
           }
         } ~
-        /** Route: GET /{gameType}/{gameId}/status Path param: gameType The type of the game (e.g., tictactoe) Path
-          * param: gameId The ID of the game to check status Response: 200 Current game state Response: 400 If the game
-          * ID is not a valid UUID Response: 404 If the game is not found Response: 500 Unexpected response from
-          * GameManager
+        /** Fetches the current state of the specified game.
           *
-          * Fetches the current state of the specified game.
+          * - Path: `gameId` — the UUID of the game to check
+          * - 200: current game state
+          * - 400: invalid UUID format
+          * - 404: game not found
+          * - 500: unexpected error
           */
         path("status") {
           get {
@@ -112,6 +123,28 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
               case GameStatus(state)    => complete(state)
               case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
               case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+            }
+          }
+        } ~
+        /** Subscribes the authenticated player to push events for the specified active game.
+          *
+          * The player must have an active WebSocket connection established before calling this endpoint.
+          *
+          * - Auth: Bearer token required
+          * - Path: `gameId` — the UUID of the active game to observe
+          * - 200: `SubscribeAcknowledged` confirming the subscription was registered
+          * - 400: invalid UUID format, player has no active WebSocket connection, or game is not active
+          * - 401: missing or invalid token
+          * - 500: unexpected error
+          */
+        path("subscribe") {
+          post {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(gameId, player.id, _))) {
+                case ack: SubscribeAcknowledged => complete(ack)
+                case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
+                case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              }
             }
           }
         }

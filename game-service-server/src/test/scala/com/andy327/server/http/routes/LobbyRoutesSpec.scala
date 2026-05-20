@@ -312,5 +312,27 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         }
       }
     }
+
+    "return 400 when subscribing to a lobby without an active WebSocket connection" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      // Alice has no WebSocket connection registered, so the subscribe will fail
+      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("not connected")
+      }
+    }
+
+    "return 401 when subscribing to a lobby without authentication" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Post(s"/lobby/$gameId/subscribe") ~> routes ~> check {
+        status shouldBe StatusCodes.Unauthorized
+      }
+    }
   }
 }
