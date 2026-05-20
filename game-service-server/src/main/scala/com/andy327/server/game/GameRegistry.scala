@@ -28,7 +28,7 @@ case class GameModuleBundle[G <: Game[_, _, _, _, _]](module: GameModule[G], act
 
 /** Maps each supported `GameType` to its [[GameModuleBundle]].
   *
-  * Adding a new game type requires registering a new case here and providing a [[GameModule]] and [[GameActor]]
+  * Adding a new game type requires registering a new case here and providing a `GameModule` and `GameActor`
   * implementation.
   */
 object GameRegistry {

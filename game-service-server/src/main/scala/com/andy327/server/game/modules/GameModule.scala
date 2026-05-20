@@ -32,10 +32,10 @@ trait GameModule[G <: Game[_, _, _, _, _]] {
       replyTo: ActorRef[Either[GameError, GameState]]
   ): Either[GameError, GameActor.GameCommand]
 
-  /** Convert a concrete game model into its HTTP-serializable [[com.andy327.server.http.json.GameState]] representation.
+  /** Convert a concrete game model into its HTTP-serializable `GameState` representation.
     *
     * @param game the game to serialize; guaranteed by [[com.andy327.server.game.GameModuleBundle]] to be of type `G`
-    * @return the corresponding [[GameState]] for delivery over HTTP or WebSocket
+    * @return the corresponding `GameState` for delivery over HTTP or WebSocket
     */
   def serialize(game: G): GameState
 }

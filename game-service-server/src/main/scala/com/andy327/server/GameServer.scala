@@ -28,6 +28,7 @@ import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebS
 object GameServer {
   private val logger = LoggerFactory.getLogger(getClass)
 
+  // $COVERAGE-OFF$ bootstrap wiring and JVM entry point
   def main(args: Array[String]): Unit = {
     // Load configuration from application.conf
     val config: Config = ConfigFactory.load()
@@ -96,4 +97,5 @@ object GameServer {
       }
     }.map(binding => (system, binding))
   }
+  // $COVERAGE-ON$
 }
