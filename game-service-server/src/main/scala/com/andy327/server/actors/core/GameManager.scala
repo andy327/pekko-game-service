@@ -66,10 +66,6 @@ object GameManager {
   /** Fetch metadata for a specific lobby (active or recently ended); replies with [[LobbyInfo]]. */
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Subscribe `playerRef` to lobby push events via LobbyManager. */
-  final case class SubscribeToLobby(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
-      extends Command
-
   /** Subscribe the authenticated player to lobby push events as a spectator; replies with [[SubscribeAcknowledged]] or
     * [[ErrorResponse]].
     */
@@ -153,7 +149,8 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
-  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask initiated during auto-subscribe on lobby create/join. */
+  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask initiated during auto-subscribe on lobby create/join.
+    */
   final private case class PlayerRefForSubscribe(
       playerRef: Option[ActorRef[PlayerActor.Command]],
       gameId: GameId,
@@ -327,12 +324,10 @@ object GameManager {
           Behaviors.same
 
         case PlayerRefForSubscribe(playerRefOpt, gameId, playerId, response, replyTo) =>
-          playerRefOpt.foreach(ref => lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref))
+          playerRefOpt.foreach(ref =>
+            lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref, context.system.ignoreRef)
+          )
           replyTo ! response
-          Behaviors.same
-
-        case SubscribeToLobby(gameId, playerId, playerRef) =>
-          lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, playerRef)
           Behaviors.same
 
         case SubscribePlayerToLobby(gameId, playerId, replyTo) =>
@@ -346,8 +341,7 @@ object GameManager {
         case PlayerRefForLobbySpectate(playerRefOpt, gameId, playerId, replyTo) =>
           playerRefOpt match {
             case Some(ref) =>
-              lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref)
-              replyTo ! SubscribeAcknowledged(gameId)
+              lobbyManager ! LobbyManager.SubscribeToLobby(gameId, playerId, ref, replyTo)
             case None =>
               context.log.warn(s"SubscribePlayerToLobby: player $playerId is not connected")
               replyTo ! ErrorResponse("Player is not connected via WebSocket")

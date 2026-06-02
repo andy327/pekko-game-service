@@ -10,7 +10,7 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
 import org.apache.pekko.http.scaladsl.model.ws.Message
@@ -35,7 +35,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   private val testKit = ActorTestKit()
   implicit val runtime: IORuntime = IORuntime.global
   implicit val timeout: Timeout = Timeout(3.seconds)
-  implicit lazy val scheduler = typedSystem.scheduler
+  implicit lazy val scheduler: Scheduler = typedSystem.scheduler
 
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo

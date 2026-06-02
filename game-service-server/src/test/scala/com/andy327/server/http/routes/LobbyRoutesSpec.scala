@@ -10,7 +10,7 @@ import cats.effect.unsafe.IORuntime
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
@@ -32,7 +32,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
   private val testKit = ActorTestKit()
   implicit val runtime: IORuntime = IORuntime.global
   implicit val timeout: Timeout = Timeout(3.seconds)
-  implicit lazy val scheduler = typedSystem.scheduler
+  implicit lazy val scheduler: Scheduler = typedSystem.scheduler
 
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo
@@ -341,6 +341,31 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+      }
+
+      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+    }
+
+    "return 409 when subscribing to a lobby whose game has already started" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      val wsProbe = testKit.createTestProbe[Message]()
+      Await.result(
+        typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
+        3.seconds
+      )
+
+      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Conflict
+        responseAs[String] should include("already started")
       }
 
       typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)

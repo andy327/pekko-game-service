@@ -43,4 +43,9 @@ object LobbyError {
   case class LobbyNotReady(gameId: GameId) extends LobbyError {
     def message: String = s"Lobby $gameId does not have enough players to start"
   }
+
+  /** The game for this lobby has already started; use the game subscribe endpoint instead. Maps to HTTP 409. */
+  case class GameAlreadyStarted(gameId: GameId) extends LobbyError {
+    def message: String = s"Game $gameId has already started; use the game subscribe endpoint instead"
+  }
 }

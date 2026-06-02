@@ -63,9 +63,18 @@ object LobbyManager {
   /** Return full metadata for one lobby (active or recently ended); replies with [[GameManager.LobbyInfo]]. */
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
 
-  /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `gameId`. */
-  final case class SubscribeToLobby(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
-      extends Command
+  /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `gameId`.
+    *
+    * Rejects with [[GameManager.LobbyErrorResponse]](`LobbyError.GameAlreadyStarted`) if the game is already
+    * in progress; the caller should use the game subscribe endpoint instead. Pass `context.system.ignoreRef` for
+    * `replyTo` on auto-subscribe paths where no acknowledgment is needed.
+    */
+  final case class SubscribeToLobby(
+      gameId: GameId,
+      playerId: PlayerId,
+      playerRef: ActorRef[PlayerActor.Command],
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
 
   // --- Internal command (sent by GameManager, not reachable from HTTP) ---
 
@@ -225,10 +234,20 @@ object LobbyManager {
         }
         Behaviors.same
 
-      case SubscribeToLobby(gameId, playerId, playerRef) =>
-        val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
-        lobbies.get(gameId).foreach(meta => playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(meta)))
-        running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager)
+      case SubscribeToLobby(gameId, playerId, playerRef, replyTo) =>
+        lobbies.get(gameId) match {
+          case Some(metadata) if metadata.status == GameLifecycleStatus.InProgress =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameAlreadyStarted(gameId))
+            Behaviors.same
+          case Some(metadata) =>
+            val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
+            playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(metadata))
+            replyTo ! GameManager.SubscribeAcknowledged(gameId)
+            running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager)
+          case None =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            Behaviors.same
+        }
 
       case MarkCompleted(gameId, result) =>
         lobbies.get(gameId) match {

@@ -739,6 +739,31 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       error.message should include("not connected")
     }
 
+    "return GameAlreadyStarted when SubscribePlayerToLobby is called after the game has started" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+      val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe a[LobbyError.GameAlreadyStarted]
+    }
+
     "subscribe a connected spectator to game events via SubscribePlayerToGame" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
@@ -815,7 +840,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       error.message should include("No active game found")
     }
 
-    "forward SubscribeToLobby so the subscriber receives the current lobby state" in {
+    "push initial lobby state to WebSocket on SubscribePlayerToLobby" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
@@ -824,14 +849,18 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      // subscriber receives initial lobby state immediately
-      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
-      event.event shouldBe a[PlayerEvent.LobbyUpdated]
+      gm ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+
+      // subscriber receives initial lobby state immediately via WebSocket
+      wsProbe.expectMessageType[TextMessage]
     }
 
     "forward SubscribeToGame so the subscriber receives events after a move" in {
@@ -866,7 +895,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       event.event shouldBe a[PlayerEvent.GameStateUpdated]
     }
 
-    "deliver GameStateUpdated to a lobby subscriber after the game starts" in {
+    "deliver GameStateUpdated to a lobby subscriber via WebSocket after the game starts" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
@@ -876,22 +905,27 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      // Subscribe before the game starts — subscriber is held in LobbyManager
-      val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref)
-      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial LobbyUpdated snapshot
+      // Alice connects via WebSocket and subscribes before the game starts
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+      wsProbe.expectMessageType[TextMessage] // initial LobbyUpdated snapshot
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
-      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // LobbyUpdated on join
+      wsProbe.expectMessageType[TextMessage] // LobbyUpdated on join
 
-      // Start the game — LobbyManager passes subscriber in SpawnGame; line 210 fires
+      // Start the game — LobbyManager passes Alice's PlayerActor ref in SpawnGame
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
-      // Make a move; the subscriber should now receive GameStateUpdated from the game actor
+      // Make a move; Alice's WebSocket should receive GameStateUpdated from the game actor
       gm ! GameManager.RunGameOperation(
         gameId,
         GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
@@ -899,8 +933,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       )
       responseProbe.expectMessageType[GameManager.GameStatus]
 
-      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
-      event.event shouldBe a[PlayerEvent.GameStateUpdated]
+      wsProbe.expectMessageType[TextMessage] // GameStateUpdated
     }
 
     "handle SubscribeToGame for an unknown game without crashing" in {

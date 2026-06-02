@@ -198,6 +198,8 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           * - 200: `SubscribeAcknowledged` confirming the subscription was registered
           * - 400: invalid UUID format, or player has no active WebSocket connection
           * - 401: missing or invalid token
+          * - 404: lobby not found
+          * - 409: game has already started; use the game subscribe endpoint instead
           * - 500: unexpected error
           */
         path("subscribe") {
@@ -208,6 +210,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
               ) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
+                case LobbyErrorResponse(error)  => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }
