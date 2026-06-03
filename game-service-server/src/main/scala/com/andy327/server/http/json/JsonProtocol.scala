@@ -51,9 +51,10 @@ object JsonProtocol extends DefaultJsonProtocol {
     def write(gt: GameType): JsValue = JsString(gt.toString)
 
     def read(json: JsValue): GameType = json match {
-      case JsString("TicTacToe") => GameType.TicTacToe
-      case JsString(other)       => deserializationError(s"Unknown GameType: $other")
-      case _                     => deserializationError("Expected GameType string")
+      case JsString("TicTacToe")   => GameType.TicTacToe
+      case JsString("ConnectFour") => GameType.ConnectFour
+      case JsString(other)         => deserializationError(s"Unknown GameType: $other")
+      case _                       => deserializationError("Expected GameType string")
     }
   }
 

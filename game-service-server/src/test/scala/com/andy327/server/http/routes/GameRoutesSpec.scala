@@ -27,7 +27,7 @@ import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.http.json.{TicTacToeMoveRequest, TicTacToeState}
+import com.andy327.server.http.json.{ConnectFourMoveRequest, ConnectFourState, TicTacToeMoveRequest, TicTacToeState}
 import com.andy327.server.lobby.Player
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
@@ -44,7 +44,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   private val routes = concat(
     new LobbyRoutes(typedSystem).routes,
-    new GameRoutes(GameType.TicTacToe, typedSystem).routes
+    new GameRoutes(GameType.TicTacToe, typedSystem).routes,
+    new GameRoutes(GameType.ConnectFour, typedSystem).routes
   )
 
   val (aliceId, bobId, carlId) = (UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
@@ -243,6 +244,188 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
 
         Post(s"/tictactoe/$gameId/subscribe") ~> routes ~> check {
+          status shouldBe StatusCodes.Unauthorized
+        }
+      }
+    }
+
+    "handling ConnectFour" should {
+      "submit a move to a valid game" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val move = ConnectFourMoveRequest(3)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        Post(s"/connectfour/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          val gameState = responseAs[String].parseJson.convertTo[ConnectFourState]
+          gameState.board(5)(3) shouldBe "R"
+        }
+      }
+
+      "fail to move in a nonexistent game" in {
+        val fakeId = UUID.randomUUID()
+        val move = ConnectFourMoveRequest(3)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        Post(s"/connectfour/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "fetch game status" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        Get(s"/connectfour/$gameId/status") ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          val gameState = responseAs[String].parseJson.convertTo[ConnectFourState]
+          gameState.currentPlayer shouldBe "R"
+        }
+      }
+
+      "return 404 for status of unknown game" in {
+        val fakeId = UUID.randomUUID()
+        Get(s"/connectfour/$fakeId/status") ~> routes ~> check {
+          status shouldBe StatusCodes.NotFound
+        }
+      }
+
+      "return 400 for invalid game ID on move" in {
+        val move = ConnectFourMoveRequest(3)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        Post("/connectfour/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+        }
+      }
+
+      "return 400 for invalid JSON structure on move" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val invalidJson = """{ "row": 0, "column": 3 }"""
+        val entity = HttpEntity(ContentTypes.`application/json`, invalidJson)
+
+        Post(s"/connectfour/$gameId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+          responseAs[String] should include("Invalid JSON")
+        }
+      }
+
+      "return 400 for invalid game ID on status" in
+        Get("/connectfour/invalid-game-id/status") ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+        }
+
+      "return 500 for unexpected responses" in {
+        val fakeId = UUID.randomUUID()
+        val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
+          case GameManager.RunGameOperation(_, _, replyTo) =>
+            replyTo ! GameManager.Ready
+            Behaviors.same
+
+          case GameManager.SubscribePlayerToGame(_, _, replyTo) =>
+            replyTo ! GameManager.Ready
+            Behaviors.same
+
+          case _ => Behaviors.same
+        }
+
+        val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseCFSystem")
+        val errorRoutes = new GameRoutes(GameType.ConnectFour, dummySystem).routes
+
+        val move = ConnectFourMoveRequest(3)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        val requests = Table(
+          ("description", "request"),
+          ("POST /move", Post(s"/connectfour/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
+          ("GET /status", Get(s"/connectfour/$fakeId/status")),
+          ("POST /subscribe", Post(s"/connectfour/$fakeId/subscribe").withHeaders(aliceHeader))
+        )
+
+        forAll(requests) { (description, req) =>
+          withClue(s"$description should return 500 with fallback message") {
+            req ~> errorRoutes ~> check {
+              status shouldBe StatusCodes.InternalServerError
+              responseAs[String] should include("Unexpected")
+            }
+          }
+        }
+      }
+
+      "return 200 when subscribing to an active game with a WebSocket connection" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val wsProbe = testKit.createTestProbe[Message]()
+        Await.result(
+          typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
+          3.seconds
+        )
+
+        Post(s"/connectfour/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+        }
+
+        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+      }
+
+      "return 400 when subscribing to a game without an active WebSocket connection" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+        Post("/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check(())
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check(())
+
+        Post(s"/connectfour/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.BadRequest
+          responseAs[String] should include("not connected")
+        }
+      }
+
+      "return 401 when subscribing to a game without authentication" in {
+        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+
+        Post(s"/connectfour/$gameId/subscribe") ~> routes ~> check {
           status shouldBe StatusCodes.Unauthorized
         }
       }

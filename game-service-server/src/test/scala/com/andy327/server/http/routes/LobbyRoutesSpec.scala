@@ -189,7 +189,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "return metadata for a valid lobby" in {
+    "return metadata for a valid TicTacToe lobby" in {
       val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].gameId
       }
@@ -239,7 +239,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "filter lobbies by game type" in {
+    "filter lobbies by TicTacToe game type" in {
       Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
@@ -248,6 +248,31 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.OK
         val result = responseAs[GameManager.LobbiesListed]
         result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
+      }
+    }
+
+    "return metadata for a valid ConnectFour lobby" in {
+      val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Get(s"/lobby/$gameId") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val response = responseAs[LobbyMetadata]
+        response.gameType shouldBe GameType.ConnectFour
+        response.gameId shouldBe gameId
+      }
+    }
+
+    "filter lobbies by ConnectFour game type" in {
+      Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Get("/lobby/list?gameType=connectfour") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val result = responseAs[GameManager.LobbiesListed]
+        result.lobbies.foreach(_.gameType shouldBe GameType.ConnectFour)
       }
     }
 

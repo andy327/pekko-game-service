@@ -75,6 +75,7 @@ object GameServer {
       new AuthRoutes().routes,
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
+      new GameRoutes(GameType.ConnectFour, system).routes,
       new WebSocketRoutes(system).routes
     )
 

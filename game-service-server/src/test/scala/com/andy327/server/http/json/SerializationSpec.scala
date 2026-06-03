@@ -57,8 +57,12 @@ class SerializationSpec extends AnyWordSpec with Matchers {
   }
 
   "GameType RootJsonFormat" should {
-    "deserialize a known game type" in {
+    "deserialize TicTacToe game type" in {
       JsString("TicTacToe").convertTo[GameType] shouldBe GameType.TicTacToe
+    }
+
+    "deserialize ConnectFour game type" in {
+      JsString("ConnectFour").convertTo[GameType] shouldBe GameType.ConnectFour
     }
 
     "fail on unknown game type string" in {
