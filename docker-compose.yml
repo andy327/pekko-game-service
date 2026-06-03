@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:18
+    container_name: pekko-game-db
+    environment:
+      POSTGRES_USER: gameuser
+      POSTGRES_PASSWORD: gamepass
+      POSTGRES_DB: gamedb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pekko-game-db-data:/var/lib/postgresql
+
+volumes:
+  pekko-game-db-data:
