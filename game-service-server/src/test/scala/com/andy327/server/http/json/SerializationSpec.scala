@@ -6,6 +6,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import spray.json._
 
+import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.server.actors.core.GameManager.{
@@ -16,6 +17,7 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
+import com.andy327.server.http.json.ConnectFourState._
 import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.http.json.TicTacToeState._
 import com.andy327.server.lobby._
@@ -186,6 +188,14 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "ConnectFourMoveRequest JSON format" should {
+    "round-trip serialize and deserialize" in {
+      val move = ConnectFourMoveRequest(col = 3)
+      val json = move.toJson
+      json.convertTo[ConnectFourMoveRequest] shouldBe move
+    }
+  }
+
   "TicTacToeState view" should {
     "round-trip serialize and deserialize" in {
       val alice = Player("alice")
@@ -194,6 +204,17 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val view = GameStateConverters.serializeGame(game)
       val json = view.toJson
       json.convertTo[TicTacToeState] shouldBe view
+    }
+  }
+
+  "ConnectFourState view" should {
+    "round-trip serialize and deserialize" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = ConnectFour.empty(alice.id, bob.id)
+      val view = GameStateConverters.serializeGame(game)
+      val json = view.toJson
+      json.convertTo[ConnectFourState] shouldBe view
     }
   }
 
@@ -213,10 +234,21 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       (json.fields should contain).key("metadata")
     }
 
-    "serialize GameStateUpdated with type discriminator and state" in {
+    "serialize GameStateUpdated with TicTacToe state" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = TicTacToe.empty(alice.id, bob.id)
+      val state = GameStateConverters.serializeGame(game)
+      val event: PlayerEvent = PlayerEvent.GameStateUpdated(state)
+      val json = event.toJson.asJsObject
+      json.fields("type") shouldBe JsString("GameStateUpdated")
+      (json.fields should contain).key("state")
+    }
+
+    "serialize GameStateUpdated with ConnectFour state" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = ConnectFour.empty(alice.id, bob.id)
       val state = GameStateConverters.serializeGame(game)
       val event: PlayerEvent = PlayerEvent.GameStateUpdated(state)
       val json = event.toJson.asJsObject

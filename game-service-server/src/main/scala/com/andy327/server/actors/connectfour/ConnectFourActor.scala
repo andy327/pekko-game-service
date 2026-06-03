@@ -1,35 +1,39 @@
-package com.andy327.server.actors.tictactoe
+package com.andy327.server.actors.connectfour
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
+import com.andy327.model.connectfour.{ConnectFour, Draw, Drop, GameError, InProgress, Mark, Red, Won, Yellow}
 import com.andy327.model.core.{Game, GameId, PlayerId}
-import com.andy327.model.tictactoe._
 import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
+import com.andy327.server.http.json.{ConnectFourState, GameStateConverters}
 import com.andy327.server.lobby.GameLifecycleStatus
 
-/** [[com.andy327.server.actors.core.GameActor]] implementation for TicTacToe.
+/** [[com.andy327.server.actors.core.GameActor]] implementation for ConnectFour.
   *
-  * Validates moves against a 3×3 board: checks turn order, player membership, cell occupancy, and bounds.
-  * Detects a win (three in a row/column/diagonal) or draw (board full) after each move.
+  * Validates moves against a 6×7 board: checks turn order, player membership, column bounds, and column capacity.
+  * Pieces fall to the lowest empty row (gravity). Detects a win (four in a line in any direction) or draw (board full)
+  * after each drop.
   *
   * @see [[com.andy327.server.actors.core.GameActor]] for the full actor lifecycle and behavioral contract.
   */
-object TicTacToeActor extends GameActor[TicTacToe] {
-  import TicTacToeState._
+object ConnectFourActor extends GameActor[ConnectFour] {
+  import ConnectFourState._
 
   sealed trait Command extends GameActor.GameCommand
 
   // --- Commands received from GameManager (via GameRegistry routing) ---
 
-  /** Attempt to apply a move at `loc` on behalf of `playerId`. */
-  final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
-      extends Command
+  /** Attempt to drop a piece into `drop.col` on behalf of `playerId`. */
+  final case class MakeMove(
+      playerId: PlayerId,
+      drop: Drop,
+      replyTo: ActorRef[Either[GameError, ConnectFourState]]
+  ) extends Command
 
   /** Return the current serialized board state without mutating it. */
-  final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
+  final case class GetState(replyTo: ActorRef[Either[GameError, ConnectFourState]]) extends Command
 
   /** Register a PlayerActor to receive push events (state updates and game-end notifications). */
   final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command
@@ -45,9 +49,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
   /** Delivered by a `messageAdapter` after PersistenceProtocol.SaveSnapshot completes. */
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
 
-  /** Delivered by a `messageAdapter` after PersistenceProtocol.LoadSnapshot completes. */
-  final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
-
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
     Subscribe(playerRef)
 
@@ -56,35 +57,33 @@ object TicTacToeActor extends GameActor[TicTacToe] {
     case _                     => None
   }
 
-  /** Resolves `playerId` to `X` or `O` based on which seat they occupy; `None` if not a participant. */
-  private def markForPlayer(playerId: PlayerId, playerX: PlayerId, playerO: PlayerId): Option[Mark] =
-    if (playerId == playerX) Some(X)
-    else if (playerId == playerO) Some(O)
+  /** Resolves `playerId` to `Red` or `Yellow` based on which seat they occupy; `None` if not a participant. */
+  private def markForPlayer(playerId: PlayerId, playerRed: PlayerId, playerYellow: PlayerId): Option[Mark] =
+    if (playerId == playerRed) Some(Red)
+    else if (playerId == playerYellow) Some(Yellow)
     else None
 
-  /** Initializes a new TicTacToeActor with an empty game. */
+  /** Initializes a new ConnectFourActor with an empty game. */
   override def create(
       gameId: GameId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command]
-  ): (TicTacToe, Behavior[Command]) = {
-    val (playerX, playerO) = (players(0), players(1))
-
-    val game = TicTacToe.empty(playerX, playerO)
+  ): (ConnectFour, Behavior[Command]) = {
+    val (playerRed, playerYellow) = (players(0), players(1))
+    val game = ConnectFour.empty(playerRed, playerYellow)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
       active(game, gameId, persist, gameManager, Set.empty)
     }
-
     (game, behavior)
   }
 
-  /** Creates a TicTacToeActor from a preloaded game snapshot.
+  /** Creates a ConnectFourActor from a preloaded game snapshot.
     *
     * Used during server startup to re-hydrate in-progress games from persistent storage. If the restored game is
     * already in a terminal state (won or draw), notifies GameManager and stops immediately without spawning an active
-    * behavior. Stops the actor if the snapshot type does not match `TicTacToe`.
+    * behavior. Stops the actor if the snapshot type does not match `ConnectFour`.
     */
   override def fromSnapshot(
       gameId: GameId,
@@ -94,10 +93,10 @@ object TicTacToeActor extends GameActor[TicTacToe] {
   ): Behavior[Command] =
     Behaviors.setup { context =>
       game match {
-        case ttt: TicTacToe =>
-          ttt.gameStatus match {
+        case cf: ConnectFour =>
+          cf.gameStatus match {
             case InProgress =>
-              active(ttt, gameId, persist, gameManager, Set.empty)
+              active(cf, gameId, persist, gameManager, Set.empty)
             case Won(_) | Draw =>
               context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
               gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
@@ -109,7 +108,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       }
     }
 
-  /** Core recursive behavior that drives a single game from first move to completion.
+  /** Core recursive behavior that drives a single game from first drop to completion.
     *
     * Each state-changing message (MakeMove) produces a new `active` behavior with updated game and subscriber state.
     * Read-only messages (GetState, SnapshotSaved) return `Behaviors.same`. Subscribe/Unsubscribe update the subscriber
@@ -117,17 +116,17 @@ object TicTacToeActor extends GameActor[TicTacToe] {
     * confirmed.
     */
   private def active(
-      game: TicTacToe,
+      game: ConnectFour,
       gameId: GameId,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Set[ActorRef[PlayerActor.Command]]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
-      case MakeMove(playerId, loc, replyTo) =>
-        markForPlayer(playerId, game.playerX, game.playerO) match {
+      case MakeMove(playerId, drop, replyTo) =>
+        markForPlayer(playerId, game.playerRed, game.playerYellow) match {
           case Some(mark) if mark == game.currentPlayer =>
-            game.play(mark, loc) match {
+            game.play(mark, drop) match {
               case Right(nextState) =>
                 context.log.info(s"Game $gameId updated:\n${nextState.render}")
 
@@ -188,12 +187,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
         }
         Behaviors.same
 
-      case SnapshotLoaded(result) =>
-        result match {
-          case Left(e)  => context.log.error(s"[$gameId] snapshot load failed", e)
-          case Right(_) => context.log.debug(s"[$gameId] snapshot loaded successfully")
-        }
-        Behaviors.same
     }
   }
 }

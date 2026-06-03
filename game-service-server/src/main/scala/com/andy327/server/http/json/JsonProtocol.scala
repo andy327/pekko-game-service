@@ -96,6 +96,13 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
 
+  // ConnectFour
+
+  implicit val connectFourMoveRequestFormat: RootJsonFormat[ConnectFourMoveRequest] =
+    jsonFormat1(ConnectFourMoveRequest.apply)
+
+  implicit val connectFourStateFormat: RootJsonFormat[ConnectFourState] = jsonFormat4(ConnectFourState.apply)
+
   /** Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *
     * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the event
@@ -112,7 +119,8 @@ object JsonProtocol extends DefaultJsonProtocol {
         JsObject("type" -> JsString("LobbyUpdated"), "metadata" -> lobbyMetadataFormat.write(metadata))
       case PlayerEvent.GameStateUpdated(state) =>
         val stateJson = state match {
-          case s: TicTacToeState => ticTacToeStateFormat.write(s)
+          case s: TicTacToeState   => ticTacToeStateFormat.write(s)
+          case s: ConnectFourState => connectFourStateFormat.write(s)
         }
         JsObject("type" -> JsString("GameStateUpdated"), "state" -> stateJson)
       case PlayerEvent.GameEnded(result) =>
@@ -129,6 +137,9 @@ object JsonProtocol extends DefaultJsonProtocol {
       gameState match {
         case s: TicTacToeState =>
           val json = ticTacToeStateFormat.write(s).compactPrint
+          HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
+        case s: ConnectFourState =>
+          val json = connectFourStateFormat.write(s).compactPrint
           HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
       }
     }
