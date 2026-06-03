@@ -96,8 +96,9 @@ object TicTacToeActor extends GameActor[TicTacToe] {
 
   /** Creates a TicTacToeActor from a preloaded game snapshot.
     *
-    * Used during server startup to re-hydrate in-progress games from persistent storage. Stops the actor if the
-    * snapshot type does not match `TicTacToe`.
+    * Used during server startup to re-hydrate in-progress games from persistent storage. If the restored game is
+    * already in a terminal state (won or draw), notifies GameManager and stops immediately without spawning an active
+    * behavior. Stops the actor if the snapshot type does not match `TicTacToe`.
     */
   override def fromSnapshot(
       gameId: GameId,
@@ -107,10 +108,38 @@ object TicTacToeActor extends GameActor[TicTacToe] {
   ): Behavior[Command] =
     Behaviors.setup { context =>
       game match {
-        case ttt: TicTacToe => active(ttt, gameId, persist, gameManager, Set.empty)
-        case _              =>
+        case ttt: TicTacToe =>
+          ttt.gameStatus match {
+            case InProgress =>
+              active(ttt, gameId, persist, gameManager, Set.empty)
+            case Won(_) | Draw =>
+              context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
+              gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+              Behaviors.stopped
+          }
+        case _ =>
           context.log.error(s"Unexpected snapshot type for game $gameId: $game")
           Behaviors.stopped
+      }
+    }
+
+  /** Waits for the final snapshot confirmation after a game ends, then stops the actor.
+    *
+    * Entered after a win or draw is detected. All commands except `SnapshotSaved` are ignored — the actor is shutting
+    * down and should not process new moves or subscribe requests. On `SnapshotSaved` the actor stops itself, so
+    * GameManager does not need to call `context.stop`.
+    */
+  private def terminating(gameId: GameId): Behavior[Command] =
+    Behaviors.receive { (context, msg) =>
+      msg match {
+        case SnapshotSaved(result) =>
+          result match {
+            case Left(e)  => context.log.error(s"[$gameId] final snapshot failed", e)
+            case Right(_) => context.log.debug(s"[$gameId] final snapshot saved, stopping")
+          }
+          Behaviors.stopped
+        case _ =>
+          Behaviors.same
       }
     }
 
@@ -118,7 +147,8 @@ object TicTacToeActor extends GameActor[TicTacToe] {
     *
     * Each state-changing message (MakeMove) produces a new `active` behavior with updated game and subscriber state.
     * Read-only messages (GetState, SnapshotSaved) return `Behaviors.same`. Subscribe/Unsubscribe update the subscriber
-    * set. The behavior does not stop itself — GameManager calls `context.stop` after receiving `GameCompleted`.
+    * set. On game completion the actor transitions to [[terminating]] and stops itself after the final snapshot is
+    * confirmed.
     */
   private def active(
       game: TicTacToe,
@@ -128,11 +158,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       subscribers: Set[ActorRef[PlayerActor.Command]]
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
-      case MakeMove(_, _, replyTo) if game.gameStatus != InProgress =>
-        context.log.warn(s"[$gameId] game already completed!")
-        replyTo ! Left(GameError.GameOver)
-        Behaviors.same
-
       case MakeMove(playerId, loc, replyTo) =>
         markForPlayer(playerId, game.playerX, game.playerO) match {
           case Some(mark) if mark == game.currentPlayer =>
@@ -156,7 +181,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
                     context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
                     subscribers.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.GameEnded(GameLifecycleStatus.Completed)))
                     gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-                    active(nextState, gameId, persist, gameManager, subscribers)
+                    terminating(gameId)
 
                   case InProgress =>
                     active(nextState, gameId, persist, gameManager, subscribers)
@@ -184,6 +209,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
         Behaviors.same
 
       case Subscribe(playerRef) =>
+        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(GameStateConverters.serializeGame(game)))
         active(game, gameId, persist, gameManager, subscribers + playerRef)
 
       case Unsubscribe(playerRef) =>

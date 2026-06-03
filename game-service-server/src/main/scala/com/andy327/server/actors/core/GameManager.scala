@@ -251,7 +251,7 @@ object GameManager {
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
         onReady.foreach(_ ! Ready)
         stash.unstashAll(
-          running(restoredActors, Map.empty, lobbyManager, playerManager, persistActor, gameRepo)(runtime)
+          running(restoredActors, Map.empty, Set.empty, lobbyManager, playerManager, persistActor, gameRepo)(runtime)
         )
 
       case other =>
@@ -267,10 +267,13 @@ object GameManager {
     *
     * @param activeGames map from GameId to (GameType, game actor ref) for all currently running games
     * @param completedGameTypes retains the GameType of finished games so GetState queries can fall back to the DB
+    * @param freshGameIds IDs of games started in this server session (not restored from DB); only these have a
+    *                     corresponding LobbyManager entry, so only they should trigger [[LobbyManager.MarkCompleted]]
     */
   private def running(
       activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
       completedGameTypes: Map[GameId, GameType],
+      freshGameIds: Set[GameId],
       lobbyManager: ActorRef[LobbyManager.Command],
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
@@ -417,6 +420,7 @@ object GameManager {
             running(
               activeGames + (gameId -> (gameType, actorRef)),
               completedGameTypes,
+              freshGameIds + gameId,
               lobbyManager,
               playerManager,
               persistActor,
@@ -426,13 +430,14 @@ object GameManager {
 
         case GameCompleted(gameId, result) =>
           activeGames.get(gameId) match {
-            case Some((gameType, gameActor)) =>
-              context.log.info(s"Game $gameId completed with result $result — stopping actor")
-              lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
-              context.stop(gameActor)
+            case Some((gameType, _)) =>
+              context.log.info(s"Game $gameId completed with result $result — actor self-terminating")
+              if (freshGameIds.contains(gameId))
+                lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
               running(
                 activeGames - gameId,
                 completedGameTypes + (gameId -> gameType),
+                freshGameIds - gameId,
                 lobbyManager,
                 playerManager,
                 persistActor,

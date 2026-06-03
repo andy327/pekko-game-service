@@ -60,17 +60,17 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       draw shouldBe false
     }
 
-    "restore a game state from snapshot" in {
+    "restore an in-progress game state from snapshot" in {
       val snapshotState = TicTacToe(
         playerX = alice,
         playerO = bob,
         board = Vector(
-          Vector(Some(X), Some(O), Some(X)),
-          Vector(Some(O), Some(O), Some(X)),
-          Vector(None, None, Some(X))
+          Vector(Some(X), None, None),
+          Vector(None, Some(O), None),
+          Vector(None, None, None)
         ),
-        currentPlayer = O,
-        winner = Some(X),
+        currentPlayer = X,
+        winner = None,
         isDraw = false
       )
 
@@ -84,9 +84,32 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val Right(TicTacToeState(board, current, winner, draw)) = replyProbe.receiveMessage()
       board(0)(0) shouldBe "X"
       board(1)(1) shouldBe "O"
-      current shouldBe "O"
-      winner shouldBe Some("X")
+      current shouldBe "X"
+      winner shouldBe None
       draw shouldBe false
+    }
+
+    "notify GameManager and stop when restored from a completed snapshot" in {
+      val gameId = UUID.randomUUID()
+      val gameManagerProbe = createTestProbe[GameManager.Command]()
+      val completedGame = TicTacToe(
+        playerX = alice,
+        playerO = bob,
+        board = Vector(
+          Vector(Some(X), Some(X), Some(X)),
+          Vector(Some(O), Some(O), None),
+          Vector(None, None, None)
+        ),
+        currentPlayer = O,
+        winner = Some(X),
+        isDraw = false
+      )
+
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val actor = spawn(TicTacToeActor.fromSnapshot(gameId, completedGame, persistProbe.ref, gameManagerProbe.ref))
+
+      gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed))
+      persistProbe.expectTerminated(actor)
     }
 
     "fail to restore state from snapshot with an invalid game type" in {
@@ -143,28 +166,6 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 3), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.OutOfBounds)
-    }
-
-    "reject a move on a completed game" in {
-      val completedGame = TicTacToe(
-        playerX = alice,
-        playerO = bob,
-        board = Vector(
-          Vector(Some(X), Some(O), Some(X)),
-          Vector(Some(X), Some(X), Some(O)),
-          Vector(Some(O), Some(X), Some(O))
-        ),
-        currentPlayer = O,
-        winner = None,
-        isDraw = true
-      )
-      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val actor =
-        spawn(TicTacToeActor.fromSnapshot(UUID.randomUUID(), completedGame, persistProbe.ref, dummyGameManager))
-
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
-      actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      replyProbe.receiveMessage() shouldBe Left(GameError.GameOver)
     }
 
     "log success and continue when SnapshotSaved succeeds" in {
@@ -233,6 +234,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
@@ -250,10 +252,59 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
       actor ! TicTacToeActor.Subscribe(subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
       actor ! TicTacToeActor.Unsubscribe(subscriberProbe.ref)
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
 
       subscriberProbe.expectNoMessage()
+    }
+
+    "stop after receiving SnapshotSaved(Right) in terminating state" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      }
+
+      actor ! TicTacToeActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "stop after receiving SnapshotSaved(Left) in terminating state" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val ex = new RuntimeException("snapshot failure") with NoStackTrace
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      }
+
+      actor ! TicTacToeActor.SnapshotSaved(Left(ex))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "ignore non-SnapshotSaved messages in terminating state" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TicTacToeActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      }
+
+      // GetState is ignored in terminating — no reply, actor stays alive
+      actor ! TicTacToeActor.GetState(replyProbe.ref)
+      replyProbe.expectNoMessage()
+
+      // SnapshotSaved then stops the actor
+      actor ! TicTacToeActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
     }
 
     "notify the GameManager when a game completes" in {
