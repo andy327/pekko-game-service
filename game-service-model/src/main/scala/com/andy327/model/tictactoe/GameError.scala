@@ -31,6 +31,4 @@ object GameError {
   case object GameOver extends GameError {
     val message = "The game is already over."
   }
-
-  case class Unknown(message: String) extends GameError
 }
