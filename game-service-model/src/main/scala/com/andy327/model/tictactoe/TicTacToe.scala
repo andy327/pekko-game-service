@@ -1,6 +1,6 @@
 package com.andy327.model.tictactoe
 
-import com.andy327.model.core.{Game, PlayerId, Renderable}
+import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, PlayerId, Renderable, Won}
 
 import GameError._
 
@@ -55,13 +55,13 @@ final case class TicTacToe(
     currentPlayer: Mark,
     winner: Option[Mark],
     isDraw: Boolean
-) extends Game[Location, TicTacToe, Mark, GameStatus, GameError]
+) extends Game[Location, TicTacToe, Mark, GameStatus[Mark], GameError]
     with Renderable {
 
   def currentState: TicTacToe = this
 
-  def gameStatus: GameStatus =
-    winner.map(Won).getOrElse(if (isDraw) Draw else InProgress)
+  def gameStatus: GameStatus[Mark] =
+    winner.map(Won(_)).getOrElse(if (isDraw) Draw else InProgress)
 
   private def nextPlayer: Mark = currentPlayer match {
     case X => O

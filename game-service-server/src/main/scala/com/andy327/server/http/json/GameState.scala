@@ -1,7 +1,7 @@
 package com.andy327.server.http.json
 
 import com.andy327.model.connectfour.ConnectFour
-import com.andy327.model.core.Game
+import com.andy327.model.core.{Draw, Game, Won}
 import com.andy327.model.tictactoe.TicTacToe
 
 /** Super-type for all serializable “view” representations of game state that can be sent to the client as part of an
@@ -21,7 +21,6 @@ object TicTacToeState {
 
   /** Type class instance for serializing a TicTacToe game into a TicTacToeState. */
   implicit object TicTacToeView extends GameStateView[TicTacToe, TicTacToeState] {
-    import com.andy327.model.tictactoe.{Draw, Won}
     def fromGame(game: TicTacToe): TicTacToeState = {
       val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse(""))) // string-based representation for JSON
       val currentPlayer = game.currentPlayer.toString
@@ -47,7 +46,6 @@ object ConnectFourState {
 
   /** Type class instance for serializing a ConnectFour game into a ConnectFourState. */
   implicit object ConnectFourView extends GameStateView[ConnectFour, ConnectFourState] {
-    import com.andy327.model.connectfour.{Draw, Won}
     def fromGame(game: ConnectFour): ConnectFourState = {
       val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse("")))
       val currentPlayer = game.currentPlayer.toString

@@ -1,6 +1,6 @@
 package com.andy327.model.connectfour
 
-import com.andy327.model.core.{Game, PlayerId, Renderable}
+import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, PlayerId, Renderable, Won}
 
 import GameError._
 
@@ -76,14 +76,14 @@ final case class ConnectFour(
     currentPlayer: Mark,
     winner: Option[Mark],
     isDraw: Boolean
-) extends Game[Drop, ConnectFour, Mark, GameStatus, GameError]
+) extends Game[Drop, ConnectFour, Mark, GameStatus[Mark], GameError]
     with Renderable {
 
   import ConnectFour._
 
   def currentState: ConnectFour = this
 
-  def gameStatus: GameStatus =
+  def gameStatus: GameStatus[Mark] =
     winner.map(Won(_)).getOrElse(if (isDraw) Draw else InProgress)
 
   private def nextPlayer: Mark = currentPlayer match {

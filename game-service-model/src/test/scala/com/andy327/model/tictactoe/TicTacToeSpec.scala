@@ -5,7 +5,7 @@ import java.util.UUID
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.PlayerId
+import com.andy327.model.core.{Draw, InProgress, PlayerId, Won}
 
 class TicTacToeSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID()

@@ -3,7 +3,7 @@ package com.andy327.server.actors.tictactoe
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameId, PlayerId}
+import com.andy327.model.core.{Draw, Game, GameId, InProgress, PlayerId, Won}
 import com.andy327.model.tictactoe._
 import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
