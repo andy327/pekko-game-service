@@ -18,7 +18,6 @@ import com.andy327.persistence.db.schema.GameTypeCodecs
   * serialized to JSON using Circe and stored as a string in the database.
   */
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
-  import GameTypeCodecs._
 
   private val logger = LoggerFactory.getLogger(getClass)
 

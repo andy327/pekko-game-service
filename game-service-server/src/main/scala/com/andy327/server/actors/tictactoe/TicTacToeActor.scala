@@ -45,9 +45,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
   /** Delivered by a `messageAdapter` after PersistenceProtocol.SaveSnapshot completes. */
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Internal
 
-  /** Delivered by a `messageAdapter` after PersistenceProtocol.LoadSnapshot completes. */
-  final case class SnapshotLoaded(maybeGame: Either[Throwable, Option[TicTacToe]]) extends Internal
-
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
     Subscribe(playerRef)
 
@@ -188,12 +185,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
         }
         Behaviors.same
 
-      case SnapshotLoaded(result) =>
-        result match {
-          case Left(e)  => context.log.error(s"[$gameId] snapshot load failed", e)
-          case Right(_) => context.log.debug(s"[$gameId] snapshot loaded successfully")
-        }
-        Behaviors.same
     }
   }
 }

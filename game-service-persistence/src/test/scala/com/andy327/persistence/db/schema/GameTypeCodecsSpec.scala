@@ -34,11 +34,10 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
       err.getMessage should include("Unknown GameType")
     }
 
-    "deserialize a valid TicTacToe game from JSON" in {
+    "round-trip a TicTacToe game through serializeGame and deserializeGame" in {
       val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
-      val json = game.asJson.noSpaces
-      val result = deserializeGame(GameType.TicTacToe, json)
-      result shouldBe Right(game)
+      val json = serializeGame(GameType.TicTacToe, game)
+      deserializeGame(GameType.TicTacToe, json) shouldBe Right(game)
     }
 
     "fail to decode an unknown TicTacToe Mark type" in {
@@ -75,11 +74,10 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
       decoded shouldBe Right(GameType.ConnectFour)
     }
 
-    "deserialize a valid ConnectFour game from JSON" in {
+    "round-trip a ConnectFour game through serializeGame and deserializeGame" in {
       val game = ConnectFour.empty(alice, bob).play(Red, Drop(3)).toOption.get
-      val json = game.asJson.noSpaces
-      val result = deserializeGame(GameType.ConnectFour, json)
-      result shouldBe Right(game)
+      val json = serializeGame(GameType.ConnectFour, game)
+      deserializeGame(GameType.ConnectFour, json) shouldBe Right(game)
     }
 
     "fail to decode an invalid ConnectFour Mark" in {

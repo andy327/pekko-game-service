@@ -13,10 +13,7 @@ package object connectfour {
     *
     * Red always moves first.
     */
-  sealed trait Mark {
-    def symbol: String
-    override def toString: String = symbol
-  }
+  sealed trait Mark extends com.andy327.model.core.Mark
   case object Red extends Mark { val symbol = "R" }
   case object Yellow extends Mark { val symbol = "Y" }
 

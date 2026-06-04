@@ -8,10 +8,7 @@ package object tictactoe {
   type Board = Vector[Vector[Option[Mark]]]
 
   /** Identifies which player owns a cell. X always moves first. */
-  sealed trait Mark {
-    def symbol: String
-    override def toString: String = symbol
-  }
+  sealed trait Mark extends com.andy327.model.core.Mark
   case object X extends Mark { val symbol = "X" }
   case object O extends Mark { val symbol = "O" }
 

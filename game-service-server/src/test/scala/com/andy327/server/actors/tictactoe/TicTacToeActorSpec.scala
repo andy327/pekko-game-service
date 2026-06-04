@@ -196,27 +196,6 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
 
-    "log success and continue when SnapshotLoaded succeeds" in {
-      val (actor, _) = newActor()
-
-      actor ! TicTacToeActor.SnapshotLoaded(Right(None))
-
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
-      actor ! TicTacToeActor.GetState(replyProbe.ref)
-      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
-    }
-
-    "log error and continue when SnapshotLoaded fails" in {
-      val (actor, _) = newActor()
-      val ex = new RuntimeException("load failed") with NoStackTrace
-
-      actor ! TicTacToeActor.SnapshotLoaded(Left(ex))
-
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
-      actor ! TicTacToeActor.GetState(replyProbe.ref)
-      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
-    }
-
     "push GameStateUpdated to subscribers after a valid move" in {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
