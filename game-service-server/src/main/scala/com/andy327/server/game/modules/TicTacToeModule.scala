@@ -26,12 +26,6 @@ object TicTacToeModule extends GameModule[TicTacToe] {
 
   override val moveDecoder: Decoder[MovePayload] = Decoder[TicTacToeMove].widen
 
-  /** Converts a generic [[GameOperation]] into a TicTacToe-specific actor command.
-    *
-    * @param op the game-agnostic operation from the HTTP layer
-    * @param replyTo the actor that should receive the operation result
-    * @return `Right(command)` ready to send to TicTacToeActor, or `Left(GameError)` if the payload type is wrong
-    */
   override def toGameCommand(
       op: GameOperation,
       replyTo: ActorRef[Either[GameError, GameState]]
@@ -47,8 +41,5 @@ object TicTacToeModule extends GameModule[TicTacToe] {
       Right(TicTacToeActor.GetState(replyTo))
   }
 
-  /** Serialise a `TicTacToe` game model into a [[com.andy327.server.http.json.TicTacToeState]] for HTTP/WebSocket
-    * delivery.
-    */
   override def serialize(game: TicTacToe): GameState = GameStateConverters.serializeGame(game)
 }

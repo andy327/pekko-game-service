@@ -1,9 +1,10 @@
 package com.andy327.server.game
 
 import com.andy327.model.core.{Game, GameType}
+import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.game.modules.{GameModule, TicTacToeModule}
+import com.andy327.server.game.modules.{ConnectFourModule, GameModule, TicTacToeModule}
 import com.andy327.server.http.json.GameState
 
 /** Groups the [[com.andy327.server.game.modules.GameModule]] and [[com.andy327.server.actors.core.GameActor]] implementations for a single game type.
@@ -39,6 +40,7 @@ object GameRegistry {
     * @return the bundle containing module and actor for that game type
     */
   def forType(gameType: GameType): GameModuleBundle[_] = gameType match {
-    case GameType.TicTacToe => GameModuleBundle(TicTacToeModule, TicTacToeActor)
+    case GameType.TicTacToe   => GameModuleBundle(TicTacToeModule, TicTacToeActor)
+    case GameType.ConnectFour => GameModuleBundle(ConnectFourModule, ConnectFourActor)
   }
 }

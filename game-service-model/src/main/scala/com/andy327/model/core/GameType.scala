@@ -21,13 +21,19 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 2)
   }
 
+  /** A two-player strategy game where players drop pieces into a 6-row x 7-column grid, aiming to connect four. */
+  case object ConnectFour extends GameType {
+    val (minPlayers, maxPlayers) = (2, 2)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
     * @return Some(GameType) if recognized, or None if the input is invalid
     */
   def fromString(s: String): Option[GameType] = s.toLowerCase match {
-    case "tictactoe" => Some(TicTacToe)
-    case _           => None
+    case "tictactoe"   => Some(TicTacToe)
+    case "connectfour" => Some(ConnectFour)
+    case _             => None
   }
 }

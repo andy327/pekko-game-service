@@ -11,7 +11,6 @@ import doobie._
 import doobie.implicits._
 
 import com.andy327.model.core.{Game, GameId, GameType}
-import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -19,8 +18,6 @@ import com.andy327.persistence.db.schema.GameTypeCodecs
   * serialized to JSON using Circe and stored as a string in the database.
   */
 class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
-  import GameTypeCodecs._
-  import io.circe.syntax._
 
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -38,11 +35,8 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
     * existing row is updated.
     */
   override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
-    val (jsonStr, gameTypeStr) = gameType match {
-      case GameType.TicTacToe =>
-        val typedGame = game.asInstanceOf[TicTacToe]
-        (typedGame.asJson.noSpaces, "TicTacToe")
-    }
+    val jsonStr = GameTypeCodecs.serializeGame(gameType, game)
+    val gameTypeStr = gameType.toString
 
     sql"""
       INSERT INTO games (game_id, game_type, game_state)

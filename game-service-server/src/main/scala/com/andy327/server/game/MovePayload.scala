@@ -15,4 +15,10 @@ object MovePayload {
     * @param col The column index (0-based)
     */
   final case class TicTacToeMove(row: Int, col: Int) extends MovePayload
+
+  /** A move for ConnectFour: drop a piece into the specified column.
+    *
+    * @param col The column index (0-based, 0–6)
+    */
+  final case class ConnectFourMove(col: Int) extends MovePayload
 }

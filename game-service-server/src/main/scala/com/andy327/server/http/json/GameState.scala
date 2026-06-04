@@ -1,7 +1,8 @@
 package com.andy327.server.http.json
 
+import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.Game
-import com.andy327.model.tictactoe._
+import com.andy327.model.tictactoe.TicTacToe
 
 /** Super-type for all serializable “view” representations of game state that can be sent to the client as part of an
   * HTTP response.
@@ -20,6 +21,7 @@ object TicTacToeState {
 
   /** Type class instance for serializing a TicTacToe game into a TicTacToeState. */
   implicit object TicTacToeView extends GameStateView[TicTacToe, TicTacToeState] {
+    import com.andy327.model.tictactoe.{Draw, Won}
     def fromGame(game: TicTacToe): TicTacToeState = {
       val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse(""))) // string-based representation for JSON
       val currentPlayer = game.currentPlayer.toString
@@ -29,6 +31,32 @@ object TicTacToeState {
       }
       val draw = game.gameStatus == Draw
       TicTacToeState(boardStrings, currentPlayer, winnerOpt, draw)
+    }
+  }
+}
+
+/** Serializable view of a ConnectFour game state, suitable for HTTP responses. */
+case class ConnectFourState(
+    board: Vector[Vector[String]],
+    currentPlayer: String,
+    winner: Option[String],
+    draw: Boolean
+) extends GameState
+
+object ConnectFourState {
+
+  /** Type class instance for serializing a ConnectFour game into a ConnectFourState. */
+  implicit object ConnectFourView extends GameStateView[ConnectFour, ConnectFourState] {
+    import com.andy327.model.connectfour.{Draw, Won}
+    def fromGame(game: ConnectFour): ConnectFourState = {
+      val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse("")))
+      val currentPlayer = game.currentPlayer.toString
+      val winnerOpt = game.gameStatus match {
+        case Won(mark) => Some(mark.toString)
+        case _         => None
+      }
+      val draw = game.gameStatus == Draw
+      ConnectFourState(boardStrings, currentPlayer, winnerOpt, draw)
     }
   }
 }

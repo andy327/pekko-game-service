@@ -1,5 +1,6 @@
 package com.andy327.server.actors.core
 
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
@@ -15,7 +16,26 @@ object GameActor {
   trait GameCommand
 }
 
-/** Type-class factory and helper interface implemented by every game-specific actor. */
+/** Type-class factory and behavioral contract implemented by every game-specific actor.
+  *
+  * Each game actor manages a single game instance from creation to completion. The standard lifecycle is:
+  *   - `create` spawns a fresh actor in the `active` behavior with an empty game
+  *   - `fromSnapshot` re-hydrates an actor from a persisted game; if the snapshot is already terminal the actor
+  *     notifies [[GameManager]] and stops immediately without entering `active`
+  *   - In `active`, each `MakeMove` validates the move, applies it, saves a snapshot via fire-and-forget
+  *     [[com.andy327.server.actors.persistence.PersistenceProtocol.SaveSnapshot]], fans out
+  *     [[com.andy327.server.actors.core.PlayerEvent.GameStateUpdated]] to all subscribers, and replies to the caller
+  *   - On a terminal game result (win or draw), the actor fans out
+  *     [[com.andy327.server.actors.core.PlayerEvent.GameEnded]], notifies
+  *     [[GameManager]] via `GameCompleted`, and transitions to `terminating`
+  *   - In `terminating`, all commands except `SnapshotSaved` are ignored; the actor self-stops once the final snapshot
+  *     is confirmed, so [[GameManager]] does not need to call `context.stop`
+  *
+  * Concrete implementations must define their own sealed `Command` ADT (extending [[GameActor.GameCommand]]) and
+  * wire the above steps in their `active` and `terminating` behaviors.
+  *
+  * @tparam G the concrete game model type this actor manages
+  */
 trait GameActor[G <: Game[_, _, _, _, _]] {
 
   type Command <: GameActor.GameCommand
@@ -55,4 +75,31 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
 
   /** Produce the game-specific Subscribe command that registers `playerRef` for push events. */
   def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
+
+  /** Extract the snapshot-save result from `cmd` if it is a `SnapshotSaved` message, otherwise `None`.
+    *
+    * Used by [[terminating]] to detect when the final snapshot has been confirmed without needing to know the
+    * concrete `SnapshotSaved` type defined in each actor's sealed `Command` ADT.
+    */
+  protected def snapshotSavedResult(cmd: Command): Option[Either[Throwable, Unit]]
+
+  /** Waits for the final snapshot confirmation after a game ends, then stops the actor.
+    *
+    * Entered after a win or draw is detected. All commands except `SnapshotSaved` are ignored — the actor is
+    * shutting down and should not process new moves or subscribe requests. The actor self-stops once the final
+    * snapshot is confirmed, so [[com.andy327.server.actors.core.GameManager]] does not need to call `context.stop`.
+    */
+  protected def terminating(gameId: GameId): Behavior[Command] =
+    Behaviors.receive { (context, msg) =>
+      snapshotSavedResult(msg) match {
+        case Some(result) =>
+          result match {
+            case Left(e)  => context.log.error(s"[$gameId] final snapshot failed", e)
+            case Right(_) => context.log.debug(s"[$gameId] final snapshot saved, stopping")
+          }
+          Behaviors.stopped
+        case None =>
+          Behaviors.same
+      }
+    }
 }
