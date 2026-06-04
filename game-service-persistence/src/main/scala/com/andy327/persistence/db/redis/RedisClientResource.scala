@@ -24,7 +24,10 @@ object RedisClientResource {
     override def error(msg: => String): IO[Unit] = IO(logger.error(msg))
   }
 
-  /** @param config Typesafe Config to read Redis settings from; defaults to the application classpath config */
+  /** Builds a `RedisCommands` resource from the given config, connecting on acquire and disconnecting on release.
+    *
+    * @param config Typesafe Config to read Redis settings from; defaults to the application classpath config
+    */
   def apply(config: Config = ConfigFactory.load()): Resource[IO, RedisCommands[IO, String, String]] = {
     val uri = config.getString("pekko-game-service.redis.uri")
     Redis[IO].utf8(uri)

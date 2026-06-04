@@ -7,10 +7,9 @@ import org.slf4j.LoggerFactory
 
 import com.typesafe.config.{Config, ConfigFactory}
 
+import cats.effect.IO
 import cats.effect.unsafe.IORuntime
-import cats.effect.{IO, Resource}
 
-import doobie.Transactor
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
@@ -19,6 +18,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import com.andy327.model.core.GameType
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
+import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
@@ -37,13 +37,15 @@ object GameServer {
 
     implicit val runtime: IORuntime = IORuntime.global
 
-    // Database transactor resource to manage thread and connection pooling
-    val transactorResource: Resource[IO, Transactor[IO]] = PostgresTransactor(config)
+    // Compose Postgres transactor and Redis commands as a single managed resource
+    val resources = for {
+      xa <- PostgresTransactor(config)
+      redis <- RedisClientResource(config)
+    } yield (xa, redis)
 
-    // Use the transactor resource to initialize the rest of the app
-    transactorResource.use { xa =>
-      // Initialize repository with transactor
-      val gameRepository = new PostgresGameRepository(xa)
+    resources.use { case (xa, redis) =>
+      val postgresRepo = new PostgresGameRepository(xa)
+      val gameRepository = new RedisGameRepository(postgresRepo, redis)
 
       // Ensure the schema exists before starting the server
       for {
