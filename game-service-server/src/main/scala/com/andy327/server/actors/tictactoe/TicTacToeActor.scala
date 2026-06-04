@@ -94,6 +94,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
         case ttt: TicTacToe =>
           ttt.gameStatus match {
             case InProgress =>
+              context.log.info(s"[$gameId] restored in-progress game")
               active(ttt, gameId, persist, gameManager, Set.empty)
             case Won(_) | Draw =>
               context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
