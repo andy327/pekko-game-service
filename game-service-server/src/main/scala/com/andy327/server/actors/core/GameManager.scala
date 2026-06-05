@@ -17,6 +17,7 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.server.pubsub.{GameEventPublisher, GameEventSubscriber, NoOpGameEventPublisher}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
   *
@@ -203,6 +204,8 @@ object GameManager {
     *
     * @param persistActor shared actor for all persistence I/O
     * @param gameRepo the repository used for the initial game restore and completed-game state lookups
+    * @param publisher publishes game events to Redis so remote instances can relay them; defaults to no-op
+    * @param subscriber routes incoming Redis events to locally connected players watching remote games; `None` disables
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
     */
   @annotation.nowarn("msg=match may not be exhaustive")
@@ -210,6 +213,8 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
+      publisher: GameEventPublisher = NoOpGameEventPublisher,
+      subscriber: Option[GameEventSubscriber] = None,
       onReady: Option[ActorRef[Ready.type]] = None
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
@@ -231,7 +236,7 @@ object GameManager {
             RestoreGames(Map.empty, Nil)
         }
 
-        initializing(lobbyManager, playerManager, persistActor, gameRepo, stash, onReady)
+        initializing(lobbyManager, playerManager, persistActor, gameRepo, stash, publisher, subscriber, onReady)
       }
     }
 
@@ -246,13 +251,15 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       stash: StashBuffer[Command],
+      publisher: GameEventPublisher,
+      subscriber: Option[GameEventSubscriber],
       onReady: Option[ActorRef[Ready.type]]
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games, lobbies) =>
         val restoredActors = games.map { case (gameId, (gameType, game)) =>
           val gameActor = GameRegistry.forType(gameType).actor
-          val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self)
+          val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self, publisher)
           val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
           gameId -> (gameType, actorRef)
         }
@@ -261,7 +268,17 @@ object GameManager {
         lobbyManager ! LobbyManager.RestoreLobbies(lobbies)
         onReady.foreach(_ ! Ready)
         stash.unstashAll(
-          running(restoredActors, Map.empty, Set.empty, lobbyManager, playerManager, persistActor, gameRepo)(runtime)
+          running(
+            restoredActors,
+            Map.empty,
+            Set.empty,
+            lobbyManager,
+            playerManager,
+            persistActor,
+            gameRepo,
+            publisher,
+            subscriber
+          )(runtime)
         )
 
       case other =>
@@ -287,7 +304,9 @@ object GameManager {
       lobbyManager: ActorRef[LobbyManager.Command],
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
-      gameRepo: GameRepository
+      gameRepo: GameRepository,
+      publisher: GameEventPublisher,
+      subscriber: Option[GameEventSubscriber]
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.setup { implicit context =>
       Behaviors.receiveMessage {
@@ -366,7 +385,13 @@ object GameManager {
             case Some((gameType, gameActor)) =>
               gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef)
             case None =>
-              context.log.warn(s"SubscribeToGame: no active game found for $gameId")
+              subscriber match {
+                case Some(sub) =>
+                  context.log.info(s"SubscribeToGame: game $gameId not local — registering with Redis subscriber")
+                  sub.registerPlayer(gameId, playerRef).unsafeRunAndForget()
+                case None =>
+                  context.log.warn(s"SubscribeToGame: no active game found for $gameId")
+              }
           }
           Behaviors.same
 
@@ -413,7 +438,7 @@ object GameManager {
             Behaviors.same
           } else {
             val bundle = GameRegistry.forType(gameType)
-            val (game, behavior) = bundle.actor.create(gameId, players.toSeq, persistActor, context.self)
+            val (game, behavior) = bundle.actor.create(gameId, players.toSeq, persistActor, context.self, publisher)
             val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach(ref => actorRef ! bundle.actor.subscribeCommand(ref))
@@ -434,7 +459,9 @@ object GameManager {
               lobbyManager,
               playerManager,
               persistActor,
-              gameRepo
+              gameRepo,
+              publisher,
+              subscriber
             )
           }
 
@@ -444,6 +471,7 @@ object GameManager {
               context.log.info(s"Game $gameId completed with result $result — actor self-terminating")
               if (freshGameIds.contains(gameId))
                 lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
+              subscriber.foreach(_.unregisterGame(gameId).unsafeRunAndForget())
               running(
                 activeGames - gameId,
                 completedGameTypes + (gameId -> gameType),
@@ -451,7 +479,9 @@ object GameManager {
                 lobbyManager,
                 playerManager,
                 persistActor,
-                gameRepo
+                gameRepo,
+                publisher,
+                subscriber
               )
             case None =>
               context.log.warn(s"Received GameCompleted for unknown game: $gameId")

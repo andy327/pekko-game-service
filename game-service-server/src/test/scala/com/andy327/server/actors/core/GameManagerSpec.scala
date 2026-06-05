@@ -6,8 +6,10 @@ import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
+import cats.effect.std.Queue
 import cats.effect.unsafe.IORuntime
 
+import fs2.Stream
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
@@ -23,6 +25,7 @@ import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.server.pubsub.GameEventSubscriber
 
 /** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
@@ -67,7 +70,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.raiseError(new RuntimeException("DB failure") with NoStackTrace)
       }
 
-      val _ = spawn(GameManager(persistProbe.ref, failingRepo, noOpLobbyRepo, Some(readyProbe.ref)))
+      val _ = spawn(GameManager(persistProbe.ref, failingRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
       readyProbe.expectMessage(GameManager.Ready)
     }
 
@@ -396,7 +399,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val game = TicTacToe.empty(playerX, playerO)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -417,7 +420,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val game = TicTacToe.empty(playerX, playerO)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -448,7 +451,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
       }
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -476,7 +479,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
       }
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -987,6 +990,86 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")
+    }
+
+    "register a remote player with the subscriber and route events on SubscribeToGame for a non-local game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val nonLocalGameId: GameId = UUID.randomUUID()
+      val json = """{"type":"GameStateUpdated"}"""
+
+      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
+      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
+      val fiber = subscriber.run.start.unsafeRunSync()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
+
+      // Register a player via GameManager so the ref lives inside the actor system
+      val wsProbe = TestProbe[Message]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(Player("alice"), wsProbe.ref, playerRefProbe.ref)
+      val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // Ask GM to subscribe the player to a non-local game
+      gm ! GameManager.SubscribeToGame(nonLocalGameId, playerRef)
+
+      // Drain in-flight messages so SubscribeToGame is processed before we enqueue
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      Thread.sleep(50) // let unsafeRunAndForget(registerPlayer) complete
+
+      // Push an event through the subscriber's stream
+      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
+      wsProbe.expectMessageType[TextMessage.Strict].text shouldBe json
+
+      fiber.cancel.unsafeRunSync()
+    }
+
+    "call unregisterGame on the subscriber when a game completes" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val json = """{"type":"GameStateUpdated"}"""
+
+      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
+      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
+      val fiber = subscriber.run.start.unsafeRunSync()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
+
+      // Start a game so it appears in activeGames
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Register a player directly with the subscriber (simulating a remote instance)
+      val wsProbe = TestProbe[Message]()
+      val playerRef = spawn(PlayerActor(alice, wsProbe.ref))
+      subscriber.registerPlayer(gameId, playerRef).unsafeRunSync()
+
+      // Sanity check: events are routed before completion
+      queue.offer((s"game-events:$gameId", json)).unsafeRunSync()
+      wsProbe.expectMessageType[TextMessage.Strict]
+
+      // Complete the game — should call unregisterGame on the subscriber
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      // Drain in-flight messages and let unsafeRunAndForget(unregisterGame) complete
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      Thread.sleep(50)
+
+      // Push another event — player should NOT receive it (game unregistered)
+      queue.offer((s"game-events:$gameId", json)).unsafeRunSync()
+      wsProbe.expectNoMessage(100.millis)
+
+      fiber.cancel.unsafeRunSync()
     }
 
   }

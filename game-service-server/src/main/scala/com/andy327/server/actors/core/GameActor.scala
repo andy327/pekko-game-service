@@ -5,6 +5,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.pubsub.GameEventPublisher
 
 object GameActor {
 
@@ -49,13 +50,15 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @param players the ordered list of players; game type determines how many are required
     * @param persist the shared persistence actor used to save snapshots
     * @param gameManager the parent GameManager actor, used to report game-end events
+    * @param publisher used to publish events to Redis so other instances can relay them to remote players
     * @return the initial game model and a `Behavior` ready to receive commands
     */
   def create(
       gameId: GameId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
-      gameManager: ActorRef[GameManager.Command]
+      gameManager: ActorRef[GameManager.Command],
+      publisher: GameEventPublisher
   ): (G, Behavior[Command])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database.
@@ -64,13 +67,15 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @param snap the snapshot returned by the persistence layer; must be a valid `G`
     * @param persist the shared persistence actor used to save future snapshots
     * @param gameManager the parent GameManager actor
+    * @param publisher used to publish events to Redis so other instances can relay them to remote players
     * @return a `Behavior` initialised from the snapshot state
     */
   def fromSnapshot(
       gameId: GameId,
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
-      gameManager: ActorRef[GameManager.Command]
+      gameManager: ActorRef[GameManager.Command],
+      publisher: GameEventPublisher
   ): Behavior[Command]
 
   /** Produce the game-specific Subscribe command that registers `playerRef` for push events. */

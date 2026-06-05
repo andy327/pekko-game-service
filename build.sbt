@@ -94,6 +94,7 @@ lazy val server = (project in file(s"$baseName-server"))
       "com.github.jwt-scala" %% "jwt-circe" % versions("jwt-scala"),
       "com.github.blemale" %% "scaffeine" % versions("scaffeine"),
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
+      "dev.profunktor" %% "redis4cats-streams" % versions("redis4cats"),
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
       "org.apache.pekko" %% "pekko-http-testkit" % versions("pekko-http") % Test,

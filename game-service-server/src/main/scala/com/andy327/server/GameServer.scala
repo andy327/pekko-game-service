@@ -23,6 +23,13 @@ import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
 import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
+import com.andy327.server.pubsub.{
+  GameEventPublisher,
+  GameEventSubscriber,
+  NoOpGameEventPublisher,
+  RedisGameEventPublisher,
+  RedisPubSubResource
+}
 
 /** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
   */
@@ -38,13 +45,14 @@ object GameServer {
 
     implicit val runtime: IORuntime = IORuntime.global
 
-    // Compose Postgres transactor and Redis commands as a single managed resource
+    // Compose Postgres transactor, Redis commands, and Redis pub/sub as a single managed resource
     val resources = for {
       xa <- PostgresTransactor(config)
       redis <- RedisClientResource(config)
-    } yield (xa, redis)
+      pubSub <- RedisPubSubResource(config)
+    } yield (xa, redis, pubSub)
 
-    resources.use { case (xa, redis) =>
+    resources.use { case (xa, redis, (publishFn, subscribeStream)) =>
       val postgresRepo = new PostgresGameRepository(xa)
       val gameRepo = new RedisGameRepository(postgresRepo, redis)
       val lobbyRepo = new RedisLobbyRepository(redis)
@@ -52,8 +60,13 @@ object GameServer {
       // Ensure the schema exists before starting the server
       for {
         _ <- gameRepo.initialize()
-        result <- startServer(host, port, gameRepo, lobbyRepo).flatMap { case (system, _) =>
-          IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
+        subscriber <- GameEventSubscriber.create(subscribeStream)
+        publisher = new RedisGameEventPublisher(publishFn)
+        // Run the subscriber as a background fiber; it stays alive for the lifetime of the server
+        _ <- subscriber.run.start
+        result <- startServer(host, port, gameRepo, lobbyRepo, publisher, Some(subscriber)).flatMap {
+          case (system, _) =>
+            IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
       } yield result
     }.unsafeRunSync()
@@ -64,11 +77,13 @@ object GameServer {
       host: String,
       port: Int,
       gameRepo: GameRepository,
-      lobbyRepo: LobbyRepository
+      lobbyRepo: LobbyRepository,
+      publisher: GameEventPublisher = NoOpGameEventPublisher,
+      subscriber: Option[GameEventSubscriber] = None
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo, lobbyRepo)
+      GameManager(persistActor, gameRepo, lobbyRepo, publisher, subscriber)
     }
 
     // Pekko actor system

@@ -15,6 +15,7 @@ import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameState, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
+import com.andy327.server.pubsub.NoOpGameEventPublisher
 
 class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -33,7 +34,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       gameId: GameId = UUID.randomUUID()
   ): (ActorRef[TicTacToeActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef)
+    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpGameEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -75,7 +76,13 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       )
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), snapshotState, persistProbe.ref, dummyGameManager)
+      val behavior = TicTacToeActor.fromSnapshot(
+        UUID.randomUUID(),
+        snapshotState,
+        persistProbe.ref,
+        dummyGameManager,
+        NoOpGameEventPublisher
+      )
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -106,7 +113,15 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       )
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val actor = spawn(TicTacToeActor.fromSnapshot(gameId, completedGame, persistProbe.ref, gameManagerProbe.ref))
+      val actor = spawn(
+        TicTacToeActor.fromSnapshot(
+          gameId,
+          completedGame,
+          persistProbe.ref,
+          gameManagerProbe.ref,
+          NoOpGameEventPublisher
+        )
+      )
 
       gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed))
       persistProbe.expectTerminated(actor)
@@ -121,7 +136,13 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val behavior = TicTacToeActor.fromSnapshot(UUID.randomUUID(), dummyGame, persistProbe.ref, dummyGameManager)
+      val behavior = TicTacToeActor.fromSnapshot(
+        UUID.randomUUID(),
+        dummyGame,
+        persistProbe.ref,
+        dummyGameManager,
+        NoOpGameEventPublisher
+      )
       val actor = spawn(behavior)
 
       persistProbe.expectTerminated(actor)

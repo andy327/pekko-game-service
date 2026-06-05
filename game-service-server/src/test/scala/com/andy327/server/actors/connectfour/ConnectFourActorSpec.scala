@@ -15,6 +15,7 @@ import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{ConnectFourState, GameState}
 import com.andy327.server.lobby.GameLifecycleStatus
+import com.andy327.server.pubsub.NoOpGameEventPublisher
 
 class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -31,7 +32,8 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       gameId: GameId = UUID.randomUUID()
   ): (ActorRef[ConnectFourActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-    val (_, behavior) = ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef)
+    val (_, behavior) =
+      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpGameEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -76,7 +78,13 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val snapshot = playMoves(ConnectFour.empty(alice, bob), Seq((alice, 3)))
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val behavior = ConnectFourActor.fromSnapshot(UUID.randomUUID(), snapshot, persistProbe.ref, dummyGameManager)
+      val behavior = ConnectFourActor.fromSnapshot(
+        UUID.randomUUID(),
+        snapshot,
+        persistProbe.ref,
+        dummyGameManager,
+        NoOpGameEventPublisher
+      )
       val actor = spawn(behavior)
 
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -95,7 +103,15 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val completedGame = playMoves(ConnectFour.empty(alice, bob), redWinsMoves)
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val actor = spawn(ConnectFourActor.fromSnapshot(gameId, completedGame, persistProbe.ref, gameManagerProbe.ref))
+      val actor = spawn(
+        ConnectFourActor.fromSnapshot(
+          gameId,
+          completedGame,
+          persistProbe.ref,
+          gameManagerProbe.ref,
+          NoOpGameEventPublisher
+        )
+      )
 
       gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed))
       persistProbe.expectTerminated(actor)
@@ -110,7 +126,13 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-      val behavior = ConnectFourActor.fromSnapshot(UUID.randomUUID(), dummyGame, persistProbe.ref, dummyGameManager)
+      val behavior = ConnectFourActor.fromSnapshot(
+        UUID.randomUUID(),
+        dummyGame,
+        persistProbe.ref,
+        dummyGameManager,
+        NoOpGameEventPublisher
+      )
       val actor = spawn(behavior)
 
       persistProbe.expectTerminated(actor)
