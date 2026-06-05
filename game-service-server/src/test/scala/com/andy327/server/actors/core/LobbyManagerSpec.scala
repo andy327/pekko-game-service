@@ -2,17 +2,28 @@ package com.andy327.server.actors.core
 
 import java.util.UUID
 
+import cats.effect.IO
+import cats.effect.unsafe.IORuntime
+
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{GameId, GameType}
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
   import testKit._
+
+  implicit val runtime: IORuntime = IORuntime.global
+
+  private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
+    override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+  }
 
   private val alice = Player("alice")
   private val bob = Player("bob")
@@ -26,7 +37,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
   private def newLobby(): LobbyFixture = {
     val gmProbe = TestProbe[GameManager.Command]()
     val responseProbe = TestProbe[GameManager.GameResponse]()
-    LobbyFixture(spawn(LobbyManager(gmProbe.ref)), gmProbe, responseProbe)
+    LobbyFixture(spawn(LobbyManager(gmProbe.ref, noOpLobbyRepo)), gmProbe, responseProbe)
   }
 
   /** Create a lobby with alice as host and have bob join. Returns (gameId, host). */
@@ -213,6 +224,18 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       val error = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
       error.error shouldBe a[LobbyError.LobbyNotFound]
       subscriberProbe.expectNoMessage()
+    }
+
+    "restore lobbies from a RestoreLobbies message" in {
+      val LobbyFixture(lm, _, responseProbe) = newLobby()
+      val lobby = LobbyMetadata.newLobby(GameType.TicTacToe, alice)
+
+      lm ! LobbyManager.RestoreLobbies(List(lobby))
+
+      lm ! LobbyManager.GetLobbyInfo(lobby.gameId, responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.gameId shouldBe lobby.gameId
+      metadata.status shouldBe lobby.status
     }
 
     "ignore MarkCompleted for an unknown lobby" in {

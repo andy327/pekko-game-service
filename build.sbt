@@ -25,6 +25,7 @@ val versions: Map[String, String] = Map(
   "jwt-scala" -> "11.0.0",
   "pekko" -> "1.1.3",
   "pekko-http" -> "1.2.0",
+  "redis4cats" -> "1.7.2",
   "scaffeine" -> "5.3.0",
   "scalatest" -> "3.2.19",
   "slf4j" -> "2.0.17",
@@ -44,7 +45,7 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
   .dependsOn(model)
   .settings(
     name := s"$baseName-persistence",
-    // Docker Desktop 4.72+ requires API >= 1.40; testcontainers' shaded docker-java defaults to 1.32
+    // Docker Engine 20.10+ requires API >= 1.40; testcontainers' shaded docker-java defaults to 1.32
     Test / fork := true,
     Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
     libraryDependencies ++= Seq(
@@ -55,6 +56,7 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
       "io.circe" %% "circe-core" % versions("circe"),
       "io.circe" %% "circe-generic" % versions("circe"),
       "io.circe" %% "circe-parser" % versions("circe"),
+      "dev.profunktor" %% "redis4cats-effects" % versions("redis4cats"),
       "com.typesafe" % "config" % versions("typesafe-config"),
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
@@ -70,6 +72,11 @@ lazy val server = (project in file(s"$baseName-server"))
   .settings(
     name := s"$baseName-server",
     Compile / mainClass := Some("com.andy327.server.GameServer"),
+    // testcontainers' shaded docker-java falls back to API v1.32 when api.version is unset;
+    // Docker Engine 20.10+ requires API >= 1.40. Override with the shaded config's property key.
+    Test / fork := true,
+    Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
+    Test / javaOptions += "-Dapi.version=1.41",
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _ @_*)          => MergeStrategy.discard
@@ -87,10 +94,13 @@ lazy val server = (project in file(s"$baseName-server"))
       "com.github.jwt-scala" %% "jwt-circe" % versions("jwt-scala"),
       "com.github.blemale" %% "scaffeine" % versions("scaffeine"),
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
+      "dev.profunktor" %% "redis4cats-streams" % versions("redis4cats"),
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
       "org.apache.pekko" %% "pekko-http-testkit" % versions("pekko-http") % Test,
-      "org.apache.pekko" %% "pekko-stream-testkit" % versions("pekko") % Test
+      "org.apache.pekko" %% "pekko-stream-testkit" % versions("pekko") % Test,
+      "com.dimafeng" %% "testcontainers-scala-scalatest" % versions("dimafeng") % Test,
+      "org.testcontainers" % "testcontainers" % versions("testcontainers") % Test
     )
   )
 

@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -10,19 +11,26 @@ import org.apache.pekko.http.scaladsl.testkit.{ScalatestRouteTest, WSProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.model.core.GameId
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.lobby.Player
+import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   implicit val runtime: IORuntime = IORuntime.global
 
+  private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
+    override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+  }
+
   private val typedKit = ActorTestKit()
   private val persistProbe = typedKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo
   private val typedSystem: ActorSystem[GameManager.Command] =
-    ActorSystem(GameManager(persistProbe.ref, gameRepo), "WebSocketRoutesSpecSystem")
+    ActorSystem(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo), "WebSocketRoutesSpecSystem")
 
   private val routes = new WebSocketRoutes(typedSystem).routes
 

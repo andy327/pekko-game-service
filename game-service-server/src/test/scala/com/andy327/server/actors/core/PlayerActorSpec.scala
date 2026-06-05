@@ -34,6 +34,17 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
       wsProbe.expectMessageType[TextMessage.Strict]
     }
 
+    "forward SendRawJson as a TextMessage directly to wsOut" in {
+      val alice = Player("alice")
+      val wsProbe = TestProbe[Message]()
+      val actor = spawn(PlayerActor(alice, wsProbe.ref))
+      val rawJson = """{"type":"GameStateUpdated","board":[]}"""
+
+      actor ! PlayerActor.SendRawJson(rawJson)
+      val msg = wsProbe.expectMessageType[TextMessage.Strict]
+      msg.text shouldBe rawJson
+    }
+
     "stop when it receives Disconnect" in {
       val alice = Player("alice")
       val wsProbe = TestProbe[Message]()

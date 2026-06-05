@@ -11,5 +11,11 @@ services:
     volumes:
       - pekko-game-db-data:/var/lib/postgresql
 
+  redis:
+    image: redis:7-alpine
+    container_name: pekko-game-redis
+    ports:
+      - "6379:6379"
+
 volumes:
   pekko-game-db-data:

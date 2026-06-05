@@ -16,6 +16,7 @@ import com.andy327.model.tictactoe.{Mark, O, TicTacToe, X}
   *   - A `deserializeGame` function to deserialize stored game state JSON into a typed Game instance
   */
 object GameTypeCodecs {
+
   implicit val gameTypeCodec: Codec[GameType] = Codec.from(
     Decoder.decodeString.emap {
       case "TicTacToe"   => Right(GameType.TicTacToe)

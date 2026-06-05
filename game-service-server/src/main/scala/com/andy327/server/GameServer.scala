@@ -7,10 +7,9 @@ import org.slf4j.LoggerFactory
 
 import com.typesafe.config.{Config, ConfigFactory}
 
+import cats.effect.IO
 import cats.effect.unsafe.IORuntime
-import cats.effect.{IO, Resource}
 
-import doobie.Transactor
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
@@ -19,9 +18,18 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import com.andy327.model.core.GameType
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
+import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
+import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
+import com.andy327.server.pubsub.{
+  GameEventPublisher,
+  GameEventSubscriber,
+  NoOpGameEventPublisher,
+  RedisGameEventPublisher,
+  RedisPubSubResource
+}
 
 /** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
   */
@@ -37,19 +45,28 @@ object GameServer {
 
     implicit val runtime: IORuntime = IORuntime.global
 
-    // Database transactor resource to manage thread and connection pooling
-    val transactorResource: Resource[IO, Transactor[IO]] = PostgresTransactor(config)
+    // Compose Postgres transactor, Redis commands, and Redis pub/sub as a single managed resource
+    val resources = for {
+      xa <- PostgresTransactor(config)
+      redis <- RedisClientResource(config)
+      pubSub <- RedisPubSubResource(config)
+    } yield (xa, redis, pubSub)
 
-    // Use the transactor resource to initialize the rest of the app
-    transactorResource.use { xa =>
-      // Initialize repository with transactor
-      val gameRepository = new PostgresGameRepository(xa)
+    resources.use { case (xa, redis, (publishFn, subscribeStream)) =>
+      val postgresRepo = new PostgresGameRepository(xa)
+      val gameRepo = new RedisGameRepository(postgresRepo, redis)
+      val lobbyRepo = new RedisLobbyRepository(redis)
 
       // Ensure the schema exists before starting the server
       for {
-        _ <- gameRepository.initialize()
-        result <- startServer(host, port, gameRepository).flatMap { case (system, _) =>
-          IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
+        _ <- gameRepo.initialize()
+        subscriber <- GameEventSubscriber.create(subscribeStream)
+        publisher = new RedisGameEventPublisher(publishFn)
+        // Run the subscriber as a background fiber; it stays alive for the lifetime of the server
+        _ <- subscriber.run.start
+        result <- startServer(host, port, gameRepo, lobbyRepo, publisher, Some(subscriber)).flatMap {
+          case (system, _) =>
+            IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
       } yield result
     }.unsafeRunSync()
@@ -59,11 +76,14 @@ object GameServer {
   def startServer(
       host: String,
       port: Int,
-      gameRepo: GameRepository
+      gameRepo: GameRepository,
+      lobbyRepo: LobbyRepository,
+      publisher: GameEventPublisher = NoOpGameEventPublisher,
+      subscriber: Option[GameEventSubscriber] = None
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo)
+      GameManager(persistActor, gameRepo, lobbyRepo, publisher, subscriber)
     }
 
     // Pekko actor system

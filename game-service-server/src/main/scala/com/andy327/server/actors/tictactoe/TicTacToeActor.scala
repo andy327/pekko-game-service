@@ -9,6 +9,7 @@ import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, Play
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
 import com.andy327.server.lobby.GameLifecycleStatus
+import com.andy327.server.pubsub.GameEventPublisher
 
 /** [[com.andy327.server.actors.core.GameActor]] implementation for TicTacToe.
   *
@@ -64,14 +65,15 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       gameId: GameId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
-      gameManager: ActorRef[GameManager.Command]
+      gameManager: ActorRef[GameManager.Command],
+      publisher: GameEventPublisher
   ): (TicTacToe, Behavior[Command]) = {
     val (playerX, playerO) = (players(0), players(1))
 
     val game = TicTacToe.empty(playerX, playerO)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
-      active(game, gameId, persist, gameManager, Set.empty)
+      active(game, gameId, persist, gameManager, Set.empty, publisher)
     }
 
     (game, behavior)
@@ -87,7 +89,8 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       gameId: GameId,
       game: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
-      gameManager: ActorRef[GameManager.Command]
+      gameManager: ActorRef[GameManager.Command],
+      publisher: GameEventPublisher
   ): Behavior[Command] =
     Behaviors.setup { context =>
       game match {
@@ -95,7 +98,7 @@ object TicTacToeActor extends GameActor[TicTacToe] {
           ttt.gameStatus match {
             case InProgress =>
               context.log.info(s"[$gameId] restored in-progress game")
-              active(ttt, gameId, persist, gameManager, Set.empty)
+              active(ttt, gameId, persist, gameManager, Set.empty, publisher)
             case Won(_) | Draw =>
               context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
               gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
@@ -119,7 +122,8 @@ object TicTacToeActor extends GameActor[TicTacToe] {
       gameId: GameId,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      subscribers: Set[ActorRef[PlayerActor.Command]]
+      subscribers: Set[ActorRef[PlayerActor.Command]],
+      publisher: GameEventPublisher
   ): Behavior[Command] = Behaviors.receive { (context, msg) =>
     msg match {
       case MakeMove(playerId, loc, replyTo) =>
@@ -138,17 +142,21 @@ object TicTacToeActor extends GameActor[TicTacToe] {
 
                 val serialized = GameStateConverters.serializeGame(nextState)
                 replyTo ! Right(serialized)
-                subscribers.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(serialized)))
+                val stateEvent = PlayerEvent.GameStateUpdated(serialized)
+                subscribers.foreach(_ ! PlayerActor.SendEvent(stateEvent))
+                publisher.publish(gameId, stateEvent)
 
                 nextState.gameStatus match {
                   case Won(_) | Draw =>
                     context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
-                    subscribers.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.GameEnded(GameLifecycleStatus.Completed)))
+                    val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+                    subscribers.foreach(_ ! PlayerActor.SendEvent(endEvent))
+                    publisher.publish(gameId, endEvent)
                     gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
                     terminating(gameId)
 
                   case InProgress =>
-                    active(nextState, gameId, persist, gameManager, subscribers)
+                    active(nextState, gameId, persist, gameManager, subscribers, publisher)
                 }
 
               case Left(err) =>
@@ -174,10 +182,10 @@ object TicTacToeActor extends GameActor[TicTacToe] {
 
       case Subscribe(playerRef) =>
         playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(GameStateConverters.serializeGame(game)))
-        active(game, gameId, persist, gameManager, subscribers + playerRef)
+        active(game, gameId, persist, gameManager, subscribers + playerRef, publisher)
 
       case Unsubscribe(playerRef) =>
-        active(game, gameId, persist, gameManager, subscribers - playerRef)
+        active(game, gameId, persist, gameManager, subscribers - playerRef, publisher)
 
       case SnapshotSaved(result) =>
         result match {
