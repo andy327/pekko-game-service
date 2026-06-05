@@ -22,7 +22,7 @@ import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.TicTacToeState.TicTacToeView
 import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 /** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
@@ -46,6 +46,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
   implicit val runtime: IORuntime = IORuntime.global
 
+  private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
+    override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+  }
+
   val alice: PlayerId = UUID.randomUUID()
   val bob: PlayerId = UUID.randomUUID()
 
@@ -61,7 +67,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.raiseError(new RuntimeException("DB failure") with NoStackTrace)
       }
 
-      val _ = spawn(GameManager(persistProbe.ref, failingRepo, Some(readyProbe.ref)))
+      val _ = spawn(GameManager(persistProbe.ref, failingRepo, noOpLobbyRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(GameManager.Ready)
     }
 
@@ -76,7 +82,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       }
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, slowRepo))
+      val gm = spawn(GameManager(persistProbe.ref, slowRepo, noOpLobbyRepo))
 
       // Send a command that would be stashed during initialization
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -95,7 +101,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val restoredGame = TicTacToe.empty(alice, bob)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, restoredGame)))
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val gameResponseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -108,10 +114,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Now send an unexpected RestoreGames message while in `running` state
-      gm ! GameManager.RestoreGames(Map.empty)
+      gm ! GameManager.RestoreGames(Map.empty, Nil)
 
       // Sanity check: send a valid command and expect the proper response
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -126,7 +132,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -145,7 +151,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -160,7 +166,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -176,7 +182,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -198,7 +204,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.JoinLobby(nonexistentGameId, alice, responseProbe.ref)
@@ -214,7 +220,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val carl = Player("carl")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -239,7 +245,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val carl = Player("carl")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -267,7 +273,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -290,7 +296,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -312,7 +318,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -327,7 +333,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -360,7 +366,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -390,7 +396,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val game = TicTacToe.empty(playerX, playerO)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -411,7 +417,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val game = TicTacToe.empty(playerX, playerO)
       val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -442,7 +448,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
       }
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -470,7 +476,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
           IO.pure(Map(gameId -> (GameType.TicTacToe, game)))
       }
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, Some(readyProbe.ref)))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, Some(readyProbe.ref)))
       readyProbe.expectMessage(5.seconds, GameManager.Ready)
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -487,7 +493,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -506,7 +512,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -540,7 +546,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -555,7 +561,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -585,7 +591,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -611,7 +617,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val wsProbe = TestProbe[Message]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
@@ -626,7 +632,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val wsProbe = TestProbe[Message]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
@@ -646,7 +652,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
       val bob = Player("bob")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Alice connects via WebSocket
       val wsProbe = TestProbe[Message]()
@@ -673,7 +679,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
       val bob = Player("bob")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Alice creates a lobby without a WebSocket connection — no auto-subscribe for alice
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -699,7 +705,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
       val spectator = Player("spectator")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator connects via WebSocket
       val wsProbe = TestProbe[Message]()
@@ -727,7 +733,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -744,7 +750,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
       val bob = Player("bob")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -770,7 +776,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
       val spectator = Player("spectator")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator connects via WebSocket
       val wsProbe = TestProbe[Message]()
@@ -806,7 +812,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
       val bob = Player("bob")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -826,7 +832,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val spectator = Player("spectator")
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator is connected
       val wsProbe = TestProbe[Message]()
@@ -845,7 +851,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val alice = Player("alice")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -869,7 +875,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -901,7 +907,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
@@ -941,7 +947,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val nonexistentId: GameId = java.util.UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val subscriberProbe = TestProbe[PlayerActor.Command]()
       gm ! GameManager.SubscribeToGame(nonexistentId, subscriberProbe.ref)
@@ -958,7 +964,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val nonexistentGameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
@@ -974,7 +980,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gameRepo = new InMemRepo
       val gameId: GameId = UUID.randomUUID()
 
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo))
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.SpawnGame(gameId, GameType.TicTacToe, Set(alice), responseProbe.ref)

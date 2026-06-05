@@ -22,6 +22,7 @@ import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepositor
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
+import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
 
 /** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
   */
@@ -45,12 +46,13 @@ object GameServer {
 
     resources.use { case (xa, redis) =>
       val postgresRepo = new PostgresGameRepository(xa)
-      val gameRepository = new RedisGameRepository(postgresRepo, redis)
+      val gameRepo = new RedisGameRepository(postgresRepo, redis)
+      val lobbyRepo = new RedisLobbyRepository(redis)
 
       // Ensure the schema exists before starting the server
       for {
-        _ <- gameRepository.initialize()
-        result <- startServer(host, port, gameRepository).flatMap { case (system, _) =>
+        _ <- gameRepo.initialize()
+        result <- startServer(host, port, gameRepo, lobbyRepo).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
       } yield result
@@ -61,11 +63,12 @@ object GameServer {
   def startServer(
       host: String,
       port: Int,
-      gameRepo: GameRepository
+      gameRepo: GameRepository,
+      lobbyRepo: LobbyRepository
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo)
+      GameManager(persistActor, gameRepo, lobbyRepo)
     }
 
     // Pekko actor system

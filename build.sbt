@@ -45,7 +45,7 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
   .dependsOn(model)
   .settings(
     name := s"$baseName-persistence",
-    // Docker Desktop 4.72+ requires API >= 1.40; testcontainers' shaded docker-java defaults to 1.32
+    // Docker Engine 20.10+ requires API >= 1.40; testcontainers' shaded docker-java defaults to 1.32
     Test / fork := true,
     Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
     libraryDependencies ++= Seq(
@@ -72,6 +72,11 @@ lazy val server = (project in file(s"$baseName-server"))
   .settings(
     name := s"$baseName-server",
     Compile / mainClass := Some("com.andy327.server.GameServer"),
+    // testcontainers' shaded docker-java falls back to API v1.32 when api.version is unset;
+    // Docker Engine 20.10+ requires API >= 1.40. Override with the shaded config's property key.
+    Test / fork := true,
+    Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
+    Test / javaOptions += "-Dapi.version=1.41",
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _ @_*)          => MergeStrategy.discard
@@ -92,7 +97,9 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
       "org.apache.pekko" %% "pekko-http-testkit" % versions("pekko-http") % Test,
-      "org.apache.pekko" %% "pekko-stream-testkit" % versions("pekko") % Test
+      "org.apache.pekko" %% "pekko-stream-testkit" % versions("pekko") % Test,
+      "com.dimafeng" %% "testcontainers-scala-scalatest" % versions("dimafeng") % Test,
+      "org.testcontainers" % "testcontainers" % versions("testcontainers") % Test
     )
   )
 

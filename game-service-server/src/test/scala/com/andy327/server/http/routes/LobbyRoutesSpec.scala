@@ -5,6 +5,7 @@ import java.util.UUID
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
+import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -21,11 +22,11 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.GameType
+import com.andy327.model.core.{GameId, GameType}
 import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -34,10 +35,16 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
   implicit val timeout: Timeout = Timeout(3.seconds)
   implicit lazy val scheduler: Scheduler = typedSystem.scheduler
 
+  private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
+    override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+  }
+
   private val persistProbe = testKit.createTestProbe[PersistenceProtocol.Command]()
   private val gameRepo = new InMemRepo
   private val typedSystem: ActorSystem[GameManager.Command] =
-    ActorSystem(GameManager(persistProbe.ref, gameRepo), "LobbyRoutesSpecSystem")
+    ActorSystem(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo), "LobbyRoutesSpecSystem")
 
   private val routes = new LobbyRoutes(typedSystem).routes
 

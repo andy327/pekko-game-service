@@ -16,7 +16,7 @@ import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
   *
@@ -105,8 +105,11 @@ object GameManager {
 
   // --- Internal commands (not reachable from HTTP) ---
 
-  /** Carries the result of the async DB restore initiated at startup; transitions from initializing to running. */
-  final protected[core] case class RestoreGames(games: Map[GameId, (GameType, Game[_, _, _, _, _])]) extends Command
+  /** Carries the result of the async restore initiated at startup; transitions from initializing to running. */
+  final protected[core] case class RestoreGames(
+      games: Map[GameId, (GameType, Game[_, _, _, _, _])],
+      lobbies: List[LobbyMetadata]
+  ) extends Command
 
   /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. */
   final private[core] case class SpawnGame(
@@ -206,20 +209,26 @@ object GameManager {
   def apply(
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
+      lobbyRepo: LobbyRepository,
       onReady: Option[ActorRef[Ready.type]] = None
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
       Behaviors.setup { context =>
-        val lobbyManager = context.spawn(LobbyManager(context.self), "lobby-manager")
+        val lobbyManager = context.spawn(LobbyManager(context.self, lobbyRepo), "lobby-manager")
         val playerManager = context.spawn(PlayerManager(), "player-manager")
 
-        context.pipeToSelf(IO.defer(gameRepo.loadAllGames()).attempt.unsafeToFuture()) {
-          case Success(Right(games)) =>
-            context.log.info(s"Restoring ${games.size} games from the database")
-            RestoreGames(games)
+        val restoreIO = for {
+          games <- IO.defer(gameRepo.loadAllGames())
+          lobbies <- IO.defer(lobbyRepo.loadAllLobbies())
+        } yield (games, lobbies)
+
+        context.pipeToSelf(restoreIO.attempt.unsafeToFuture()) {
+          case Success(Right((games, lobbies))) =>
+            context.log.info(s"Restoring ${games.size} games and ${lobbies.size} lobbies")
+            RestoreGames(games, lobbies)
           case Success(Left(ex)) =>
-            context.log.error("Failed to load games from DB", ex)
-            RestoreGames(Map.empty)
+            context.log.error("Failed to restore state from storage", ex)
+            RestoreGames(Map.empty, Nil)
         }
 
         initializing(lobbyManager, playerManager, persistActor, gameRepo, stash, onReady)
@@ -240,7 +249,7 @@ object GameManager {
       onReady: Option[ActorRef[Ready.type]]
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
-      case RestoreGames(games) =>
+      case RestoreGames(games, lobbies) =>
         val restoredActors = games.map { case (gameId, (gameType, game)) =>
           val gameActor = GameRegistry.forType(gameType).actor
           val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self)
@@ -249,6 +258,7 @@ object GameManager {
         }
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
+        lobbyManager ! LobbyManager.RestoreLobbies(lobbies)
         onReady.foreach(_ ! Ready)
         stash.unstashAll(
           running(restoredActors, Map.empty, Set.empty, lobbyManager, playerManager, persistActor, gameRepo)(runtime)
@@ -503,7 +513,7 @@ object GameManager {
           }
           Behaviors.same
 
-        case RestoreGames(_) =>
+        case RestoreGames(_, _) =>
           context.log.warn("Received RestoreGames while already in running state; ignoring.")
           Behaviors.same
       }

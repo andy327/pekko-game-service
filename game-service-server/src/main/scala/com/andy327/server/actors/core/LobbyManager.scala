@@ -2,12 +2,17 @@ package com.andy327.server.actors.core
 
 import scala.concurrent.duration._
 
+import org.slf4j.LoggerFactory
+
+import cats.effect.IO
+import cats.effect.unsafe.IORuntime
+
 import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.model.core.{GameId, GameType, PlayerId}
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 /** A child actor of GameManager that owns all lobby lifecycle state.
   *
@@ -24,6 +29,12 @@ import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata,
   *
   * All commands reply directly to the original replyTo ActorRef[GameManager.GameResponse], so callers see no difference
   * from before the extraction.
+  *
+  * On startup, [[GameManager]] sends a `RestoreLobbies` message with lobbies loaded from Redis; the actor replaces
+  * its empty map with the restored state before processing any other commands.
+  *
+  * Lobby persistence is fire-and-forget: [[lobby.LobbyRepository]] writes are dispatched asynchronously after each
+  * state-changing command. A Redis write failure is logged as a warning but does not affect the actor's behavior.
   *
   * Actor relationships:
   *   - Parent: [[GameManager]]
@@ -76,10 +87,13 @@ object LobbyManager {
       replyTo: ActorRef[GameManager.GameResponse]
   ) extends Command
 
-  // --- Internal command (sent by GameManager, not reachable from HTTP) ---
+  // --- Internal commands (sent by GameManager, not reachable from HTTP) ---
 
   /** Move the lobby to the recently-ended cache and fan-out a [[PlayerEvent.GameEnded]] to subscribers. */
   final private[core] case class MarkCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
+
+  /** Replace the in-memory lobby map with lobbies restored from Redis at startup. */
+  final private[core] case class RestoreLobbies(lobbies: List[LobbyMetadata]) extends Command
 
   // --- Response type owned by LobbyManager ---
 
@@ -88,11 +102,23 @@ object LobbyManager {
 
   val recentlyEndedTtl: FiniteDuration = 1.hour
 
-  def apply(gameManager: ActorRef[GameManager.Command]): Behavior[Command] = {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  /** Dispatches `io` asynchronously and logs a warning on failure. Does not block the actor. */
+  private def persist(io: IO[Unit])(implicit runtime: IORuntime): Unit =
+    io.unsafeRunAsync {
+      case Left(err) => logger.warn(s"Redis lobby write failed: ${err.getMessage}")
+      case Right(()) => ()
+    }
+
+  def apply(
+      gameManager: ActorRef[GameManager.Command],
+      lobbyRepo: LobbyRepository
+  )(implicit runtime: IORuntime): Behavior[Command] = {
     val recentlyEnded: Cache[GameId, LobbyMetadata] = Scaffeine()
       .expireAfterWrite(recentlyEndedTtl)
       .build[GameId, LobbyMetadata]()
-    running(Map.empty, recentlyEnded, Map.empty, gameManager)
+    running(Map.empty, recentlyEnded, Map.empty, gameManager, lobbyRepo)
   }
 
   /** Sends a [[PlayerEvent]] to every PlayerActor subscribed to the given lobby.
@@ -113,19 +139,27 @@ object LobbyManager {
     * @param recentlyEnded TTL cache of recently completed/cancelled lobbies, evicted after [[recentlyEndedTtl]]
     * @param subscribers per-lobby map from PlayerId to PlayerActor ref for players registered to receive push events
     * @param gameManager parent ref used to send [[GameManager.SpawnGame]] on a valid start request
+    * @param lobbyRepo repository used for fire-and-forget persistence on every state change
     */
   private def running(
       lobbies: Map[GameId, LobbyMetadata],
       recentlyEnded: Cache[GameId, LobbyMetadata],
       subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
-      gameManager: ActorRef[GameManager.Command]
-  ): Behavior[Command] = Behaviors.receive { (context, message) =>
+      gameManager: ActorRef[GameManager.Command],
+      lobbyRepo: LobbyRepository
+  )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
+      case RestoreLobbies(restored) =>
+        val restoredMap = restored.map(m => m.gameId -> m).toMap
+        context.log.info(s"Restoring ${restoredMap.size} lobbies from Redis")
+        running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo)
+
       case CreateLobby(gameType, host, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
         val lobby = LobbyMetadata.newLobby(gameType, host)
         replyTo ! GameManager.LobbyCreated(lobby.gameId, host)
-        running(lobbies + (lobby.gameId -> lobby), recentlyEnded, subscribers, gameManager)
+        persist(lobbyRepo.saveLobby(lobby))
+        running(lobbies + (lobby.gameId -> lobby), recentlyEnded, subscribers, gameManager, lobbyRepo)
 
       case JoinLobby(gameId, player, replyTo) =>
         lobbies.get(gameId) match {
@@ -144,7 +178,8 @@ object LobbyManager {
               val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
               replyTo ! GameManager.LobbyJoined(gameId, updatedMetadata, player)
               fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(updatedMetadata))
-              running(lobbies + (gameId -> updatedMetadata), recentlyEnded, subscribers, gameManager)
+              persist(lobbyRepo.saveLobby(updatedMetadata))
+              running(lobbies + (gameId -> updatedMetadata), recentlyEnded, subscribers, gameManager, lobbyRepo)
             }
 
           case Some(_) =>
@@ -175,13 +210,15 @@ object LobbyManager {
               recentlyEnded.put(gameId, cancelled)
               fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
               replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
-              running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager)
+              persist(lobbyRepo.deleteLobby(gameId))
+              running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
             } else {
               context.log.info(s"Player ${player.name} left lobby $gameId")
               replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} left lobby $gameId")
               fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(newMetadata))
               val updatedSubscribers = subscribers.updatedWith(gameId)(_.map(_ - player.id))
-              running(lobbies + (gameId -> newMetadata), recentlyEnded, updatedSubscribers, gameManager)
+              persist(lobbyRepo.saveLobby(newMetadata))
+              running(lobbies + (gameId -> newMetadata), recentlyEnded, updatedSubscribers, gameManager, lobbyRepo)
             }
 
           case None =>
@@ -202,7 +239,8 @@ object LobbyManager {
               replyTo,
               lobbySubscribers
             )
-            running(lobbies + (gameId -> updatedMetadata), recentlyEnded, subscribers - gameId, gameManager)
+            persist(lobbyRepo.saveLobby(updatedMetadata))
+            running(lobbies + (gameId -> updatedMetadata), recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
 
           case Some(metadata) if metadata.hostId != playerId =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
@@ -243,7 +281,7 @@ object LobbyManager {
             val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
             playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(metadata))
             replyTo ! GameManager.SubscribeAcknowledged(gameId)
-            running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager)
+            running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager, lobbyRepo)
           case None =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
             Behaviors.same
@@ -256,7 +294,8 @@ object LobbyManager {
             val updated = metadata.copy(status = result)
             recentlyEnded.put(gameId, updated)
             fanOut(subscribers, gameId, PlayerEvent.GameEnded(result))
-            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager)
+            persist(lobbyRepo.deleteLobby(gameId))
+            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
           case None =>
             context.log.warn(s"Tried to mark unknown lobby $gameId as completed")
             Behaviors.same

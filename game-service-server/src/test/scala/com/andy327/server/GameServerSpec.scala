@@ -20,12 +20,18 @@ import com.andy327.model.core.{Game, GameId, GameType}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.Player
+import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class GameServerSpec extends AnyWordSpec with Matchers {
   implicit val timeout: Timeout = Timeout(5.seconds)
   implicit val runtime: IORuntime = IORuntime.global
+
+  private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
+    override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+  }
 
   "GameServer" should {
     "start and respond to /tictactoe" in {
@@ -36,7 +42,7 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
       }
 
-      val (system, binding) = GameServer.startServer("localhost", port = 0, dummyRepo).unsafeRunSync()
+      val (system, binding) = GameServer.startServer("localhost", port = 0, dummyRepo, noOpLobbyRepo).unsafeRunSync()
       val actualPort = binding.localAddress.getPort
       implicit val classicSystem: ActorSystem = system.classicSystem
 
