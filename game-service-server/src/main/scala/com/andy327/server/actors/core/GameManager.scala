@@ -50,7 +50,9 @@ object GameManager {
   /** Join an existing lobby; replies with [[LobbyJoined]] or a [[LobbyErrorResponse]]. */
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Leave a lobby; cancels the lobby if the departing player is the host. */
+  /** Leave a lobby; cancels the lobby if the departing player is the host. Rejected with
+    * [[com.andy327.server.lobby.LobbyError.GameInProgress]] once the game has started.
+    */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
 
   /** Start a game in a lobby the caller hosts; replies with [[GameStarted]] or a [[LobbyErrorResponse]]. */

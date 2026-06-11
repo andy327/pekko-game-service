@@ -153,6 +153,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           * - 400: invalid UUID format
           * - 401: missing or invalid token
           * - 404: lobby not found
+          * - 409: game is in progress; leaving a started game is not supported
           * - 500: unexpected error
           */
         path("leave") {

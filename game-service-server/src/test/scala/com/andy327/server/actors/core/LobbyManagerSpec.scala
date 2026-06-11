@@ -126,6 +126,27 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
     }
 
+    "reject LeaveLobby with GameInProgress once the game has started" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+
+      // a non-host player cannot leave an in-progress game
+      f.lm ! LobbyManager.LeaveLobby(gameId, bob, f.responseProbe.ref)
+      val nonHostError = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      nonHostError.error shouldBe LobbyError.GameInProgress(gameId)
+
+      // neither can the host — the lobby must not be cancelled out from under the running game
+      f.lm ! LobbyManager.LeaveLobby(gameId, alice, f.responseProbe.ref)
+      val hostError = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      hostError.error shouldBe LobbyError.GameInProgress(gameId)
+
+      // lobby is untouched: still present and still InProgress
+      f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.status shouldBe GameLifecycleStatus.InProgress
+      (metadata.players.keySet should contain).allOf(alice.id, bob.id)
+    }
+
     "not push events to a player after they leave the lobby" in {
       val f = newLobby()
       val carol = Player("carol")

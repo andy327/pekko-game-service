@@ -55,7 +55,9 @@ object LobbyManager {
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
-  /** Remove `player` from a lobby; cancels the lobby if the departing player is the host. */
+  /** Remove `player` from a lobby; cancels the lobby if the departing player is the host. Rejected with
+    * [[lobby.LobbyError.GameInProgress]] once the game has started.
+    */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
@@ -193,6 +195,13 @@ object LobbyManager {
 
       case LeaveLobby(gameId, player, replyTo) =>
         lobbies.get(gameId) match {
+          // TODO(#28): leaving an in-progress game should eventually mean forfeiting it (or folding out of
+          // multiplayer games); until that exists, reject the request so the lobby cannot revert to a joinable
+          // status while its game actor is still running.
+          case Some(metadata) if metadata.status == GameLifecycleStatus.InProgress =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameInProgress(gameId))
+            Behaviors.same
+
           case Some(metadata) =>
             val updatedPlayers = metadata.players - player.id
             val updatedStatus =

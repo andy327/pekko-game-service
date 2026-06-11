@@ -48,4 +48,9 @@ object LobbyError {
   case class GameAlreadyStarted(gameId: GameId) extends LobbyError {
     def message: String = s"Game $gameId has already started; use the game subscribe endpoint instead"
   }
+
+  /** The lobby's game is in progress, so players cannot leave it. Maps to HTTP 409. */
+  case class GameInProgress(gameId: GameId) extends LobbyError {
+    def message: String = s"Cannot leave lobby $gameId - game is in progress"
+  }
 }
