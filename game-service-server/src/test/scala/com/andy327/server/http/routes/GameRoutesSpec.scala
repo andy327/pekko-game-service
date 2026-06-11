@@ -99,6 +99,31 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
       }
 
+      "return 409 when a move is rejected by the game" in {
+        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        val move = TicTacToeMoveRequest(0, 0)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+        }
+
+        // alice moves again out of turn — rejected with 409, not 404
+        Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.Conflict
+          responseAs[String] should include("not your turn")
+        }
+      }
+
       "fetch game status" in {
         val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
           responseAs[GameManager.LobbyCreated].gameId
@@ -203,6 +228,43 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
               responseAs[String] should include("Unexpected")
             }
           }
+        }
+      }
+
+      "return 409 for MoveRejected and 500 for ErrorResponse on move and status routes" in {
+        // MoveRejected on /status and ErrorResponse on either route cannot be produced through the real
+        // GameManager from these endpoints, so a stub behavior forces them to cover the route mappings.
+        val fakeId = UUID.randomUUID()
+        def stubSystem(response: GameManager.GameResponse): ActorSystem[GameManager.Command] =
+          ActorSystem(
+            Behaviors.receiveMessage[GameManager.Command] {
+              case GameManager.RunGameOperation(_, _, replyTo) =>
+                replyTo ! response
+                Behaviors.same
+              case _ => Behaviors.same
+            },
+            s"StubResponseSystem${UUID.randomUUID().toString.take(8)}"
+          )
+
+        val move = TicTacToeMoveRequest(0, 0)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+
+        val rejectedRoutes = new GameRoutes(GameType.TicTacToe, stubSystem(GameManager.MoveRejected("no way"))).routes
+        Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> rejectedRoutes ~> check {
+          status shouldBe StatusCodes.Conflict
+          responseAs[String] should include("no way")
+        }
+        Get(s"/tictactoe/$fakeId/status") ~> rejectedRoutes ~> check {
+          status shouldBe StatusCodes.Conflict
+        }
+
+        val errorRoutes = new GameRoutes(GameType.TicTacToe, stubSystem(GameManager.ErrorResponse("boom"))).routes
+        Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> errorRoutes ~> check {
+          status shouldBe StatusCodes.InternalServerError
+          responseAs[String] should include("boom")
+        }
+        Get(s"/tictactoe/$fakeId/status") ~> errorRoutes ~> check {
+          status shouldBe StatusCodes.InternalServerError
         }
       }
 

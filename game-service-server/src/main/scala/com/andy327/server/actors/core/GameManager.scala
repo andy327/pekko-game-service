@@ -77,7 +77,9 @@ object GameManager {
 
   // --- Game operation commands (routed to a specific game actor via GameRegistry) ---
 
-  /** Forward `op` to the game actor for `gameId`; replies with [[GameStatus]] or [[ErrorResponse]]. */
+  /** Forward `op` to the game actor for `gameId`; replies with [[GameStatus]], [[GameNotFound]], [[MoveRejected]],
+    * or [[ErrorResponse]] (internal failure).
+    */
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
 
   /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
@@ -168,6 +170,7 @@ object GameManager {
   /** Result of a DB fallback load for a completed game's current state. */
   final private case class CompletedGameLoaded(
       result: Either[Throwable, Option[Game[_, _, _, _, _]]],
+      gameId: GameId,
       gameType: GameType,
       replyTo: ActorRef[GameResponse]
   ) extends Command
@@ -190,6 +193,13 @@ object GameManager {
   final case class GameStatus(state: GameState) extends GameResponse
 
   // Error responses
+
+  /** No game exists for the requested ID (neither active nor in completed-game storage). Maps to HTTP 404. */
+  final case class GameNotFound(gameId: GameId) extends GameResponse
+
+  /** The game exists but rejected the operation (wrong turn, illegal move, game already over). Maps to HTTP 409. */
+  final case class MoveRejected(message: String) extends GameResponse
+
   final case class LobbyErrorResponse(error: LobbyError) extends GameResponse
   final case class ErrorResponse(message: String) extends GameResponse
 
@@ -500,27 +510,28 @@ object GameManager {
                   op match {
                     case GameOperation.GetState =>
                       context.pipeToSelf(gameRepo.loadGame(gameId, gameType).attempt.unsafeToFuture()) {
-                        case Success(result) => CompletedGameLoaded(result, gameType, replyTo)
+                        case Success(result) => CompletedGameLoaded(result, gameId, gameType, replyTo)
                         // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
-                        case Failure(ex) => CompletedGameLoaded(Left(ex), gameType, replyTo)
+                        case Failure(ex) => CompletedGameLoaded(Left(ex), gameId, gameType, replyTo)
                         // $COVERAGE-ON$
                       }
                     case _ =>
-                      replyTo ! ErrorResponse("Game has already ended")
+                      replyTo ! MoveRejected("Game has already ended")
                   }
                 case None =>
                   context.log.warn(s"No game found with gameId $gameId to forward operation $op")
-                  replyTo ! ErrorResponse(s"No game found with gameId $gameId")
+                  replyTo ! GameNotFound(gameId)
               }
           }
           Behaviors.same
 
-        case CompletedGameLoaded(result, gameType, replyTo) =>
+        case CompletedGameLoaded(result, gameId, gameType, replyTo) =>
           result match {
             case Right(Some(game)) =>
               replyTo ! GameStatus(GameRegistry.forType(gameType).serializeGame(game))
             case Right(None) =>
-              replyTo ! ErrorResponse("Game state not found in database")
+              context.log.warn(s"Completed game $gameId has no record in the database")
+              replyTo ! GameNotFound(gameId)
             case Left(ex) =>
               context.log.error("Failed to load completed game state from DB", ex)
               replyTo ! ErrorResponse("Failed to retrieve game state")
@@ -534,7 +545,7 @@ object GameManager {
         case WrappedGameResponse(response, replyTo) =>
           response match {
             case Right(state) => replyTo ! GameStatus(state)
-            case Left(error)  => replyTo ! ErrorResponse(error.message)
+            case Left(error)  => replyTo ! MoveRejected(error.message)
           }
           Behaviors.same
 

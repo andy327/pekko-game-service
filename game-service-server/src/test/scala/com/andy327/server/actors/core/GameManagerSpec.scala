@@ -477,11 +477,11 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
         GameOperation.MakeMove(playerX, MovePayload.TicTacToeMove(0, 0)),
         responseProbe.ref
       )
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      val error = responseProbe.expectMessageType[GameManager.MoveRejected]
       error.message should include("Game has already ended")
     }
 
-    "return an error when DB has no record for a completed game" in {
+    "return GameNotFound when DB has no record for a completed game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
       val gameId: GameId = UUID.randomUUID()
@@ -504,8 +504,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("Game state not found in database")
+      responseProbe.expectMessageType[GameManager.GameNotFound].gameId shouldBe gameId
     }
 
     "return an error when the DB call fails for a completed game" in {
@@ -656,7 +655,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val invalidMove = MovePayload.TicTacToeMove(99, 99)
       gm ! GameManager.RunGameOperation(gameId, GameOperation.MakeMove(alice.id, invalidMove), responseProbe.ref)
 
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      val error = responseProbe.expectMessageType[GameManager.MoveRejected]
       error.message should include("out of bounds")
     }
 
@@ -1019,8 +1018,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val move = MovePayload.TicTacToeMove(0, 0)
       gm ! GameManager.RunGameOperation(nonexistentGameId, GameOperation.MakeMove(alice.id, move), responseProbe.ref)
 
-      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
-      error.message should include("No game found with gameId")
+      responseProbe.expectMessageType[GameManager.GameNotFound].gameId shouldBe nonexistentGameId
     }
 
     "return an error when SpawnGame is sent with the wrong number of players" in {

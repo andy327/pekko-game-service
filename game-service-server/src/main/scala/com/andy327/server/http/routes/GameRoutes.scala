@@ -19,8 +19,10 @@ import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
   Command,
   ErrorResponse,
+  GameNotFound,
   GameResponse,
   GameStatus,
+  MoveRejected,
   SubscribeAcknowledged
 }
 import com.andy327.server.game.{GameOperation, GameRegistry}
@@ -86,7 +88,8 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           * - 200: updated game state after the move is applied
           * - 400: invalid UUID format, or malformed/invalid JSON payload
           * - 401: missing or invalid token
-          * - 404: game not found, or move rejected as invalid
+          * - 404: game not found
+          * - 409: move rejected (not your turn, illegal move, or game already over)
           * - 500: unexpected error
           */
         path("move") {
@@ -97,8 +100,10 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
                   case Right(move) =>
                     val op = GameOperation.MakeMove(player.id, move)
                     onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, op, _))) {
-                      case GameStatus(state)    => complete(state)
-                      case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
+                      case GameStatus(state)  => complete(state)
+                      case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found with gameId $id")
+                      case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
+                      case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
                       case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
                     }
 
@@ -120,9 +125,11 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
         path("status") {
           get {
             onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, GameOperation.GetState, _))) {
-              case GameStatus(state)    => complete(state)
-              case ErrorResponse(error) => complete(StatusCodes.NotFound -> error)
-              case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              case GameStatus(state)  => complete(state)
+              case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found with gameId $id")
+              case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
+              case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
+              case unknown            => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
             }
           }
         } ~
