@@ -297,7 +297,7 @@ object LobbyManager {
             persist(lobbyRepo.deleteLobby(gameId))
             running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
           case None =>
-            context.log.warn(s"Tried to mark unknown lobby $gameId as completed")
+            context.log.info(s"MarkCompleted for $gameId: no lobby entry (already removed or never restored)")
             Behaviors.same
         }
     }

@@ -390,6 +390,51 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.Completed
     }
 
+    "mark a restored lobby as completed when its restored game finishes" in {
+      // Simulates a restart mid-game: the game comes back from the game repository and its
+      // InProgress lobby comes back from the lobby repository. When the game later completes,
+      // the lobby must still be marked completed and deleted from persistent storage.
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val host = Player("alice")
+      val guest = Player("bob")
+      val game = TicTacToe.empty(host.id, guest.id)
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
+
+      val restoredLobby = LobbyMetadata(
+        gameId,
+        GameType.TicTacToe,
+        Map(host.id -> host, guest.id -> guest),
+        host.id,
+        GameLifecycleStatus.InProgress
+      )
+      val deletedLobbies = scala.collection.concurrent.TrieMap.empty[GameId, Unit]
+      val restoringLobbyRepo: LobbyRepository = new LobbyRepository {
+        override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+        override def deleteLobby(gameId: GameId): IO[Unit] = IO(deletedLobbies.update(gameId, ()))
+        override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(List(restoredLobby))
+      }
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, restoringLobbyRepo, onReady = Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      // sanity check: the restored lobby is known and InProgress
+      gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.InProgress
+
+      // the restored game completes
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Completed
+
+      // the fire-and-forget Redis delete is eventually dispatched
+      responseProbe.awaitAssert(deletedLobbies.keySet should contain(gameId))
+    }
+
     "serve game state from DB after the game actor is stopped on completion" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
