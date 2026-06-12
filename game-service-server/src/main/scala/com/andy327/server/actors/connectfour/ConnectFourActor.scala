@@ -7,7 +7,7 @@ import com.andy327.model.connectfour.{ConnectFour, Drop, Mark, Red, Yellow}
 import com.andy327.model.core.{Draw, Game, GameError, GameId, InProgress, PlayerId, Won}
 import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{ConnectFourState, GameStateConverters}
+import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 import com.andy327.server.pubsub.GameEventPublisher
 
@@ -20,7 +20,6 @@ import com.andy327.server.pubsub.GameEventPublisher
   * @see [[com.andy327.server.actors.core.GameActor]] for the full actor lifecycle and behavioral contract.
   */
 object ConnectFourActor extends GameActor[ConnectFour] {
-  import ConnectFourState._
 
   sealed trait Command extends GameActor.GameCommand
 
@@ -30,11 +29,11 @@ object ConnectFourActor extends GameActor[ConnectFour] {
   final case class MakeMove(
       playerId: PlayerId,
       drop: Drop,
-      replyTo: ActorRef[Either[GameError, ConnectFourState]]
+      replyTo: ActorRef[Either[GameError, GridGameState]]
   ) extends Command
 
   /** Return the current serialized board state without mutating it. */
-  final case class GetState(replyTo: ActorRef[Either[GameError, ConnectFourState]]) extends Command
+  final case class GetState(replyTo: ActorRef[Either[GameError, GridGameState]]) extends Command
 
   /** Register a PlayerActor to receive push events (state updates and game-end notifications). */
   final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command

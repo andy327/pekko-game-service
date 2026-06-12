@@ -12,9 +12,7 @@ import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.MovePayload.TicTacToeMove
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GameStateConverters, TicTacToeState}
-
-import TicTacToeState._
+import com.andy327.server.http.json.{GameState, GameStateConverters}
 
 /** [[GameModule]] implementation for TicTacToe.
   *

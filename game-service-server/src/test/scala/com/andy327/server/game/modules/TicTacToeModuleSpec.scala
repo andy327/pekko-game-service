@@ -10,7 +10,7 @@ import com.andy327.model.tictactoe.{Location, TicTacToe}
 import com.andy327.server.actors.core.PlayerActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, TicTacToeState}
+import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.Player
 
 class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
@@ -61,11 +61,11 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TicTacToeActor.Subscribe(playerProbe.ref)
     }
 
-    "serialize a TicTacToe game to TicTacToeState" in {
+    "serialize a TicTacToe game to GridGameState" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = TicTacToe.empty(alice.id, bob.id)
-      TicTacToeModule.serialize(game) shouldBe a[TicTacToeState]
+      TicTacToeModule.serialize(game) shouldBe a[GridGameState]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {

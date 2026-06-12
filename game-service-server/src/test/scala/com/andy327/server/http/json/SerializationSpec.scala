@@ -17,9 +17,7 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.http.json.ConnectFourState._
 import com.andy327.server.http.json.GameStateConverters
-import com.andy327.server.http.json.TicTacToeState._
 import com.andy327.server.lobby._
 
 class SerializationSpec extends AnyWordSpec with Matchers {
@@ -184,25 +182,25 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "TicTacToeState view" should {
-    "round-trip serialize and deserialize" in {
+  "GridGameState view" should {
+    "round-trip serialize and deserialize from a TicTacToe game" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = TicTacToe.empty(alice.id, bob.id)
       val view = GameStateConverters.serializeGame(game)
       val json = view.toJson
-      json.convertTo[TicTacToeState] shouldBe view
+      json.convertTo[GridGameState] shouldBe view
     }
   }
 
-  "ConnectFourState view" should {
-    "round-trip serialize and deserialize" in {
+  "GridGameState view (ConnectFour)" should {
+    "round-trip serialize and deserialize from a ConnectFour game" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = ConnectFour.empty(alice.id, bob.id)
       val view = GameStateConverters.serializeGame(game)
       val json = view.toJson
-      json.convertTo[ConnectFourState] shouldBe view
+      json.convertTo[GridGameState] shouldBe view
     }
   }
 

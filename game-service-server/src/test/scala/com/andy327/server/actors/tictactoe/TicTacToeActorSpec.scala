@@ -13,7 +13,7 @@ import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{GameState, TicTacToeState}
+import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 import com.andy327.server.pubsub.NoOpGameEventPublisher
 
@@ -54,7 +54,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TicTacToeActor.GetState(replyProbe.ref)
 
-      val Right(TicTacToeState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
       board.flatten should contain only ""
       current shouldBe "X"
       winner shouldBe None
@@ -88,7 +88,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TicTacToeActor.GetState(replyProbe.ref)
 
-      val Right(TicTacToeState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
       board(0)(0) shouldBe "X"
       board(1)(1) shouldBe "O"
       current shouldBe "X"
@@ -153,12 +153,12 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      val Right(TicTacToeState(board1, current1, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board1, current1, _, _)) = replyProbe.receiveMessage()
       board1(0)(0) shouldBe "X"
       current1 shouldBe "O"
 
       actor ! TicTacToeActor.MakeMove(bob, Location(1, 1), replyProbe.ref)
-      val Right(TicTacToeState(board2, current2, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board2, current2, _, _)) = replyProbe.receiveMessage()
       board2(0)(0) shouldBe "X"
       board2(1)(1) shouldBe "O"
       current2 shouldBe "X"

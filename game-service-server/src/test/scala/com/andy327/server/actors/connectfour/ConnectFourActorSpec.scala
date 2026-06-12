@@ -13,7 +13,7 @@ import com.andy327.model.connectfour.{ConnectFour, Drop, InvalidColumn, Red, Yel
 import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{ConnectFourState, GameState}
+import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 import com.andy327.server.pubsub.NoOpGameEventPublisher
 
@@ -65,7 +65,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! ConnectFourActor.GetState(replyProbe.ref)
 
-      val Right(ConnectFourState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
       board should have size 6
       board.head should have size 7
       board.flatten should contain only ""
@@ -90,7 +90,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! ConnectFourActor.GetState(replyProbe.ref)
 
-      val Right(ConnectFourState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
       board(5)(3) shouldBe "R" // Red dropped into col 3 — piece falls to bottom row
       current shouldBe "Y"
       winner shouldBe None
@@ -143,12 +143,12 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! ConnectFourActor.MakeMove(alice, Drop(0), replyProbe.ref)
-      val Right(ConnectFourState(board1, current1, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board1, current1, _, _)) = replyProbe.receiveMessage()
       board1(5)(0) shouldBe "R" // piece falls to bottom row
       current1 shouldBe "Y"
 
       actor ! ConnectFourActor.MakeMove(bob, Drop(1), replyProbe.ref)
-      val Right(ConnectFourState(board2, current2, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board2, current2, _, _)) = replyProbe.receiveMessage()
       board2(5)(0) shouldBe "R"
       board2(5)(1) shouldBe "Y"
       current2 shouldBe "R"

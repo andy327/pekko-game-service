@@ -7,7 +7,7 @@ import com.andy327.model.core.{Draw, Game, GameError, GameId, InProgress, Player
 import com.andy327.model.tictactoe._
 import com.andy327.server.actors.core.{GameActor, GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
+import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 import com.andy327.server.pubsub.GameEventPublisher
 
@@ -19,18 +19,17 @@ import com.andy327.server.pubsub.GameEventPublisher
   * @see [[com.andy327.server.actors.core.GameActor]] for the full actor lifecycle and behavioral contract.
   */
 object TicTacToeActor extends GameActor[TicTacToe] {
-  import TicTacToeState._
 
   sealed trait Command extends GameActor.GameCommand
 
   // --- Commands received from GameManager (via GameRegistry routing) ---
 
   /** Attempt to apply a move at `loc` on behalf of `playerId`. */
-  final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, TicTacToeState]])
+  final case class MakeMove(playerId: PlayerId, loc: Location, replyTo: ActorRef[Either[GameError, GridGameState]])
       extends Command
 
   /** Return the current serialized board state without mutating it. */
-  final case class GetState(replyTo: ActorRef[Either[GameError, TicTacToeState]]) extends Command
+  final case class GetState(replyTo: ActorRef[Either[GameError, GridGameState]]) extends Command
 
   /** Register a PlayerActor to receive push events (state updates and game-end notifications). */
   final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command

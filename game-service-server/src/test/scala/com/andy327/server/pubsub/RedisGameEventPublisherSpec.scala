@@ -10,7 +10,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.http.json.TicTacToeState
+import com.andy327.server.http.json.GridGameState
 import com.andy327.server.lobby.GameLifecycleStatus
 
 class RedisGameEventPublisherSpec extends AnyWordSpecLike with Matchers {
@@ -18,7 +18,7 @@ class RedisGameEventPublisherSpec extends AnyWordSpecLike with Matchers {
 
   private val emptyBoard = Vector.fill(3)(Vector.fill(3)(""))
   private val stateEvent = PlayerEvent.GameStateUpdated(
-    TicTacToeState(board = emptyBoard, currentPlayer = "X", winner = None, draw = false)
+    GridGameState(board = emptyBoard, currentPlayer = "X", winner = None, draw = false)
   )
   private val endedEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
 

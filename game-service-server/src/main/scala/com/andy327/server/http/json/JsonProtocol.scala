@@ -92,9 +92,7 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   // Game state views
 
-  implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
-
-  implicit val connectFourStateFormat: RootJsonFormat[ConnectFourState] = jsonFormat4(ConnectFourState.apply)
+  implicit val gridGameStateFormat: RootJsonFormat[GridGameState] = jsonFormat4(GridGameState.apply)
 
   /** Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *
@@ -112,8 +110,7 @@ object JsonProtocol extends DefaultJsonProtocol {
         JsObject("type" -> JsString("LobbyUpdated"), "metadata" -> lobbyMetadataFormat.write(metadata))
       case PlayerEvent.GameStateUpdated(state) =>
         val stateJson = state match {
-          case s: TicTacToeState   => ticTacToeStateFormat.write(s)
-          case s: ConnectFourState => connectFourStateFormat.write(s)
+          case s: GridGameState => gridGameStateFormat.write(s)
         }
         JsObject("type" -> JsString("GameStateUpdated"), "state" -> stateJson)
       case PlayerEvent.GameEnded(result) =>
@@ -126,14 +123,8 @@ object JsonProtocol extends DefaultJsonProtocol {
 
   /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
   implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =
-    Marshaller.withFixedContentType(MediaTypes.`application/json`) { gameState =>
-      gameState match {
-        case s: TicTacToeState =>
-          val json = ticTacToeStateFormat.write(s).compactPrint
-          HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
-        case s: ConnectFourState =>
-          val json = connectFourStateFormat.write(s).compactPrint
-          HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
-      }
+    Marshaller.withFixedContentType(MediaTypes.`application/json`) { case s: GridGameState =>
+      val json = gridGameStateFormat.write(s).compactPrint
+      HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
     }
 }

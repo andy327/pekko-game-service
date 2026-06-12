@@ -22,8 +22,7 @@ import com.andy327.persistence.db.GameRepository
 import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.TicTacToeState.TicTacToeView
-import com.andy327.server.http.json.{GameStateConverters, TicTacToeState}
+import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.pubsub.GameEventSubscriber
 
@@ -627,7 +626,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val updatedState = responseProbe.expectMessageType[GameManager.GameStatus]
 
-      val view = updatedState.state.asInstanceOf[TicTacToeState]
+      val view = updatedState.state.asInstanceOf[GridGameState]
       view.board(0)(0) shouldBe "X"
       view.currentPlayer shouldBe "O"
     }

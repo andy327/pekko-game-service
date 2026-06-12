@@ -10,7 +10,7 @@ import com.andy327.model.core.GameError
 import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.PlayerActor
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{ConnectFourState, GameState}
+import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.Player
 
 class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
@@ -61,11 +61,11 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe ConnectFourActor.Subscribe(playerProbe.ref)
     }
 
-    "serialize a ConnectFour game to ConnectFourState" in {
+    "serialize a ConnectFour game to GridGameState" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = ConnectFour.empty(alice.id, bob.id)
-      ConnectFourModule.serialize(game) shouldBe a[ConnectFourState]
+      ConnectFourModule.serialize(game) shouldBe a[GridGameState]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {

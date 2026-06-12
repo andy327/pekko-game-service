@@ -26,8 +26,8 @@ import spray.json._
 import com.andy327.model.core.{GameId, GameType}
 import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.http.json.GridGameState
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.http.json.{ConnectFourState, TicTacToeState}
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
@@ -83,7 +83,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[TicTacToeState]
+          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
           gameState.board(0)(0) shouldBe "X"
         }
       }
@@ -135,7 +135,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/tictactoe/$gameId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[TicTacToeState]
+          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
           gameState.currentPlayer shouldBe "X"
         }
       }
@@ -329,7 +329,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/connectfour/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[ConnectFourState]
+          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
           gameState.board(5)(3) shouldBe "R"
         }
       }
@@ -357,7 +357,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/connectfour/$gameId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[ConnectFourState]
+          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
           gameState.currentPlayer shouldBe "R"
         }
       }

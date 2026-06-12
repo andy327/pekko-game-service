@@ -5,7 +5,7 @@ import org.apache.pekko.http.scaladsl.model.ws.TextMessage
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.server.http.json.TicTacToeState
+import com.andy327.server.http.json.GridGameState
 import com.andy327.server.lobby.Player
 
 class PlayerActorSpec extends AnyWordSpecLike with Matchers {
@@ -25,7 +25,7 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
       val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val actor = spawn(PlayerActor(alice, wsProbe.ref))
 
-      val dummyState = TicTacToeState(
+      val dummyState = GridGameState(
         board = Vector.fill(3)(Vector.fill(3)("")),
         currentPlayer = "X",
         winner = None,

@@ -1,7 +1,7 @@
 package com.andy327.server.http.json
 
 import com.andy327.model.connectfour.ConnectFour
-import com.andy327.model.core.{Draw, Game, Won}
+import com.andy327.model.core.{Draw, Game, GameStatus, Mark, Won}
 import com.andy327.model.tictactoe.TicTacToe
 
 /** Super-type for all serializable “view” representations of game state that can be sent to the client as part of an
@@ -9,63 +9,49 @@ import com.andy327.model.tictactoe.TicTacToe
   */
 sealed trait GameState
 
-/** Serializable view of a TicTacToe game state, suitable for HTTP responses. */
-case class TicTacToeState(
+/** Serializable view of any grid-based game state, suitable for HTTP responses.
+  *
+  * Shared by every game whose state is a board of cells each holding an optional mark: cells carry the mark's symbol
+  * or `""` when empty, and the current player and winner are identified by their mark symbols.
+  */
+case class GridGameState(
     board: Vector[Vector[String]],
     currentPlayer: String,
     winner: Option[String],
     draw: Boolean
 ) extends GameState
 
-object TicTacToeState {
+object GridGameState {
 
-  /** Type class instance for serializing a TicTacToe game into a TicTacToeState. */
-  implicit object TicTacToeView extends GameStateView[TicTacToe, TicTacToeState] {
-    def fromGame(game: TicTacToe): TicTacToeState = {
-      val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse(""))) // string-based representation for JSON
-      val currentPlayer = game.currentPlayer.toString
-      val winnerOpt = game.gameStatus match {
-        case Won(mark) => Some(mark.toString)
-        case _         => None
-      }
-      val draw = game.gameStatus == Draw
-      TicTacToeState(boardStrings, currentPlayer, winnerOpt, draw)
+  /** Builds the view from any board of optional marks plus the game's current player and status. */
+  def of(board: Vector[Vector[Option[Mark]]], currentPlayer: Mark, status: GameStatus[Mark]): GridGameState = {
+    val cells = board.map(_.map(_.map(_.toString).getOrElse(""))) // string-based representation for JSON
+    val winner = status match {
+      case Won(mark) => Some(mark.toString)
+      case _         => None
     }
-  }
-}
-
-/** Serializable view of a ConnectFour game state, suitable for HTTP responses. */
-case class ConnectFourState(
-    board: Vector[Vector[String]],
-    currentPlayer: String,
-    winner: Option[String],
-    draw: Boolean
-) extends GameState
-
-object ConnectFourState {
-
-  /** Type class instance for serializing a ConnectFour game into a ConnectFourState. */
-  implicit object ConnectFourView extends GameStateView[ConnectFour, ConnectFourState] {
-    def fromGame(game: ConnectFour): ConnectFourState = {
-      val boardStrings = game.board.map(_.map(_.map(_.toString).getOrElse("")))
-      val currentPlayer = game.currentPlayer.toString
-      val winnerOpt = game.gameStatus match {
-        case Won(mark) => Some(mark.toString)
-        case _         => None
-      }
-      val draw = game.gameStatus == Draw
-      ConnectFourState(boardStrings, currentPlayer, winnerOpt, draw)
-    }
+    GridGameState(cells, currentPlayer.toString, winner, status == Draw)
   }
 }
 
 /** Type class for converting an internal game model into a serializable GameState.
   *
-  * To enable serialization via `serializeGame`, you must define and import an instance of this type class for your game
-  * and GameState types.
+  * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
+  * call sites need no imports beyond the types themselves.
   */
 trait GameStateView[G <: Game[_, _, _, _, _], S <: GameState] {
   def fromGame(game: G): S
+}
+
+object GameStateView {
+
+  /** Type class instance for serializing a TicTacToe game into a GridGameState. */
+  implicit val ticTacToeView: GameStateView[TicTacToe, GridGameState] =
+    game => GridGameState.of(game.board, game.currentPlayer, game.gameStatus)
+
+  /** Type class instance for serializing a ConnectFour game into a GridGameState. */
+  implicit val connectFourView: GameStateView[ConnectFour, GridGameState] =
+    game => GridGameState.of(game.board, game.currentPlayer, game.gameStatus)
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView
@@ -76,7 +62,7 @@ object GameStateConverters {
   /** Converts a concrete game instance into a corresponding GameState.
     *
     * This uses a type class instance of GameStateView[G, S], which knows how to convert a specific game type G (e.g.,
-    * TicTacToe) into a specific GameState type S (e.g., TicTacToeState).
+    * TicTacToe) into a specific GameState type S (e.g., GridGameState).
     */
   def serializeGame[G <: Game[_, _, _, _, _], S <: GameState](game: G)(implicit view: GameStateView[G, S]): S =
     view.fromGame(game)
