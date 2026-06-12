@@ -20,8 +20,8 @@ import com.andy327.persistence.db.schema.GameTypeCodecs
   * On startup, [[loadAllGames]] reads the authoritative state from Postgres and populates Redis in bulk.
   *
   * Cache keys use the scheme `game:{gameId}`. Values are the JSON strings Postgres also stores in `game_state`.
-  */
-/** @param gameRepo underlying [[GameRepository]] used as the source of truth for all reads and writes; in production
+  *
+  * @param gameRepo underlying [[GameRepository]] used as the source of truth for all reads and writes; in production
   *                 this is the Postgres repository, but any [[GameRepository]] implementation may be supplied
   * @param redis Redis commands handle used for cache reads and writes
   */

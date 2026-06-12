@@ -13,6 +13,8 @@ ThisBuild / scalacOptions ++= Seq(
   "-Wunused:imports" // For OrganizeImports.removeUnused = true
 )
 
+// scalafix and scalafmt each run twice on purpose: the first pass can produce code the second pass
+// still rewrites (e.g. an import removal that changes line widths), so a single run is not a fixpoint
 addCommandAlias("formatAll", ";scalafixAll;scalafixAll;scalafmtAll;scalafmtAll;scalafmtSbt")
 addCommandAlias("ci", ";clean;scalafixAll --check;scalafmtCheckAll;scalafmtSbtCheck;coverage;test;coverageAggregate")
 

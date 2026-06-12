@@ -21,7 +21,7 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  /** Creates the 'games' table with the appropriate schema if it doesn't already exit. */
+  /** Creates the 'games' table with the appropriate schema if it doesn't already exist. */
   override def initialize(): IO[Unit] =
     sql"""
       CREATE TABLE IF NOT EXISTS games (
@@ -47,8 +47,8 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
     """.update.run.transact(xa).void
   }
 
-  /** Loads the game state for a given gameId and gameType. If the game exists, it is deserialized from JSON into a
-    * TicTacToe object.
+  /** Loads the game state for a given gameId and gameType. If the game exists, it is deserialized from JSON into the
+    * game model for its GameType.
     */
   override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
     sql"SELECT game_state FROM games WHERE game_id = ${gameId.toString}"

@@ -17,7 +17,7 @@ trait GameRepository {
   /** Persist the current state of a game to the database. */
   def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
-  /** LLoad a game from the database using its ID and GameType. */
+  /** Load a game from the database using its ID and GameType. */
   def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]]
 
   /** Load all saved games from the database.
