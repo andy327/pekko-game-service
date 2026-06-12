@@ -42,6 +42,8 @@ class AuthRoutes {
     path("token") {
       post {
         entity(as[PlayerRequest]) { req =>
+          // TODO(#29): identity is self-asserted — any caller can mint a token for any UUID. Replace the
+          // client-supplied `id` with real credentialing (account store + credential check at issuance).
           val maybePlayer: Either[String, Player] = req.id match {
             case Some(idStr) =>
               Try(UUID.fromString(idStr)) match {
@@ -55,6 +57,8 @@ class AuthRoutes {
           maybePlayer match {
             case Right(player) =>
               val user = UserContext(player.id.toString, player.name)
+              // TODO(#29): no iat/exp claims — tokens never expire. Add a JwtClaim with expiration when real
+              // authentication lands; JwtPlayerDirectives already rejects expired tokens once the claim exists.
               val token = JwtCirce.encode(user.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
               complete(Map("token" -> token))
 
