@@ -1,34 +1,16 @@
 package com.andy327.model.tictactoe
 
-import com.andy327.model.core.{GameError => CoreGameError, PlayerId}
+import com.andy327.model.core.GameError
 
-/** Game-specific error types for TicTacToe.
-  *
-  * These errors represent invalid game actions or states, such as attempting to move out of turn, making an illegal
-  * move, or interacting with a finished game.
-  *
-  * Each case object or class provides a user-friendly message describing the issue.
-  */
-sealed trait GameError extends CoreGameError
+// TicTacToe-specific game errors. Errors shared by multiple games (InvalidPlayer, InvalidTurn, GameOver, Unknown) are
+// defined once in core.GameError.
 
-object GameError {
-  case class InvalidPlayer(playerId: PlayerId) extends GameError {
-    val message: String = s"Unknown player: $playerId"
-  }
+/** The targeted cell already contains a mark. */
+case object CellOccupied extends GameError {
+  val message = "This cell is already occupied."
+}
 
-  case object InvalidTurn extends GameError {
-    val message = "It's not your turn."
-  }
-
-  case object CellOccupied extends GameError {
-    val message = "This cell is already occupied."
-  }
-
-  case object OutOfBounds extends GameError {
-    val message = "Move is out of bounds."
-  }
-
-  case object GameOver extends GameError {
-    val message = "The game is already over."
-  }
+/** The move coordinates are outside the 3×3 board. */
+case object OutOfBounds extends GameError {
+  val message = "Move is out of bounds."
 }

@@ -5,7 +5,7 @@ import java.util.UUID
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{Draw, InProgress, PlayerId, Won}
+import com.andy327.model.core.{Draw, GameError, InProgress, PlayerId, Won}
 
 class TicTacToeSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID()
@@ -36,13 +36,13 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
     "not allow a move on an occupied space" in {
       val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
       val result = game.play(O, Location(0, 0))
-      result shouldBe Left(GameError.CellOccupied)
+      result shouldBe Left(CellOccupied)
     }
 
     "not allow a move on an invalid cell" in {
       val game = TicTacToe.empty(alice, bob)
       val result = game.play(X, Location(0, 4))
-      result shouldBe Left(GameError.OutOfBounds)
+      result shouldBe Left(OutOfBounds)
     }
 
     "detect a winning condition" in {

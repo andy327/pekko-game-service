@@ -5,7 +5,7 @@ import java.util.UUID
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{Draw, InProgress, PlayerId, Won}
+import com.andy327.model.core.{Draw, GameError, InProgress, PlayerId, Won}
 
 class ConnectFourSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID()
@@ -40,8 +40,8 @@ class ConnectFourSpec extends AnyWordSpec with Matchers {
 
     "reject a move for a column that is out of bounds" in {
       val game = ConnectFour.empty(alice, bob)
-      game.play(Red, Drop(-1)) shouldBe Left(GameError.InvalidColumn)
-      game.play(Red, Drop(7)) shouldBe Left(GameError.InvalidColumn)
+      game.play(Red, Drop(-1)) shouldBe Left(InvalidColumn)
+      game.play(Red, Drop(7)) shouldBe Left(InvalidColumn)
     }
 
     "reject a move when the column is full" in {
@@ -49,7 +49,7 @@ class ConnectFourSpec extends AnyWordSpec with Matchers {
       val full = (0 until ConnectFour.Rows).foldLeft(ConnectFour.empty(alice, bob)) { (game, _) =>
         game.play(game.currentPlayer, Drop(0)).toOption.get
       }
-      full.play(full.currentPlayer, Drop(0)) shouldBe Left(GameError.ColumnFull)
+      full.play(full.currentPlayer, Drop(0)) shouldBe Left(ColumnFull)
     }
 
     "detect a horizontal win" in {

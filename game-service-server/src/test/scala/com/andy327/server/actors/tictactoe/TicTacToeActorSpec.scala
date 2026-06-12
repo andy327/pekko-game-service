@@ -9,8 +9,8 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameId, PlayerId}
-import com.andy327.model.tictactoe.{GameError, Location, O, TicTacToe, X}
+import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
+import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{GameState, TicTacToeState}
@@ -186,7 +186,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TicTacToeActor.MakeMove(alice, Location(0, 3), replyProbe.ref)
-      replyProbe.receiveMessage() shouldBe Left(GameError.OutOfBounds)
+      replyProbe.receiveMessage() shouldBe Left(OutOfBounds)
     }
 
     "log success and continue when SnapshotSaved succeeds" in {

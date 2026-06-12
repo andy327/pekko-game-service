@@ -1,8 +1,7 @@
 package com.andy327.model.tictactoe
 
-import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, PlayerId, Renderable, Won}
-
-import GameError._
+import com.andy327.model.core.GameError.{GameOver, InvalidTurn}
+import com.andy327.model.core.{Draw, Game, GameError, GameStatus, InProgress, PlayerId, Renderable, Won}
 
 object TicTacToe {
 

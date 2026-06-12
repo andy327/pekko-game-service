@@ -9,8 +9,8 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.connectfour.{ConnectFour, Drop, GameError, Red, Yellow}
-import com.andy327.model.core.{Game, GameId, PlayerId}
+import com.andy327.model.connectfour.{ConnectFour, Drop, InvalidColumn, Red, Yellow}
+import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.{ConnectFourState, GameState}
@@ -176,7 +176,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! ConnectFourActor.MakeMove(alice, Drop(7), replyProbe.ref)
-      replyProbe.receiveMessage() shouldBe Left(GameError.InvalidColumn)
+      replyProbe.receiveMessage() shouldBe Left(InvalidColumn)
     }
 
     "log success and continue when SnapshotSaved succeeds" in {
