@@ -90,17 +90,9 @@ object JsonProtocol extends DefaultJsonProtocol {
   implicit val subscribeAcknowledgedFormat: RootJsonFormat[SubscribeAcknowledged] =
     jsonFormat1(SubscribeAcknowledged.apply)
 
-  // Tic-tac-toe
-
-  implicit val ticTacToeMoveRequestFormat: RootJsonFormat[TicTacToeMoveRequest] =
-    jsonFormat2(TicTacToeMoveRequest.apply)
+  // Game state views
 
   implicit val ticTacToeStateFormat: RootJsonFormat[TicTacToeState] = jsonFormat4(TicTacToeState.apply)
-
-  // ConnectFour
-
-  implicit val connectFourMoveRequestFormat: RootJsonFormat[ConnectFourMoveRequest] =
-    jsonFormat1(ConnectFourMoveRequest.apply)
 
   implicit val connectFourStateFormat: RootJsonFormat[ConnectFourState] = jsonFormat4(ConnectFourState.apply)
 

@@ -27,7 +27,7 @@ import com.andy327.model.core.{GameId, GameType}
 import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.http.json.{ConnectFourMoveRequest, ConnectFourState, TicTacToeMoveRequest, TicTacToeState}
+import com.andy327.server.http.json.{ConnectFourState, TicTacToeState}
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
@@ -79,8 +79,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
         }
 
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
         Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
@@ -91,8 +90,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
       "fail to move in a nonexistent game" in {
         val fakeId = UUID.randomUUID()
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
         Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.NotFound
         }
@@ -109,8 +107,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
         }
 
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
         Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
@@ -151,8 +148,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 400 for invalid game ID on move" in {
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
         Post("/tictactoe/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
@@ -210,8 +206,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseSystem")
         val errorRoutes = new GameRoutes(GameType.TicTacToe, dummySystem).routes
 
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
         val requests = Table(
           ("description", "request"),
@@ -245,8 +240,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             s"StubResponseSystem${UUID.randomUUID().toString.take(8)}"
           )
 
-        val move = TicTacToeMoveRequest(0, 0)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
         val rejectedRoutes = new GameRoutes(GameType.TicTacToe, stubSystem(GameManager.MoveRejected("no way"))).routes
         Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> rejectedRoutes ~> check {
@@ -331,8 +325,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
         }
 
-        val move = ConnectFourMoveRequest(3)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"col":3}""")
 
         Post(s"/connectfour/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
@@ -343,8 +336,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
       "fail to move in a nonexistent game" in {
         val fakeId = UUID.randomUUID()
-        val move = ConnectFourMoveRequest(3)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"col":3}""")
         Post(s"/connectfour/$fakeId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.NotFound
         }
@@ -378,8 +370,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 400 for invalid game ID on move" in {
-        val move = ConnectFourMoveRequest(3)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"col":3}""")
 
         Post("/connectfour/invalid-game-id/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
@@ -430,8 +421,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         val dummySystem = ActorSystem(unexpectedBehavior, "UnexpectedResponseCFSystem")
         val errorRoutes = new GameRoutes(GameType.ConnectFour, dummySystem).routes
 
-        val move = ConnectFourMoveRequest(3)
-        val moveEntity = HttpEntity(ContentTypes.`application/json`, move.toJson.compactPrint)
+        val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"col":3}""")
 
         val requests = Table(
           ("description", "request"),

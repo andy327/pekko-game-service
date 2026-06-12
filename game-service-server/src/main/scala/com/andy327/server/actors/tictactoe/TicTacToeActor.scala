@@ -128,7 +128,8 @@ object TicTacToeActor extends GameActor[TicTacToe] {
     msg match {
       case MakeMove(playerId, loc, replyTo) =>
         markForPlayer(playerId, game.playerX, game.playerO) match {
-          case Some(mark) if mark == game.currentPlayer =>
+          // turn order is validated by the model: game.play returns InvalidTurn for an out-of-turn mark
+          case Some(mark) =>
             game.play(mark, loc) match {
               case Right(nextState) =>
                 context.log.info(s"Game $gameId updated:\n${nextState.render}")
@@ -164,11 +165,6 @@ object TicTacToeActor extends GameActor[TicTacToe] {
                 replyTo ! Left(err)
                 Behaviors.same
             }
-
-          case Some(_) =>
-            context.log.warn(s"[$gameId] not the correct player's turn!")
-            replyTo ! Left(GameError.InvalidTurn)
-            Behaviors.same
 
           case None =>
             context.log.warn(s"[$gameId] Player ID '$playerId' is not part of this game.")

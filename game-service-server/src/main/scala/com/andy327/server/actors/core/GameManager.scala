@@ -319,8 +319,8 @@ object GameManager {
       publisher: GameEventPublisher,
       subscriber: Option[GameEventSubscriber]
   )(implicit runtime: IORuntime): Behavior[Command] =
-    Behaviors.setup { implicit context =>
-      Behaviors.receiveMessage {
+    Behaviors.receive { (context, message) =>
+      message match {
         case CreateLobby(gameType, host, replyTo) =>
           val adapter = context.messageAdapter[GameResponse](LobbyResponseIntercepted(_, host.id, replyTo))
           lobbyManager ! LobbyManager.CreateLobby(gameType, host, adapter)

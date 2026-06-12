@@ -21,9 +21,6 @@ object PostgresActor {
     new Impl(gameRepo).behavior
 
   private class Impl(gameRepo: GameRepository) extends PersistActor {
-    def loadFromStore(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-      gameRepo.loadGame(gameId, gameType)
-
     def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
       gameRepo.saveGame(gameId, gameType, game)
   }
