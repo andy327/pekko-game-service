@@ -5,7 +5,8 @@ WORKDIR /build
 COPY . .
 RUN sbt server/assembly
 
-FROM eclipse-temurin:11-jre
+# Match the builder's JDK major version (Temurin 17)
+FROM eclipse-temurin:17-jre
 
 # Set working directory
 WORKDIR /app

@@ -7,8 +7,16 @@ databases:
   ipAllowList:
   - source: 0.0.0.0/0
     description: everywhere
-  postgresMajorVersion: "16"
+  postgresMajorVersion: "18"
 services:
+- type: keyvalue
+  name: pekko-game-redis
+  plan: free
+  region: virginia
+  # lobbies are persisted here, not just cached; never evict keys under memory pressure
+  maxmemoryPolicy: noeviction
+  # empty allow list: reachable only from services in the same Render account/region
+  ipAllowList: []
 - type: web
   name: pekko-game-service
   runtime: docker
@@ -25,6 +33,13 @@ services:
     sync: false
   - key: DATABASE_URL
     sync: false
+  - key: REDIS_URI
+    fromService:
+      type: keyvalue
+      name: pekko-game-redis
+      property: connectionString
+  - key: JWT_SECRET
+    generateValue: true
   region: virginia
   dockerContext: .
   dockerfilePath: ./Dockerfile
