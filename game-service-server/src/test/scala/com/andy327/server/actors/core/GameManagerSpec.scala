@@ -12,7 +12,7 @@ import cats.effect.unsafe.IORuntime
 import fs2.Stream
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
-import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
+import org.apache.pekko.http.scaladsl.model.ws.TextMessage
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -666,7 +666,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
 
@@ -681,12 +681,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, registerProbe.ref)
-      registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+      val playerRef = registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      gm ! GameManager.PlayerDisconnected(alice.id)
+      gm ! GameManager.PlayerDisconnected(alice.id, playerRef)
 
       // GM is still responsive after disconnect
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -702,7 +702,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Alice connects via WebSocket
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -713,12 +713,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       // Auto-subscribe fires: alice's PlayerActor receives SendEvent(LobbyUpdated) and forwards it as a TextMessage
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
 
       // Bob joins — alice should receive another push event as she is subscribed
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
     "auto-subscribe a connected player to lobby events when they join a lobby" in {
@@ -734,7 +734,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       // Bob connects via WebSocket, then joins
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(bob, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -743,7 +743,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       // Auto-subscribe fires: bob's PlayerActor receives SendEvent(LobbyUpdated) and forwards it as a TextMessage
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
     "subscribe a connected spectator to lobby events via SubscribePlayerToLobby" in {
@@ -755,7 +755,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator connects via WebSocket
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -770,10 +770,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
 
       // Initial lobby state push arrives on subscribe; bob joining triggers another
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
     "return an error when SubscribePlayerToLobby is called for a disconnected player" in {
@@ -807,7 +807,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -826,7 +826,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator connects via WebSocket
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -851,7 +851,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
         responseProbe.ref
       )
       responseProbe.expectMessageType[GameManager.GameStatus]
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
     "return an error when SubscribePlayerToGame is called for a disconnected player" in {
@@ -882,7 +882,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       // Spectator is connected
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(spectator, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -904,7 +904,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
       val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -913,7 +913,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
 
       // subscriber receives initial lobby state immediately via WebSocket
-      wsProbe.expectMessageType[TextMessage]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
     "forward SubscribeToGame so the subscriber receives events after a move" in {
@@ -961,18 +961,18 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val GameManager.LobbyCreated(gameId, host) = responseProbe.expectMessageType[GameManager.LobbyCreated]
 
       // Alice connects via WebSocket and subscribes before the game starts
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
       playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       gm ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
       responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
-      wsProbe.expectMessageType[TextMessage] // initial LobbyUpdated snapshot
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // initial LobbyUpdated snapshot
 
       gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyJoined]
-      wsProbe.expectMessageType[TextMessage] // LobbyUpdated on join
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // LobbyUpdated on join
 
       // Start the game — LobbyManager passes Alice's PlayerActor ref in SpawnGame
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
@@ -986,7 +986,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       )
       responseProbe.expectMessageType[GameManager.GameStatus]
 
-      wsProbe.expectMessageType[TextMessage] // GameStateUpdated
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // GameStateUpdated
     }
 
     "handle SubscribeToGame for an unknown game without crashing" in {
@@ -1048,7 +1048,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
 
       // Register a player via GameManager so the ref lives inside the actor system
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       gm ! GameManager.RegisterPlayer(Player("alice"), wsProbe.ref, playerRefProbe.ref)
       val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
@@ -1064,7 +1064,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // Push an event through the subscriber's stream
       queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
-      wsProbe.expectMessageType[TextMessage.Strict].text shouldBe json
+      wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text shouldBe json
 
       fiber.cancel.unsafeRunSync()
     }
@@ -1092,13 +1092,13 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       // Register a player directly with the subscriber (simulating a remote instance)
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val playerRef = spawn(PlayerActor(alice, wsProbe.ref))
       subscriber.registerPlayer(gameId, playerRef).unsafeRunSync()
 
       // Sanity check: events are routed before completion
       queue.offer((s"game-events:$gameId", json)).unsafeRunSync()
-      wsProbe.expectMessageType[TextMessage.Strict]
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
 
       // Complete the game — should call unregisterGame on the subscriber
       gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)

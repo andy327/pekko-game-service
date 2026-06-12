@@ -22,7 +22,8 @@ import com.andy327.server.lobby.Player
   * ActorSource-backed stream, spawns a PlayerActor wired to it via GameManager.RegisterPlayer, and begins forwarding
   * push events (lobby updates, game state, game-end notifications) as JSON TextMessages. Inbound client messages are
   * currently discarded. When the WebSocket closes, PlayerDisconnected is sent to GameManager so that the associated
-  * PlayerActor is stopped.
+  * PlayerActor is stopped; conversely, when the PlayerActor stops (explicit disconnect or replacement on reconnect),
+  * it completes the stream via `PlayerActor.WsComplete`, closing the WebSocket from the server side.
   *
   * Route: GET /ws (Auth: Bearer token required)
   *
@@ -42,31 +43,37 @@ class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
 
   /** Builds a WebSocket Flow for the given authenticated player.
     *
-    * Pre-materializes an ActorSource to obtain a `wsOut: ActorRef[Message]` before the stream starts, then asks
-    * GameManager to register the player (which spawns a PlayerActor bound to that ref). The outbound side of the flow
-    * carries server-push events; the inbound side is drained with Sink.ignore. When the stream terminates (WebSocket
-    * closed by either side), PlayerDisconnected is sent to GameManager to clean up the PlayerActor.
+    * Pre-materializes an ActorSource over [[PlayerActor.WsOutput]] to obtain a `wsOut` ref before the stream starts,
+    * then asks GameManager to register the player (which spawns a PlayerActor bound to that ref). The outbound side of
+    * the flow carries server-push events; the inbound side is drained with Sink.ignore. The stream completes when the
+    * PlayerActor emits [[PlayerActor.WsComplete]]. When the stream terminates (WebSocket closed by either side),
+    * PlayerDisconnected — carrying this session's PlayerActor ref — is sent to GameManager so a stale close cannot
+    * tear down a newer session for the same player.
     */
   private def buildFlow(player: Player): Flow[Message, Message, Any] = {
     // Materialize the ActorRef up front so we can pass it to RegisterPlayer before the stream runs
     val (wsOut, source) = ActorSource
-      .actorRef[Message](
-        completionMatcher = PartialFunction.empty,
+      .actorRef[PlayerActor.WsOutput](
+        completionMatcher = { case PlayerActor.WsComplete => },
         failureMatcher = PartialFunction.empty,
         bufferSize = 16,
         overflowStrategy = OverflowStrategy.dropHead
       )
       .preMaterialize()
 
-    // Spawn a PlayerActor wired to wsOut — reply is discarded since wsOut is all we need here
-    (gameManager ? ((replyTo: ActorRef[ActorRef[PlayerActor.Command]]) =>
+    // Spawn a PlayerActor wired to wsOut; the ref identifies this session in the disconnect notification below
+    val playerRefFuture = gameManager ? ((replyTo: ActorRef[ActorRef[PlayerActor.Command]]) =>
       GameManager.RegisterPlayer(player, wsOut, replyTo)
-    )).foreach(_ => ())(ec)
+    )
 
-    // On WebSocket close (either side), stop the PlayerActor via GameManager
-    val outbound = source.watchTermination() { (_, done) =>
-      done.onComplete(_ => gameManager ! GameManager.PlayerDisconnected(player.id))(ec)
-    }
+    // On WebSocket close (either side), stop this session's PlayerActor via GameManager
+    val outbound = source
+      .collect { case PlayerActor.WsMessage(message) => message }
+      .watchTermination() { (_, done) =>
+        done.onComplete { _ =>
+          playerRefFuture.foreach(ref => gameManager ! GameManager.PlayerDisconnected(player.id, ref))(ec)
+        }(ec)
+      }
 
     Flow.fromSinkAndSource(Sink.ignore, outbound)
   }

@@ -14,7 +14,6 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
-import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
@@ -279,8 +278,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
         }
 
-        val wsProbe = testKit.createTestProbe[Message]()
-        Await.result(
+        val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+        val aliceRef = Await.result(
           typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
           3.seconds
         )
@@ -290,7 +289,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
         }
 
-        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
       }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {
@@ -462,8 +461,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           status shouldBe StatusCodes.OK
         }
 
-        val wsProbe = testKit.createTestProbe[Message]()
-        Await.result(
+        val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+        val aliceRef = Await.result(
           typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
           3.seconds
         )
@@ -473,7 +472,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
         }
 
-        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+        typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
       }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {

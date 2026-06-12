@@ -4,7 +4,6 @@ import java.util.UUID
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
-import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -17,7 +16,7 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
   "PlayerManager" should {
     "register a player and return its actor ref" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
@@ -29,7 +28,7 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "return Some(ref) for a registered player" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
@@ -49,36 +48,61 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
       lookupProbe.expectMessage(None)
     }
 
-    "stop the old actor and return a new ref on reconnect" in {
+    "stop the old actor, close its stream, and return a new ref on reconnect" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[Message]()
+      val oldWsProbe = TestProbe[PlayerActor.WsOutput]()
+      val newWsProbe = TestProbe[PlayerActor.WsOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
-      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, oldWsProbe.ref, replyProbe.ref)
       val firstRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, replyProbe.ref)
+      pm ! PlayerManager.RegisterPlayer(alice, newWsProbe.ref, replyProbe.ref)
       val secondRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       secondRef should not be theSameInstanceAs(firstRef)
+      oldWsProbe.expectMessage(PlayerActor.WsComplete) // old WebSocket is closed from the server side
       replyProbe.expectTerminated(firstRef)
     }
 
     "remove a player on PlayerDisconnected" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[Message]()
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
 
       pm ! PlayerManager.RegisterPlayer(alice, wsProbe.ref, registerProbe.ref)
-      registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+      val ref = registerProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      pm ! PlayerManager.PlayerDisconnected(alice.id)
+      pm ! PlayerManager.PlayerDisconnected(alice.id, ref)
 
       pm ! PlayerManager.LookupPlayer(alice.id, lookupProbe.ref)
       lookupProbe.expectMessage(None)
+    }
+
+    "ignore a stale PlayerDisconnected after the player has reconnected" in {
+      val pm = spawn(PlayerManager())
+      val oldWsProbe = TestProbe[PlayerActor.WsOutput]()
+      val newWsProbe = TestProbe[PlayerActor.WsOutput]()
+      val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
+      val alice = Player("alice")
+
+      pm ! PlayerManager.RegisterPlayer(alice, oldWsProbe.ref, replyProbe.ref)
+      val firstRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // alice reconnects; the first session is replaced
+      pm ! PlayerManager.RegisterPlayer(alice, newWsProbe.ref, replyProbe.ref)
+      val secondRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      // the old session's stream termination arrives late — it must not disconnect the new session
+      pm ! PlayerManager.PlayerDisconnected(alice.id, firstRef)
+
+      pm ! PlayerManager.LookupPlayer(alice.id, lookupProbe.ref)
+      lookupProbe.expectMessage(Some(secondRef))
+      newWsProbe.expectNoMessage()
     }
   }
 }

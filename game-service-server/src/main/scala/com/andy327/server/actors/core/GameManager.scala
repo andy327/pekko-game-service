@@ -8,7 +8,6 @@ import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.apache.pekko.util.Timeout
 
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
@@ -96,12 +95,16 @@ object GameManager {
   /** Register (or reconnect) a player; replies with the spawned [[PlayerActor]] ref. */
   final case class RegisterPlayer(
       player: Player,
-      wsOut: ActorRef[Message],
+      wsOut: ActorRef[PlayerActor.WsOutput],
       replyTo: ActorRef[ActorRef[PlayerActor.Command]]
   ) extends Command
 
-  /** Clean up the PlayerActor and session state for a disconnected player. */
-  final case class PlayerDisconnected(playerId: PlayerId) extends Command
+  /** Clean up the PlayerActor and session state for a disconnected player.
+    *
+    * `playerRef` identifies the session whose stream terminated; [[PlayerManager]] ignores the message if the player
+    * has since reconnected with a new PlayerActor.
+    */
+  final case class PlayerDisconnected(playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command]) extends Command
 
   // --- Lifecycle commands ---
 
@@ -431,8 +434,8 @@ object GameManager {
           playerManager ! PlayerManager.RegisterPlayer(player, wsOut, replyTo)
           Behaviors.same
 
-        case PlayerDisconnected(playerId) =>
-          playerManager ! PlayerManager.PlayerDisconnected(playerId)
+        case PlayerDisconnected(playerId, playerRef) =>
+          playerManager ! PlayerManager.PlayerDisconnected(playerId, playerRef)
           Behaviors.same
 
         case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>

@@ -16,7 +16,7 @@ import com.andy327.server.lobby.Player
   * Actor relationships:
   *   - Parent: [[PlayerManager]]
   *   - Receives from: [[LobbyManager]] and game actors (fan-out `SendEvent`), [[PlayerManager]] (`Disconnect`)
-  *   - Sends to: WebSocket client via `wsOut` (`TextMessage`)
+  *   - Sends to: WebSocket client via `wsOut` (`WsMessage` frames, `WsComplete` on disconnect)
   */
 object PlayerActor {
   sealed trait Command
@@ -30,18 +30,33 @@ object PlayerActor {
   /** Terminate this actor and close the associated WebSocket stream. */
   case object Disconnect extends Command
 
-  def apply(player: Player, wsOut: ActorRef[Message]): Behavior[Command] =
+  /** Protocol for the outbound WebSocket stream backing a player session.
+    *
+    * The ActorSource in [[com.andy327.server.http.routes.WebSocketRoutes]] is materialized over this type so that the
+    * stream can be completed from the actor side: [[WsMessage]] delivers a frame to the client, [[WsComplete]] matches
+    * the source's `completionMatcher` and closes the WebSocket from the server.
+    */
+  sealed trait WsOutput
+
+  /** A WebSocket frame to deliver to the client. */
+  final case class WsMessage(message: Message) extends WsOutput
+
+  /** Completes the outbound stream, closing the WebSocket from the server side. */
+  case object WsComplete extends WsOutput
+
+  def apply(player: Player, wsOut: ActorRef[WsOutput]): Behavior[Command] =
     Behaviors.setup { context =>
       context.log.info(s"PlayerActor started for player ${player.name} (${player.id})")
       Behaviors.receiveMessage {
         case SendEvent(event) =>
           val json = playerEventFormat.write(event).compactPrint
-          wsOut ! TextMessage(json)
+          wsOut ! WsMessage(TextMessage(json))
           Behaviors.same
         case SendRawJson(json) =>
-          wsOut ! TextMessage(json)
+          wsOut ! WsMessage(TextMessage(json))
           Behaviors.same
         case Disconnect =>
+          wsOut ! WsComplete
           Behaviors.stopped
       }
     }

@@ -10,7 +10,7 @@ import cats.effect.unsafe.IORuntime
 
 import fs2.Stream
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
-import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
+import org.apache.pekko.http.scaladsl.model.ws.TextMessage
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -32,12 +32,12 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       val stream = Stream.emit((s"game-events:$gameId", json)).covary[IO] ++ Stream.never[IO]
       val subscriber = GameEventSubscriber.create(stream).unsafeRunSync()
 
-      val wsProbe = createTestProbe[Message]()
+      val wsProbe = createTestProbe[PlayerActor.WsOutput]()
       val playerRef = spawn(PlayerActor(Player("alice"), wsProbe.ref))
       subscriber.registerPlayer(gameId, playerRef).unsafeRunSync()
 
       val fiber = subscriber.run.start.unsafeRunSync()
-      wsProbe.expectMessageType[TextMessage.Strict].text shouldBe json
+      wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text shouldBe json
       fiber.cancel.unsafeRunSync()
     }
 
@@ -48,16 +48,16 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       val stream = Stream.emit((s"game-events:$gameId", json)).covary[IO] ++ Stream.never[IO]
       val subscriber = GameEventSubscriber.create(stream).unsafeRunSync()
 
-      val wsProbe1 = createTestProbe[Message]()
-      val wsProbe2 = createTestProbe[Message]()
+      val wsProbe1 = createTestProbe[PlayerActor.WsOutput]()
+      val wsProbe2 = createTestProbe[PlayerActor.WsOutput]()
       val playerRef1 = spawn(PlayerActor(Player("alice"), wsProbe1.ref))
       val playerRef2 = spawn(PlayerActor(Player("bob"), wsProbe2.ref))
       subscriber.registerPlayer(gameId, playerRef1).unsafeRunSync()
       subscriber.registerPlayer(gameId, playerRef2).unsafeRunSync()
 
       val fiber = subscriber.run.start.unsafeRunSync()
-      wsProbe1.expectMessageType[TextMessage.Strict].text shouldBe json
-      wsProbe2.expectMessageType[TextMessage.Strict].text shouldBe json
+      wsProbe1.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text shouldBe json
+      wsProbe2.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text shouldBe json
       fiber.cancel.unsafeRunSync()
     }
 
@@ -68,7 +68,7 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
       val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
 
-      val wsProbe = createTestProbe[Message]()
+      val wsProbe = createTestProbe[PlayerActor.WsOutput]()
       val playerRef = spawn(PlayerActor(Player("alice"), wsProbe.ref))
       subscriber.registerPlayer(gameId, playerRef).unsafeRunSync()
       subscriber.unregisterGame(gameId).unsafeRunSync()
@@ -89,7 +89,7 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       val stream = Stream.emit((s"game-events:$gameId", json)).covary[IO] ++ Stream.never[IO]
       val subscriber = GameEventSubscriber.create(stream).unsafeRunSync()
 
-      val wsProbe = createTestProbe[Message]()
+      val wsProbe = createTestProbe[PlayerActor.WsOutput]()
       val playerRef = spawn(PlayerActor(Player("alice"), wsProbe.ref))
       subscriber.registerPlayer(otherGameId, playerRef).unsafeRunSync()
 
@@ -105,7 +105,7 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       val stream = Stream.emit((badChannel, json)).covary[IO] ++ Stream.never[IO]
       val subscriber = GameEventSubscriber.create(stream).unsafeRunSync()
 
-      val wsProbe = createTestProbe[Message]()
+      val wsProbe = createTestProbe[PlayerActor.WsOutput]()
       val playerRef = spawn(PlayerActor(Player("alice"), wsProbe.ref))
       subscriber.registerPlayer(UUID.randomUUID(), playerRef).unsafeRunSync()
 

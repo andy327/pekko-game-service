@@ -20,5 +20,5 @@ object GameOperation {
   final case class MakeMove(playerId: PlayerId, move: MovePayload) extends GameOperation
 
   /** Requests the current state of the game. */
-  final case object GetState extends GameOperation
+  case object GetState extends GameOperation
 }

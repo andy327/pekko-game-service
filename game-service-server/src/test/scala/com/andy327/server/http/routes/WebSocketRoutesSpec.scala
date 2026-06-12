@@ -11,7 +11,7 @@ import org.apache.pekko.http.scaladsl.testkit.{ScalatestRouteTest, WSProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.GameId
+import com.andy327.model.core.{GameId, GameType}
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
@@ -58,6 +58,37 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       WS("/ws", wsClient.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~>
       routes ~> check {
         isWebSocketUpgrade shouldBe true
+      }
+    }
+
+    "push server events through the socket and close it when the player reconnects" in {
+      val alice = Player("alice")
+      val token = createTestToken(alice)
+      val responseProbe = typedKit.createTestProbe[GameManager.GameResponse]()
+
+      // a lobby alice can subscribe to once her WebSocket session is registered
+      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val gameId = responseProbe.expectMessageType[GameManager.LobbyCreated].gameId
+
+      val wsClient = WSProbe()
+      WS("/ws", wsClient.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+        isWebSocketUpgrade shouldBe true
+
+        // registration happens asynchronously after connect, so retry the subscribe until it lands
+        responseProbe.awaitAssert {
+          typedSystem ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+          responseProbe.receiveMessage() shouldBe a[GameManager.SubscribeAcknowledged]
+        }
+
+        // the subscribe pushes the current lobby state: LobbyManager -> PlayerActor -> wsOut -> client frame
+        wsClient.expectMessage().asTextMessage.getStrictText should include("LobbyUpdated")
+
+        // alice reconnects: the old session's PlayerActor emits WsComplete, closing this socket server-side
+        val wsClient2 = WSProbe()
+        WS("/ws", wsClient2.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+          isWebSocketUpgrade shouldBe true
+        }
+        wsClient.expectCompletion()
       }
     }
   }

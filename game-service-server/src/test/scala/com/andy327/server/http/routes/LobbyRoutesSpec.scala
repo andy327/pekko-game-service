@@ -15,7 +15,6 @@ import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
-import org.apache.pekko.http.scaladsl.model.ws.Message
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
@@ -364,8 +363,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val wsProbe = testKit.createTestProbe[Message]()
-      Await.result(
+      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds
       )
@@ -375,7 +374,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
       }
 
-      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
     }
 
     "return 409 when subscribing to a lobby whose game has already started" in {
@@ -389,8 +388,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.OK
       }
 
-      val wsProbe = testKit.createTestProbe[Message]()
-      Await.result(
+      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds
       )
@@ -400,7 +399,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[String] should include("already started")
       }
 
-      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id)
+      typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
     }
 
     "return 400 when subscribing to a lobby without an active WebSocket connection" in {
