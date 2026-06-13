@@ -85,6 +85,12 @@ final case class ConnectFour(
   def gameStatus: GameStatus[Mark] =
     winner.map(Won(_)).getOrElse(if (isDraw) Draw else InProgress)
 
+  /** Resolves `playerId` to `Red` or `Yellow` based on which seat they occupy; `None` if not a participant. */
+  def playerFor(playerId: PlayerId): Option[Mark] =
+    if (playerId == playerRed) Some(Red)
+    else if (playerId == playerYellow) Some(Yellow)
+    else None
+
   private def nextPlayer: Mark = currentPlayer match {
     case Red    => Yellow
     case Yellow => Red

@@ -62,6 +62,12 @@ final case class TicTacToe(
   def gameStatus: GameStatus[Mark] =
     winner.map(Won(_)).getOrElse(if (isDraw) Draw else InProgress)
 
+  /** Resolves `playerId` to `X` or `O` based on which seat they occupy; `None` if not a participant. */
+  def playerFor(playerId: PlayerId): Option[Mark] =
+    if (playerId == playerX) Some(X)
+    else if (playerId == playerO) Some(O)
+    else None
+
   private def nextPlayer: Mark = currentPlayer match {
     case X => O
     case O => X

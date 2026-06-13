@@ -8,8 +8,7 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.model.connectfour.{ConnectFour, Drop}
 import com.andy327.model.core.GameError
-import com.andy327.server.actors.connectfour.ConnectFourActor
-import com.andy327.server.actors.core.GameActor
+import com.andy327.server.actors.core.{GameActor, TurnBasedGameActor}
 import com.andy327.server.game.MovePayload.ConnectFourMove
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameState, GameStateConverters}
@@ -29,14 +28,14 @@ object ConnectFourModule extends GameModule[ConnectFour] {
       replyTo: ActorRef[Either[GameError, GameState]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, MovePayload.ConnectFourMove(col)) =>
-      Right(ConnectFourActor.MakeMove(playerId, Drop(col), replyTo))
+      Right(TurnBasedGameActor.MakeMove(playerId, Drop(col), replyTo))
 
     case GameOperation.MakeMove(_, otherMove) =>
       val name = Option(otherMove).map(_.getClass.getSimpleName).getOrElse("null")
       Left(GameError.Unknown(s"Unsupported move type for ConnectFour: $name"))
 
     case GameOperation.GetState =>
-      Right(ConnectFourActor.GetState(replyTo))
+      Right(TurnBasedGameActor.GetState(replyTo))
   }
 
   override def serialize(game: ConnectFour): GameState = GameStateConverters.serializeGame(game)

@@ -17,9 +17,9 @@ object GameActor {
   trait GameCommand
 }
 
-/** Type-class factory and behavioral contract implemented by every game-specific actor.
+/** Behavioral contract for actors that manage a single game instance from creation to completion.
   *
-  * Each game actor manages a single game instance from creation to completion. The standard lifecycle is:
+  * The standard lifecycle is:
   *   - `create` spawns a fresh actor in the `active` behavior with an empty game
   *   - `fromSnapshot` re-hydrates an actor from a persisted game; if the snapshot is already terminal the actor
   *     notifies [[GameManager]] and stops immediately without entering `active`
@@ -32,8 +32,8 @@ object GameActor {
   *   - In `terminating`, all commands except `SnapshotSaved` are ignored; the actor self-stops once the final snapshot
   *     is confirmed, so [[GameManager]] does not need to call `context.stop`
   *
-  * Concrete implementations must define their own sealed `Command` ADT (extending [[GameActor.GameCommand]]) and
-  * wire the above steps in their `active` and `terminating` behaviors.
+  * [[TurnBasedGameActor]] implements this contract once for all turn-based games; per-game objects (e.g.
+  * `TicTacToeActor`) are thin bindings supplying the model's factory and type-class instances.
   *
   * @tparam G the concrete game model type this actor manages
   */

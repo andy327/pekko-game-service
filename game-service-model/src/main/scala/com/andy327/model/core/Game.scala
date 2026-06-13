@@ -25,6 +25,14 @@ trait Game[Move, State, Player, Status, Error] {
   /** The current status of the game (e.g., ongoing, won, draw). */
   def gameStatus: Status
 
+  /** Resolves an external player ID to this game's player token (e.g., a mark or seat).
+    *
+    * Returns None if the ID does not belong to a participant. This is the single place where platform identity
+    * (PlayerId) is mapped to game identity (the `Player` type parameter), letting game-agnostic code route moves
+    * without knowing how a given game seats its players.
+    */
+  def playerFor(playerId: PlayerId): Option[Player]
+
   /** Attempts to apply a move made by a player.
     *
     * This method should:

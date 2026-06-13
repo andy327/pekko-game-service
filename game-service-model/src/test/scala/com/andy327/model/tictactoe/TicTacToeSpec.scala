@@ -12,6 +12,13 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
   val bob: PlayerId = UUID.randomUUID()
 
   "A TicTacToe game" should {
+    "resolve participants to their marks with playerFor" in {
+      val game = TicTacToe.empty(alice, bob)
+      game.playerFor(alice) shouldBe Some(X)
+      game.playerFor(bob) shouldBe Some(O)
+      game.playerFor(UUID.randomUUID()) shouldBe None
+    }
+
     "start with an empty board" in {
       val game = TicTacToe.empty(alice, bob)
       game.board.flatten.flatten shouldBe empty

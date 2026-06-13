@@ -25,23 +25,24 @@ import com.andy327.server.http.json.GameState
   *       override val moveDecoder: Decoder[MovePayload] = Decoder[MyGameMove].widen
   *     }}}
   *
-  *  2. `toGameCommand` — map a [[com.andy327.server.game.GameOperation]] to a game-specific actor command.
-  *     Handle three cases: the game's `MakeMove` payload (constructing the actor command), a wrong payload type
-  *     (return `Left(GameError.Unknown(...))`), and `GetState` (delegate to the actor's `GetState` command):
+  *  2. `toGameCommand` — map a [[com.andy327.server.game.GameOperation]] to a
+  *     [[com.andy327.server.actors.core.TurnBasedGameActor]] command. Handle three cases: the game's `MakeMove`
+  *     payload (constructing the game's move type), a wrong payload type (return `Left(GameError.Unknown(...))`),
+  *     and `GetState`:
   *     {{{
   *       override def toGameCommand(op: GameOperation, replyTo: ActorRef[Either[GameError, GameState]]) = op match {
   *         case GameOperation.MakeMove(playerId, MovePayload.MyGameMove(x, y)) =>
-  *           Right(MyGameActor.MakeMove(playerId, MyMove(x, y), replyTo))
+  *           Right(TurnBasedGameActor.MakeMove(playerId, MyMove(x, y), replyTo))
   *         case GameOperation.MakeMove(_, other) =>
   *           val name = Option(other).map(_.getClass.getSimpleName).getOrElse("null")
   *           Left(GameError.Unknown(s"Unsupported move type for MyGame: \$name"))
   *         case GameOperation.GetState =>
-  *           Right(MyGameActor.GetState(replyTo))
+  *           Right(TurnBasedGameActor.GetState(replyTo))
   *       }
   *     }}}
   *
-  *  3. `serialize` — convert the game model to its HTTP view. If a [[com.andy327.server.http.json.GameStateView]]
-  *     instance is defined in the companion object of the view type, this is always the same one-liner:
+  *  3. `serialize` — convert the game model to its HTTP view. Given a [[com.andy327.server.http.json.GameStateView]]
+  *     instance in the `GameStateView` companion, this is always the same one-liner:
   *     {{{
   *       override def serialize(game: MyGame): GameState = GameStateConverters.serializeGame(game)
   *     }}}

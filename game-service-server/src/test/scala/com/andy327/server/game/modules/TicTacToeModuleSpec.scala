@@ -7,7 +7,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.GameError
 import com.andy327.model.tictactoe.{Location, TicTacToe}
-import com.andy327.server.actors.core.PlayerActor
+import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameState, GridGameState}
@@ -36,7 +36,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
       val result = TicTacToeModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
 
       result match {
-        case Right(TicTacToeActor.MakeMove(playerId, loc, reply)) =>
+        case Right(TurnBasedGameActor.MakeMove(playerId, loc, reply)) =>
           playerId shouldBe alice.id
           loc shouldBe Location(0, 1)
           reply shouldBe replyProbe.ref
@@ -50,7 +50,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
 
       val result = TicTacToeModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
-      result shouldBe Right(TicTacToeActor.GetState(replyProbe.ref))
+      result shouldBe Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
 
     "produce a Subscribe command for a given PlayerActor ref" in {
@@ -58,7 +58,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
 
       val result = TicTacToeActor.subscribeCommand(playerProbe.ref)
 
-      result shouldBe TicTacToeActor.Subscribe(playerProbe.ref)
+      result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref)
     }
 
     "serialize a TicTacToe game to GridGameState" in {

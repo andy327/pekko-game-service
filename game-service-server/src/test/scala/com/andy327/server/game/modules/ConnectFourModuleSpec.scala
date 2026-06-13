@@ -8,7 +8,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 import com.andy327.model.connectfour.{ConnectFour, Drop}
 import com.andy327.model.core.GameError
 import com.andy327.server.actors.connectfour.ConnectFourActor
-import com.andy327.server.actors.core.PlayerActor
+import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.Player
@@ -36,7 +36,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       val result = ConnectFourModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
 
       result match {
-        case Right(ConnectFourActor.MakeMove(playerId, drop, reply)) =>
+        case Right(TurnBasedGameActor.MakeMove(playerId, drop, reply)) =>
           playerId shouldBe alice.id
           drop shouldBe Drop(3)
           reply shouldBe replyProbe.ref
@@ -50,7 +50,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
 
       val result = ConnectFourModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
-      result shouldBe Right(ConnectFourActor.GetState(replyProbe.ref))
+      result shouldBe Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
 
     "produce a Subscribe command for a given PlayerActor ref" in {
@@ -58,7 +58,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
 
       val result = ConnectFourActor.subscribeCommand(playerProbe.ref)
 
-      result shouldBe ConnectFourActor.Subscribe(playerProbe.ref)
+      result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref)
     }
 
     "serialize a ConnectFour game to GridGameState" in {

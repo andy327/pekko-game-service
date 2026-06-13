@@ -13,6 +13,13 @@ class ConnectFourSpec extends AnyWordSpec with Matchers {
 
   "A ConnectFour game" should {
 
+    "resolve participants to their marks with playerFor" in {
+      val game = ConnectFour.empty(alice, bob)
+      game.playerFor(alice) shouldBe Some(Red)
+      game.playerFor(bob) shouldBe Some(Yellow)
+      game.playerFor(UUID.randomUUID()) shouldBe None
+    }
+
     "start with an empty board and Red moving first" in {
       val game = ConnectFour.empty(alice, bob)
       game.board.flatten.flatten shouldBe empty
