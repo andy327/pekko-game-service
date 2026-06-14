@@ -1,5 +1,6 @@
 package com.andy327.server.actors.core
 
+import io.circe.syntax._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
@@ -49,7 +50,7 @@ object PlayerActor {
       context.log.info(s"PlayerActor started for player ${player.name} (${player.id})")
       Behaviors.receiveMessage {
         case SendEvent(event) =>
-          val json = playerEventFormat.write(event).compactPrint
+          val json = event.asJson.deepDropNullValues.noSpaces
           wsOut ! WsMessage(TextMessage(json))
           Behaviors.same
         case SendRawJson(json) =>

@@ -3,7 +3,6 @@ package com.andy327.server.http.auth
 import scala.util.{Failure, Success}
 
 import io.circe.parser.decode
-import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.server.Directive1
 import org.apache.pekko.http.scaladsl.server.Directives._

@@ -12,7 +12,6 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
-import org.apache.pekko.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import org.apache.pekko.http.scaladsl.model.headers.RawHeader
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Directives._
@@ -21,7 +20,6 @@ import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
-import spray.json._
 
 import com.andy327.model.core.{GameId, GameType}
 import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
@@ -83,7 +81,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
+          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.board(0)(0) shouldBe "X"
         }
       }
@@ -135,7 +133,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/tictactoe/$gameId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
+          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.currentPlayer shouldBe "X"
         }
       }
@@ -329,7 +327,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/connectfour/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
+          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.board(5)(3) shouldBe "R"
         }
       }
@@ -357,7 +355,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/connectfour/$gameId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = responseAs[String].parseJson.convertTo[GridGameState]
+          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.currentPlayer shouldBe "R"
         }
       }

@@ -1,12 +1,10 @@
 package com.andy327.server.http.json
 
-import java.util.UUID
+import io.circe.generic.semiauto.deriveCodec
+import io.circe.syntax._
+import io.circe.{Codec, Encoder, Json}
+import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 
-import org.apache.pekko.http.scaladsl.marshalling.{Marshaller, ToResponseMarshaller}
-import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpResponse, MediaTypes}
-import spray.json._
-
-import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager.{
   ErrorResponse,
   GameStarted,
@@ -18,113 +16,75 @@ import com.andy327.server.actors.core.GameManager.{
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.http.auth.PlayerRequest
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, Player}
+import com.andy327.server.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 
-/** Spray-JSON read/write formats and Pekko HTTP marshallers for all API types.
+/** Circe codecs and Pekko HTTP marshallers for all API types.
   *
-  * Case-class formats are derived via `jsonFormatN`; enums and sum types use hand-written instances so the wire format
-  * stays stable even if the class name changes. The [[playerEventFormat]] is write-only (server-push only).
-  * The [[gameStateMarshaller]] handles polymorphic `GameState` → `HttpResponse` conversion.
+  * Case-class codecs are derived via `deriveCodec`. The value codecs for `Player`, `GameLifecycleStatus`, and
+  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from
+  * [[com.andy327.server.lobby.LobbyCodecs]] and re-exported as members here, so the wire format is defined once and is
+  * shared by the HTTP layer and Redis persistence. [[playerEventEncoder]] is write-only (server-push only). Marshalling
+  * is provided by [[CirceSupport]]: any type with an `Encoder` can be `complete`d, any type with a `Decoder` read with
+  * `entity(as[A])`.
   */
-object JsonProtocol extends DefaultJsonProtocol {
+object JsonProtocol extends CirceSupport {
 
-  /** Serialises UUIDs as plain strings; rejects non-UUID strings at read time. */
-  implicit val uuidFormat: RootJsonFormat[UUID] = new RootJsonFormat[UUID] {
-    def write(uuid: UUID): JsValue = JsString(uuid.toString)
-    def read(value: JsValue): UUID = value match {
-      case JsString(str) =>
-        try UUID.fromString(str)
-        catch {
-          case _: IllegalArgumentException =>
-            deserializationError(s"Invalid UUID string: $str")
-        }
-      case other => deserializationError(s"Expected UUID string, got: $other")
-    }
-  }
+  // Canonical value codecs, re-exported as members so `import JsonProtocol._` brings them into implicit scope.
+  implicit val playerCodec: Codec[Player] = LobbyCodecs.playerCodec
+  implicit val gameLifecycleStatusCodec: Codec[GameLifecycleStatus] = LobbyCodecs.statusCodec
+  implicit val lobbyMetadataCodec: Codec[LobbyMetadata] = LobbyCodecs.lobbyMetadataCodec
 
-  implicit val playerRequestFormat: RootJsonFormat[PlayerRequest] = jsonFormat2(PlayerRequest.apply)
+  implicit val playerRequestCodec: Codec[PlayerRequest] = deriveCodec[PlayerRequest]
 
-  implicit val playerFormat: RootJsonFormat[Player] = jsonFormat2(Player.apply)
+  implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
 
-  /** Serialises GameType as its `toString` name; rejects unknown strings at read time. */
-  implicit val gameTypeFormat: RootJsonFormat[GameType] = new RootJsonFormat[GameType] {
-    def write(gt: GameType): JsValue = JsString(gt.toString)
+  implicit val lobbyJoinedCodec: Codec[LobbyJoined] = deriveCodec[LobbyJoined]
 
-    def read(json: JsValue): GameType = json match {
-      case JsString("TicTacToe")   => GameType.TicTacToe
-      case JsString("ConnectFour") => GameType.ConnectFour
-      case JsString(other)         => deserializationError(s"Unknown GameType: $other")
-      case _                       => deserializationError("Expected GameType string")
-    }
-  }
+  implicit val lobbyLeftCodec: Codec[LobbyLeft] = deriveCodec[LobbyLeft]
 
-  /** Serialises GameLifecycleStatus as its `toString` name; rejects unknown strings at read time. */
-  implicit val gameLifecycleStatusFormat: RootJsonFormat[GameLifecycleStatus] =
-    new RootJsonFormat[GameLifecycleStatus] {
-      def write(status: GameLifecycleStatus): JsValue = JsString(status.toString)
-      def read(json: JsValue): GameLifecycleStatus = json match {
-        case JsString("WaitingForPlayers") => GameLifecycleStatus.WaitingForPlayers
-        case JsString("ReadyToStart")      => GameLifecycleStatus.ReadyToStart
-        case JsString("InProgress")        => GameLifecycleStatus.InProgress
-        case JsString("Completed")         => GameLifecycleStatus.Completed
-        case JsString("Cancelled")         => GameLifecycleStatus.Cancelled
-        case JsString(other)               => deserializationError(s"Unknown GameLifecycleStatus: $other")
-        case _                             => deserializationError("Expected GameLifecycleStatus as string")
-      }
-    }
+  implicit val gameStartedCodec: Codec[GameStarted] = deriveCodec[GameStarted]
 
-  implicit val lobbyMetadataFormat: RootJsonFormat[LobbyMetadata] = jsonFormat5(LobbyMetadata.apply)
+  implicit val lobbiesListedCodec: Codec[LobbiesListed] = deriveCodec[LobbiesListed]
 
-  implicit val lobbyCreatedFormat: RootJsonFormat[LobbyCreated] = jsonFormat2(LobbyCreated.apply)
+  implicit val errorResponseCodec: Codec[ErrorResponse] = deriveCodec[ErrorResponse]
 
-  implicit val lobbyJoinedFormat: RootJsonFormat[LobbyJoined] = jsonFormat3(LobbyJoined.apply)
-
-  implicit val lobbyLeftFormat: RootJsonFormat[LobbyLeft] = jsonFormat2(LobbyLeft.apply)
-
-  implicit val gameStartFormat: RootJsonFormat[GameStarted] = jsonFormat1(GameStarted.apply)
-
-  implicit val lobbiesListedFormat: RootJsonFormat[LobbiesListed] = jsonFormat4(LobbiesListed.apply)
-
-  implicit val errorResponseFormat: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
-
-  implicit val subscribeAcknowledgedFormat: RootJsonFormat[SubscribeAcknowledged] =
-    jsonFormat1(SubscribeAcknowledged.apply)
+  implicit val subscribeAcknowledgedCodec: Codec[SubscribeAcknowledged] = deriveCodec[SubscribeAcknowledged]
 
   // Game state views
 
-  implicit val gridGameStateFormat: RootJsonFormat[GridGameState] = jsonFormat4(GridGameState.apply)
+  implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
 
-  /** Write-only format for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
+  /** Encoder for the polymorphic `GameState` hierarchy; currently every view is a [[GridGameState]]. */
+  implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance { case s: GridGameState =>
+    s.asJson
+  }
+
+  // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see
+  // [[CirceSupport]]). Covers the request body read in routes and the response types read back in tests.
+  implicit val playerRequestUnmarshaller: FromEntityUnmarshaller[PlayerRequest] = circeUnmarshaller[PlayerRequest]
+  implicit val lobbyMetadataUnmarshaller: FromEntityUnmarshaller[LobbyMetadata] = circeUnmarshaller[LobbyMetadata]
+  implicit val lobbyCreatedUnmarshaller: FromEntityUnmarshaller[LobbyCreated] = circeUnmarshaller[LobbyCreated]
+  implicit val lobbyJoinedUnmarshaller: FromEntityUnmarshaller[LobbyJoined] = circeUnmarshaller[LobbyJoined]
+  implicit val lobbyLeftUnmarshaller: FromEntityUnmarshaller[LobbyLeft] = circeUnmarshaller[LobbyLeft]
+  implicit val gameStartedUnmarshaller: FromEntityUnmarshaller[GameStarted] = circeUnmarshaller[GameStarted]
+  implicit val lobbiesListedUnmarshaller: FromEntityUnmarshaller[LobbiesListed] = circeUnmarshaller[LobbiesListed]
+  implicit val subscribeAcknowledgedUnmarshaller: FromEntityUnmarshaller[SubscribeAcknowledged] =
+    circeUnmarshaller[SubscribeAcknowledged]
+
+  /** Write-only encoder for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *
     * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the event
     * kind without additional out-of-band information:
     *   - `{"type":"LobbyUpdated",    "metadata":{...}}`
     *   - `{"type":"GameStateUpdated","state":{...}}`
     *   - `{"type":"GameEnded",       "result":"Completed"}`
-    *
-    * Reading is not supported; deserializationError is raised if attempted.
     */
-  implicit val playerEventFormat: RootJsonFormat[PlayerEvent] = new RootJsonFormat[PlayerEvent] {
-    def write(event: PlayerEvent): JsValue = event match {
-      case PlayerEvent.LobbyUpdated(metadata) =>
-        JsObject("type" -> JsString("LobbyUpdated"), "metadata" -> lobbyMetadataFormat.write(metadata))
-      case PlayerEvent.GameStateUpdated(state) =>
-        val stateJson = state match {
-          case s: GridGameState => gridGameStateFormat.write(s)
-        }
-        JsObject("type" -> JsString("GameStateUpdated"), "state" -> stateJson)
-      case PlayerEvent.GameEnded(result) =>
-        JsObject("type" -> JsString("GameEnded"), "result" -> gameLifecycleStatusFormat.write(result))
-    }
-
-    def read(json: JsValue): PlayerEvent =
-      deserializationError("PlayerEvent deserialization is not supported")
+  implicit val playerEventEncoder: Encoder[PlayerEvent] = Encoder.instance {
+    case PlayerEvent.LobbyUpdated(metadata) =>
+      Json.obj("type" -> "LobbyUpdated".asJson, "metadata" -> metadata.asJson)
+    case PlayerEvent.GameStateUpdated(state) =>
+      Json.obj("type" -> "GameStateUpdated".asJson, "state" -> state.asJson)
+    case PlayerEvent.GameEnded(result) =>
+      Json.obj("type" -> "GameEnded".asJson, "result" -> (result: GameLifecycleStatus).asJson)
   }
-
-  /** Polymorphic marshaller that knows how to serialise any GameState into an HttpResponse. */
-  implicit val gameStateMarshaller: ToResponseMarshaller[GameState] =
-    Marshaller.withFixedContentType(MediaTypes.`application/json`) { case s: GridGameState =>
-      val json = gridGameStateFormat.write(s).compactPrint
-      HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, json))
-    }
 }

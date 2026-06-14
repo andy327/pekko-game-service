@@ -3,9 +3,11 @@ package com.andy327.server.pubsub
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
+import io.circe.syntax._
+
 import com.andy327.model.core.GameId
 import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.http.json.JsonProtocol.playerEventFormat
+import com.andy327.server.http.json.JsonProtocol.playerEventEncoder
 
 /** Contract for publishing game events so other server instances can relay them to local players.
   *
@@ -36,7 +38,7 @@ class RedisGameEventPublisher(doPublish: (String, String) => IO[Unit])(implicit 
 
   override def publish(gameId: GameId, event: PlayerEvent): Unit = {
     val channel = s"game-events:$gameId"
-    val json = playerEventFormat.write(event).compactPrint
+    val json = event.asJson.deepDropNullValues.noSpaces
     doPublish(channel, json).unsafeRunAndForget()
   }
 }

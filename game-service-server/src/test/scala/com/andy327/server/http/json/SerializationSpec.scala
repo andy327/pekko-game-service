@@ -2,9 +2,9 @@ package com.andy327.server.http.json
 
 import java.util.UUID
 
+import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import spray.json._
 
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
@@ -17,123 +17,23 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.http.json.GameStateConverters
 import com.andy327.server.lobby._
 
+/** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent
+  * encoder. The reused value codecs (Player, GameType, GameLifecycleStatus, LobbyMetadata) are tested at their source
+  * in LobbyCodecsSpec and GameTypeCodecsSpec.
+  */
 class SerializationSpec extends AnyWordSpec with Matchers {
   import JsonProtocol._
 
-  "UUID RootJsonFormat" should {
-    "deserialize a valid UUID string" in {
-      val uuid = UUID.randomUUID()
-      JsString(uuid.toString).convertTo[UUID] shouldBe uuid
-    }
-
-    "fail on invalid UUID string" in {
-      val invalid = JsString("not-a-uuid")
-      val ex = intercept[DeserializationException] {
-        invalid.convertTo[UUID]
-      }
-      ex.getMessage should include("Invalid UUID string")
-    }
-
-    "fail on non-string JSON value" in {
-      val invalid = JsNumber(42)
-      val ex = intercept[DeserializationException] {
-        invalid.convertTo[UUID]
-      }
-      ex.getMessage should include("Expected UUID string")
-    }
-  }
-
-  "Player JSON format" should {
-    "round-trip serialize and deserialize" in {
-      val player = Player(UUID.randomUUID(), "bob")
-      val json = player.toJson
-      json.convertTo[Player] shouldBe player
-    }
-  }
-
-  "GameType RootJsonFormat" should {
-    "deserialize TicTacToe game type" in {
-      JsString("TicTacToe").convertTo[GameType] shouldBe GameType.TicTacToe
-    }
-
-    "deserialize ConnectFour game type" in {
-      JsString("ConnectFour").convertTo[GameType] shouldBe GameType.ConnectFour
-    }
-
-    "fail on unknown game type string" in {
-      val ex = intercept[DeserializationException] {
-        JsString("UnimplementedGame").convertTo[GameType]
-      }
-      ex.getMessage should include("Unknown GameType")
-    }
-
-    "fail on non-string game type JSON" in {
-      val ex = intercept[DeserializationException] {
-        JsNumber(42).convertTo[GameType]
-      }
-      ex.getMessage should include("Expected GameType string")
-    }
-  }
-
-  "GameLifecycleStatus RootJsonFormat" should {
-    "serialize and deserialize all known values" in {
-      val values: Seq[GameLifecycleStatus] = Seq(
-        GameLifecycleStatus.WaitingForPlayers,
-        GameLifecycleStatus.ReadyToStart,
-        GameLifecycleStatus.InProgress,
-        GameLifecycleStatus.Completed,
-        GameLifecycleStatus.Cancelled
-      )
-
-      values.foreach { status =>
-        val json = status.toJson
-        json.convertTo[GameLifecycleStatus] shouldBe status
-      }
-    }
-
-    "fail on unknown string" in {
-      val ex = intercept[DeserializationException] {
-        JsString("Paused").convertTo[GameLifecycleStatus]
-      }
-      ex.getMessage should include("Unknown GameLifecycleStatus")
-    }
-
-    "fail on non-string JSON" in {
-      val ex = intercept[DeserializationException] {
-        JsArray(Vector.empty).convertTo[GameLifecycleStatus]
-      }
-      ex.getMessage should include("Expected GameLifecycleStatus as string")
-    }
-  }
-
-  "LobbyMetadata JSON format" should {
-    "round-trip serialize and deserialize" in {
-      val host = Player("host")
-      val joiner = Player("guest")
-      val metadata = LobbyMetadata(
-        gameId = UUID.randomUUID(),
-        gameType = GameType.TicTacToe,
-        players = Map(host.id -> host, joiner.id -> joiner),
-        hostId = host.id,
-        status = GameLifecycleStatus.ReadyToStart
-      )
-      val json = metadata.toJson
-      json.convertTo[LobbyMetadata] shouldBe metadata
-    }
-  }
-
-  "LobbyCreated JSON format" should {
+  "LobbyCreated codec" should {
     "round-trip serialize and deserialize" in {
       val lobby = LobbyCreated(UUID.randomUUID(), Player(UUID.randomUUID(), "host"))
-      val json = lobby.toJson
-      json.convertTo[LobbyCreated] shouldBe lobby
+      lobby.asJson.as[LobbyCreated] shouldBe Right(lobby)
     }
   }
 
-  "LobbyJoined JSON format" should {
+  "LobbyJoined codec" should {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
@@ -149,63 +49,50 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         ),
         joinedPlayer = joiner
       )
-      val json = lobby.toJson
-      json.convertTo[LobbyJoined] shouldBe lobby
+      lobby.asJson.as[LobbyJoined] shouldBe Right(lobby)
     }
   }
 
-  "LobbyLeft JSON format" should {
+  "LobbyLeft codec" should {
     "round-trip serialize and deserialize" in {
-      val gameId = UUID.randomUUID()
-      val lobby = LobbyLeft(
-        gameId = gameId,
-        message = "Something went wrong"
-      )
-      val json = lobby.toJson
-      json.convertTo[LobbyLeft] shouldBe lobby
+      val lobby = LobbyLeft(UUID.randomUUID(), "Something went wrong")
+      lobby.asJson.as[LobbyLeft] shouldBe Right(lobby)
     }
   }
 
-  "ErrorResponse JSON format" should {
+  "ErrorResponse codec" should {
     "round-trip serialize and deserialize" in {
       val error = ErrorResponse("Something went wrong")
-      val json = error.toJson
-      json.convertTo[ErrorResponse] shouldBe error
+      error.asJson.as[ErrorResponse] shouldBe Right(error)
     }
   }
 
-  "SubscribeAcknowledged JSON format" should {
+  "SubscribeAcknowledged codec" should {
     "round-trip serialize and deserialize" in {
       val ack = SubscribeAcknowledged(UUID.randomUUID())
-      val json = ack.toJson
-      json.convertTo[SubscribeAcknowledged] shouldBe ack
+      ack.asJson.as[SubscribeAcknowledged] shouldBe Right(ack)
     }
   }
 
-  "GridGameState view" should {
-    "round-trip serialize and deserialize from a TicTacToe game" in {
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val game = TicTacToe.empty(alice.id, bob.id)
-      val view = GameStateConverters.serializeGame(game)
-      val json = view.toJson
-      json.convertTo[GridGameState] shouldBe view
+  "GridGameState codec" should {
+    "round-trip a TicTacToe view" in {
+      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      view.asJson.as[GridGameState] shouldBe Right(view)
+    }
+
+    "round-trip a ConnectFour view" in {
+      val view = GameStateConverters.serializeGame(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()))
+      view.asJson.as[GridGameState] shouldBe Right(view)
+    }
+
+    "omit an absent winner rather than serializing it as null" in {
+      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      view.asJson.deepDropNullValues.asObject.flatMap(_("winner")) should not be defined
     }
   }
 
-  "GridGameState view (ConnectFour)" should {
-    "round-trip serialize and deserialize from a ConnectFour game" in {
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val game = ConnectFour.empty(alice.id, bob.id)
-      val view = GameStateConverters.serializeGame(game)
-      val json = view.toJson
-      json.convertTo[GridGameState] shouldBe view
-    }
-  }
-
-  "playerEventFormat" should {
-    "serialize LobbyUpdated with type discriminator and metadata" in {
+  "playerEventEncoder" should {
+    "encode LobbyUpdated with a type discriminator and metadata" in {
       val host = Player("host")
       val metadata = LobbyMetadata(
         gameId = UUID.randomUUID(),
@@ -214,46 +101,22 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         hostId = host.id,
         status = GameLifecycleStatus.WaitingForPlayers
       )
-      val event: PlayerEvent = PlayerEvent.LobbyUpdated(metadata)
-      val json = event.toJson.asJsObject
-      json.fields("type") shouldBe JsString("LobbyUpdated")
-      (json.fields should contain).key("metadata")
+      val json = (PlayerEvent.LobbyUpdated(metadata): PlayerEvent).asJson
+      json.hcursor.get[String]("type") shouldBe Right("LobbyUpdated")
+      json.asObject.flatMap(_("metadata")) should be(defined)
     }
 
-    "serialize GameStateUpdated with TicTacToe state" in {
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val game = TicTacToe.empty(alice.id, bob.id)
-      val state = GameStateConverters.serializeGame(game)
-      val event: PlayerEvent = PlayerEvent.GameStateUpdated(state)
-      val json = event.toJson.asJsObject
-      json.fields("type") shouldBe JsString("GameStateUpdated")
-      (json.fields should contain).key("state")
+    "encode GameStateUpdated with a type discriminator and state" in {
+      val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      val json = (PlayerEvent.GameStateUpdated(state): PlayerEvent).asJson
+      json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
+      json.asObject.flatMap(_("state")) should be(defined)
     }
 
-    "serialize GameStateUpdated with ConnectFour state" in {
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val game = ConnectFour.empty(alice.id, bob.id)
-      val state = GameStateConverters.serializeGame(game)
-      val event: PlayerEvent = PlayerEvent.GameStateUpdated(state)
-      val json = event.toJson.asJsObject
-      json.fields("type") shouldBe JsString("GameStateUpdated")
-      (json.fields should contain).key("state")
-    }
-
-    "serialize GameEnded with type discriminator and result" in {
-      val event: PlayerEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
-      val json = event.toJson.asJsObject
-      json.fields("type") shouldBe JsString("GameEnded")
-      json.fields("result") shouldBe JsString("Completed")
-    }
-
-    "throw DeserializationException on read" in {
-      val ex = intercept[DeserializationException] {
-        JsObject("type" -> JsString("LobbyUpdated")).convertTo[PlayerEvent]
-      }
-      ex.getMessage should include("PlayerEvent deserialization is not supported")
+    "encode GameEnded with a type discriminator and result" in {
+      val json = (PlayerEvent.GameEnded(GameLifecycleStatus.Completed): PlayerEvent).asJson
+      json.hcursor.get[String]("type") shouldBe Right("GameEnded")
+      json.hcursor.get[String]("result") shouldBe Right("Completed")
     }
   }
 }
