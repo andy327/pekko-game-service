@@ -436,6 +436,8 @@ object GameManager {
 
         case PlayerDisconnected(playerId, playerRef) =>
           playerManager ! PlayerManager.PlayerDisconnected(playerId, playerRef)
+          // drop the player from the Redis subscriber registry so remote-game watch entries don't leak
+          subscriber.foreach(_.unregisterPlayer(playerRef).unsafeRunAndForget())
           Behaviors.same
 
         case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>

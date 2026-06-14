@@ -3,7 +3,7 @@ package com.andy327.server.actors.core
 import scala.reflect.ClassTag
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTypeTag, InProgress, PlayerId, Won}
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -139,7 +139,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       gameManager: ActorRef[GameManager.Command],
       subscribers: Set[ActorRef[PlayerActor.Command]],
       publisher: GameEventPublisher
-  ): Behavior[Command] = Behaviors.receive { (context, msg) =>
+  ): Behavior[Command] = Behaviors.receive[Command] { (context, msg) =>
     msg match {
       case MakeMove(playerId, move, replyTo) =>
         game.playerFor(playerId) match {
@@ -192,10 +192,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         Behaviors.same
 
       case Subscribe(playerRef) =>
+        // watch the subscriber so its termination (disconnect/reconnect) drops it from the set automatically
+        context.watch(playerRef)
         playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game)))
         active(game, gameId, persist, gameManager, subscribers + playerRef, publisher)
 
       case Unsubscribe(playerRef) =>
+        context.unwatch(playerRef)
         active(game, gameId, persist, gameManager, subscribers - playerRef, publisher)
 
       case SnapshotSaved(result) =>
@@ -205,5 +208,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         }
         Behaviors.same
     }
+  }.receiveSignal { case (context, Terminated(ref)) =>
+    // a subscribed PlayerActor stopped; drop its (now-dead) ref so we stop fanning events to it
+    context.log.debug(s"[$gameId] subscriber $ref terminated; removing from subscribers")
+    active(game, gameId, persist, gameManager, subscribers.filterNot(_ == ref), publisher)
   }
 }

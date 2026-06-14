@@ -1,7 +1,7 @@
 package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
@@ -93,9 +93,12 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * Entered after a win or draw is detected. All commands except `SnapshotSaved` are ignored — the actor is
     * shutting down and should not process new moves or subscribe requests. The actor self-stops once the final
     * snapshot is confirmed, so [[com.andy327.server.actors.core.GameManager]] does not need to call `context.stop`.
+    *
+    * A `Terminated` signal from a still-watched subscriber is ignored here; without an explicit handler Pekko would
+    * raise `DeathPactException` and crash the actor before the final snapshot is confirmed.
     */
   protected def terminating(gameId: GameId): Behavior[Command] =
-    Behaviors.receive { (context, msg) =>
+    Behaviors.receive[Command] { (context, msg) =>
       snapshotSavedResult(msg) match {
         case Some(result) =>
           result match {
@@ -106,5 +109,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
         case None =>
           Behaviors.same
       }
+    }.receiveSignal { case (_, Terminated(_)) =>
+      Behaviors.same
     }
 }

@@ -2,10 +2,12 @@ package com.andy327.server.actors.tictactoe
 
 import java.util.UUID
 
+import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -260,6 +262,20 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       subscriberProbe.expectNoMessage()
     }
 
+    "drop a terminated subscriber without crashing" in {
+      val (actor, _) = newActor()
+      val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TurnBasedGameActor.Subscribe(subscriber)
+      // the game actor watches the subscriber; stopping it must drop it via Terminated, not DeathPactException
+      testKit.stop(subscriber)
+
+      // the actor is still alive and serving requests
+      actor ! TurnBasedGameActor.GetState(replyProbe.ref)
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
+    }
+
     "stop after receiving SnapshotSaved(Right) in terminating state" in {
       val (actor, persistProbe) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
@@ -304,6 +320,31 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       replyProbe.expectNoMessage()
 
       // SnapshotSaved then stops the actor
+      actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "not crash when a watched subscriber terminates while in terminating state" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
+      val deathWatch = createTestProbe[Any]()
+
+      actor ! TurnBasedGameActor.Subscribe(subscriber)
+
+      // drive the game to completion → actor enters `terminating`, awaiting the final SnapshotSaved
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      }
+
+      // the watched subscriber dies mid-shutdown; without the Terminated handler this is a DeathPactException
+      testKit.stop(subscriber)
+      // the actor must still be alive (it has not stopped from the subscriber's death)
+      intercept[AssertionError](deathWatch.expectTerminated(actor, 150.millis))
+
+      // it stops only once the final snapshot is confirmed
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
       persistProbe.expectTerminated(actor)
     }

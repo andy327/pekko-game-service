@@ -80,6 +80,38 @@ class GameEventSubscriberSpec extends AnyWordSpecLike with Matchers {
       fiber.cancel.unsafeRunSync()
     }
 
+    "stop routing to a player after unregisterPlayer while keeping other players" in {
+      val game1 = UUID.randomUUID()
+      val game2 = UUID.randomUUID()
+      val json = """{"type":"GameStateUpdated"}"""
+
+      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
+      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
+
+      val wsA = createTestProbe[PlayerActor.WsOutput]()
+      val wsB = createTestProbe[PlayerActor.WsOutput]()
+      val playerA = spawn(PlayerActor(Player("alice"), wsA.ref))
+      val playerB = spawn(PlayerActor(Player("bob"), wsB.ref))
+      subscriber.registerPlayer(game1, playerA).unsafeRunSync()
+      subscriber.registerPlayer(game2, playerA).unsafeRunSync()
+      subscriber.registerPlayer(game1, playerB).unsafeRunSync()
+
+      subscriber.unregisterPlayer(playerA).unsafeRunSync()
+
+      val fiber = subscriber.run.start.unsafeRunSync()
+
+      // game1 still has playerB registered; playerA was removed
+      queue.offer((s"game-events:$game1", json)).unsafeRunSync()
+      wsB.expectMessageType[PlayerActor.WsMessage]
+      wsA.expectNoMessage(100.millis)
+
+      // game2 had only playerA, so it is now empty and routes to no one
+      queue.offer((s"game-events:$game2", json)).unsafeRunSync()
+      wsA.expectNoMessage(100.millis)
+
+      fiber.cancel.unsafeRunSync()
+    }
+
     "not route events for games with no registered players" in {
       val gameId = UUID.randomUUID()
       val otherGameId = UUID.randomUUID()

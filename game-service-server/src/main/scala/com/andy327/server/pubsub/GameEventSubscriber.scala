@@ -39,6 +39,15 @@ class GameEventSubscriber(
   def unregisterGame(gameId: GameId): IO[Unit] =
     registry.update(_ - gameId)
 
+  /** Remove `ref` from every game it watches (e.g., when the player disconnects), dropping games left with no
+    * remaining watchers so the registry does not accumulate empty entries.
+    */
+  def unregisterPlayer(ref: ActorRef[PlayerActor.Command]): IO[Unit] =
+    registry.update(_.flatMap { case (gameId, refs) =>
+      val remaining = refs - ref
+      if (remaining.isEmpty) None else Some(gameId -> remaining)
+    })
+
   /** Processes incoming Redis messages and routes each one to the registered actors for that game.
     *
     * Runs until cancelled — should be started as a background fiber before the HTTP server accepts connections.
