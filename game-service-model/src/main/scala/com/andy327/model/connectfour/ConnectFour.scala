@@ -91,6 +91,9 @@ final case class ConnectFour(
     else if (playerId == playerYellow) Some(Yellow)
     else None
 
+  /** The number of pieces dropped so far — one per move. */
+  def moveCount: Int = board.flatten.count(_.isDefined)
+
   private def nextPlayer: Mark = currentPlayer match {
     case Red    => Yellow
     case Yellow => Red

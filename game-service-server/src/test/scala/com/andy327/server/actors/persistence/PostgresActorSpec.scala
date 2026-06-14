@@ -1,19 +1,22 @@
 package com.andy327.server.actors.persistence
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
+import io.circe.Json
+import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.persistence.db.GameRepository
+import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 
 class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike with Matchers {
   implicit val runtime: IORuntime = IORuntime.global
@@ -25,7 +28,17 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
     def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
   }
 
+  /** Records each appended move; `appendResult` lets a test force the append IO to fail. */
+  class RecordingMoveRepo(appendResult: Either[Throwable, Unit] = Right(())) extends MoveHistoryRepository {
+    val appended = new ConcurrentLinkedQueue[(GameId, Int, PlayerId, Json)]()
+    def initialize(): IO[Unit] = IO.unit
+    def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
+      IO(appended.add((gameId, seq, playerId, move))) *> IO.fromEither(appendResult)
+    def loadMoves(gameId: GameId): IO[List[MoveRecord]] = IO.pure(Nil)
+  }
+
   val saveError: RuntimeException with NoStackTrace = new RuntimeException("saving failure") with NoStackTrace
+  val appendError: RuntimeException with NoStackTrace = new RuntimeException("append failure") with NoStackTrace
 
   val alice: PlayerId = UUID.randomUUID()
   val bob: PlayerId = UUID.randomUUID()
@@ -33,8 +46,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
 
   "PostgresActor" should {
     "reply with SnapshotSaved on successful SaveSnapshot" in {
-      val gameRepo = new DummyRepo(saveResult = Right(()))
-      val persistActor = spawn(PostgresActor(gameRepo))
+      val persistActor = spawn(PostgresActor(new DummyRepo(saveResult = Right(())), new RecordingMoveRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
       persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
@@ -43,8 +55,7 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
     }
 
     "reply with SnapshotSaved on failed SaveSnapshot when GameRepository raises an error" in {
-      val gameRepo = new DummyRepo(saveResult = Left(saveError))
-      val persistActor = spawn(PostgresActor(gameRepo))
+      val persistActor = spawn(PostgresActor(new DummyRepo(saveResult = Left(saveError)), new RecordingMoveRepo))
 
       val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
       persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
@@ -53,5 +64,27 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
       err shouldBe saveError
     }
 
+    "append a move to the move repository on AppendMove" in {
+      val moveRepo = new RecordingMoveRepo
+      val persistActor = spawn(PostgresActor(new DummyRepo(), moveRepo))
+      val gameId = UUID.randomUUID()
+      val move = Json.obj("col" -> 3.asJson)
+
+      persistActor ! PersistenceProtocol.AppendMove(gameId, 0, alice, move)
+
+      createTestProbe().awaitAssert(moveRepo.appended should have size 1)
+      moveRepo.appended.peek() shouldBe ((gameId, 0, alice, move))
+    }
+
+    "stay alive when a move append fails" in {
+      val persistActor = spawn(PostgresActor(new DummyRepo(), new RecordingMoveRepo(appendResult = Left(appendError))))
+
+      persistActor ! PersistenceProtocol.AppendMove(UUID.randomUUID(), 0, alice, Json.obj())
+
+      // a failed append must not crash the actor — a subsequent snapshot still gets a reply
+      val replyProbe = createTestProbe[PersistenceProtocol.SnapshotSaved]()
+      persistActor ! PersistenceProtocol.SaveSnapshot(UUID.randomUUID(), GameType.TicTacToe, freshGame, replyProbe.ref)
+      replyProbe.expectMessage(PersistenceProtocol.SnapshotSaved(Right(())))
+    }
   }
 }

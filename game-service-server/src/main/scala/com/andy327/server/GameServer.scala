@@ -16,9 +16,9 @@ import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.model.core.GameType
-import com.andy327.persistence.db.GameRepository
-import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresTransactor}
+import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresMoveHistoryRepository, PostgresTransactor}
 import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepository}
+import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
@@ -56,15 +56,17 @@ object GameServer {
       val postgresRepo = new PostgresGameRepository(xa)
       val gameRepo = new RedisGameRepository(postgresRepo, redis)
       val lobbyRepo = new RedisLobbyRepository(redis)
+      val moveRepo = new PostgresMoveHistoryRepository(xa)
 
       // Ensure the schema exists before starting the server
       for {
         _ <- gameRepo.initialize()
+        _ <- moveRepo.initialize()
         subscriber <- GameEventSubscriber.create(subscribeStream)
         publisher = new RedisGameEventPublisher(publishFn)
         // Run the subscriber as a background fiber; it stays alive for the lifetime of the server
         _ <- subscriber.run.start
-        result <- startServer(host, port, gameRepo, lobbyRepo, publisher, Some(subscriber)).flatMap {
+        result <- startServer(host, port, gameRepo, lobbyRepo, moveRepo, publisher, Some(subscriber)).flatMap {
           case (system, _) =>
             IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -78,11 +80,12 @@ object GameServer {
       port: Int,
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
+      moveRepo: MoveHistoryRepository,
       publisher: GameEventPublisher = NoOpGameEventPublisher,
       subscriber: Option[GameEventSubscriber] = None
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
-      val persistActor = context.spawn(PostgresActor(gameRepo), "postgres-persistence")
+      val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo), "postgres-persistence")
       GameManager(persistActor, gameRepo, lobbyRepo, publisher, subscriber)
     }
 
