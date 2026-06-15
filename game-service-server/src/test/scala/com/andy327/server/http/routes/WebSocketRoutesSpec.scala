@@ -91,5 +91,35 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         wsClient.expectCompletion()
       }
     }
+
+    "drop a malformed inbound frame and still route a valid ChatSend back to the match's subscribers" in {
+      val alice = Player("alice")
+      val token = createTestToken(alice)
+      val responseProbe = typedKit.createTestProbe[GameManager.GameResponse]()
+
+      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val gameId = responseProbe.expectMessageType[GameManager.LobbyCreated].gameId
+
+      val wsClient = WSProbe()
+      WS("/ws", wsClient.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+        isWebSocketUpgrade shouldBe true
+
+        // subscribe alice to the lobby once her session is registered (registration is async)
+        responseProbe.awaitAssert {
+          typedSystem ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+          responseProbe.receiveMessage() shouldBe a[GameManager.SubscribeAcknowledged]
+        }
+        wsClient.expectMessage().asTextMessage.getStrictText should include("LobbyUpdated") // initial state
+
+        // a malformed frame is logged and dropped without tearing down the connection
+        wsClient.sendMessage("not even json")
+
+        // the next valid chat frame is still routed: inbound decode -> SendChat -> lobby fan-out -> back to her socket
+        wsClient.sendMessage(s"""{"type":"ChatSend","gameId":"$gameId","text":"hello all"}""")
+        val frame = wsClient.expectMessage().asTextMessage.getStrictText
+        frame should include("ChatMessage")
+        frame should include("hello all")
+      }
+    }
   }
 }

@@ -1,5 +1,7 @@
 package com.andy327.server.actors.core
 
+import java.time.Instant
+
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -13,6 +15,7 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
@@ -86,8 +89,19 @@ object GameManager {
     */
   final case class GetMoveHistory(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
+  /** Fetch the recent chat history for `gameId` (backscroll) from the chat store; replies with [[ChatHistory]] (empty
+    * if none) or [[ErrorResponse]] on a storage failure. Served by a direct read, so it works for active and finished
+    * games; live messages continue to arrive over the WebSocket.
+    */
+  final case class GetChatHistory(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
+
   /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  /** Post a chat message to a match: fans it out to the match's subscribers (the game actor's while in progress, the
+    * lobby's otherwise) and publishes it so other instances relay it to their watchers.
+    */
+  final case class SendChat(gameId: GameId, sender: Player, text: String) extends Command
 
   /** Subscribe the authenticated player to game push events as a spectator; replies with [[SubscribeAcknowledged]] or
     * [[ErrorResponse]].
@@ -190,6 +204,13 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  /** Carries the result of an async chat-history load for a [[GetChatHistory]] request. */
+  final private case class ChatHistoryLoaded(
+      result: Either[Throwable, List[PlayerEvent.ChatMessage]],
+      gameId: GameId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   // --- Response types (sent back to HTTP route handlers) ---
 
   sealed trait GameResponse
@@ -209,6 +230,9 @@ object GameManager {
 
   /** The ordered move history for a game; `moves` is empty if the game has no recorded moves. */
   final case class MoveHistory(gameId: GameId, moves: List[MoveRecord]) extends GameResponse
+
+  /** The recent chat history for a game, oldest first; `messages` is empty if the game has no recorded messages. */
+  final case class ChatHistory(gameId: GameId, messages: List[PlayerEvent.ChatMessage]) extends GameResponse
 
   // Error responses
 
@@ -236,6 +260,7 @@ object GameManager {
     * @param gameRepo the repository used for the initial game restore and completed-game state lookups
     * @param lobbyRepo the repository used to restore lobbies at startup and persist lobby changes
     * @param moveRepo the repository read to serve move-history queries; defaults to no-op (empty history)
+    * @param chatRepo the repository written on each chat message and read to serve backscroll; defaults to no-op
     * @param publisher publishes game events to Redis so remote instances can relay them; defaults to no-op
     * @param subscriber routes incoming Redis events to locally connected players watching remote games; `None` disables
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
@@ -246,6 +271,7 @@ object GameManager {
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository = NoOpMoveHistoryRepository,
+      chatRepo: ChatRepository = NoOpChatRepository,
       publisher: GameEventPublisher = NoOpGameEventPublisher,
       subscriber: Option[GameEventSubscriber] = None,
       onReady: Option[ActorRef[Ready.type]] = None
@@ -275,6 +301,7 @@ object GameManager {
           persistActor,
           gameRepo,
           moveRepo,
+          chatRepo,
           stash,
           publisher,
           subscriber,
@@ -294,6 +321,7 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       moveRepo: MoveHistoryRepository,
+      chatRepo: ChatRepository,
       stash: StashBuffer[Command],
       publisher: GameEventPublisher,
       subscriber: Option[GameEventSubscriber],
@@ -320,6 +348,7 @@ object GameManager {
             persistActor,
             gameRepo,
             moveRepo,
+            chatRepo,
             publisher,
             subscriber
           )(runtime)
@@ -347,6 +376,7 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       moveRepo: MoveHistoryRepository,
+      chatRepo: ChatRepository,
       publisher: GameEventPublisher,
       subscriber: Option[GameEventSubscriber]
   )(implicit runtime: IORuntime): Behavior[Command] =
@@ -437,6 +467,24 @@ object GameManager {
           }
           Behaviors.same
 
+        case SendChat(gameId, sender, text) =>
+          val event = PlayerEvent.ChatMessage(gameId, sender.id, sender.name, text, Instant.now())
+          activeGames.get(gameId) match {
+            case Some((gameType, gameActor)) =>
+              gameActor ! GameRegistry.forType(gameType).actor.broadcastCommand(event)
+            case None =>
+              // not in progress (or unknown): fan out via the lobby; a bogus gameId is a harmless no-op there
+              lobbyManager ! LobbyManager.BroadcastChat(gameId, event)
+          }
+          // relay to watchers on other instances; local watchers are reached by the fan-out above
+          publisher.publish(gameId, event)
+          // record to the bounded chat history so late joiners can backscroll; best-effort, never blocks the send
+          chatRepo.append(event).unsafeRunAsync {
+            case Left(ex) => context.log.warn(s"Failed to persist chat message for $gameId", ex)
+            case Right(_) => ()
+          }
+          Behaviors.same
+
         case SubscribePlayerToGame(gameId, playerId, replyTo) =>
           implicit val t: Timeout = subscribeAskTimeout
           context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
@@ -504,6 +552,7 @@ object GameManager {
               persistActor,
               gameRepo,
               moveRepo,
+              chatRepo,
               publisher,
               subscriber
             )
@@ -523,6 +572,7 @@ object GameManager {
                 persistActor,
                 gameRepo,
                 moveRepo,
+                chatRepo,
                 publisher,
                 subscriber
               )
@@ -591,6 +641,24 @@ object GameManager {
             case Left(ex)     =>
               context.log.error(s"Failed to load move history for $gameId", ex)
               replyTo ! ErrorResponse("Failed to retrieve move history")
+          }
+          Behaviors.same
+
+        case GetChatHistory(gameId, replyTo) =>
+          context.pipeToSelf(chatRepo.recent(gameId).attempt.unsafeToFuture()) {
+            case Success(result) => ChatHistoryLoaded(result, gameId, replyTo)
+            // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
+            case Failure(ex) => ChatHistoryLoaded(Left(ex), gameId, replyTo)
+            // $COVERAGE-ON$
+          }
+          Behaviors.same
+
+        case ChatHistoryLoaded(result, gameId, replyTo) =>
+          result match {
+            case Right(messages) => replyTo ! ChatHistory(gameId, messages)
+            case Left(ex)        =>
+              context.log.error(s"Failed to load chat history for $gameId", ex)
+              replyTo ! ErrorResponse("Failed to retrieve chat history")
           }
           Behaviors.same
 

@@ -97,6 +97,9 @@ object LobbyManager {
   /** Replace the in-memory lobby map with lobbies restored from Redis at startup. */
   final private[core] case class RestoreLobbies(lobbies: List[LobbyMetadata]) extends Command
 
+  /** Fan `event` (a chat message) out to the lobby's subscribers, used while the match is still in its lobby phase. */
+  final private[core] case class BroadcastChat(gameId: GameId, event: PlayerEvent) extends Command
+
   // --- Response type owned by LobbyManager ---
 
   /** Paginated lobby-list result; adapted into [[GameManager.LobbiesListed]] by a GameManager message adapter. */
@@ -155,6 +158,10 @@ object LobbyManager {
         val restoredMap = restored.map(m => m.gameId -> m).toMap
         context.log.info(s"Restoring ${restoredMap.size} lobbies from Redis")
         running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo)
+
+      case BroadcastChat(gameId, event) =>
+        fanOut(subscribers, gameId, event)
+        Behaviors.same
 
       case CreateLobby(gameType, host, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")

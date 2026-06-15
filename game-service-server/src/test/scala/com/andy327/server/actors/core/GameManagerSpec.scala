@@ -24,10 +24,11 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.chat.ChatRepository
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
-import com.andy327.server.pubsub.GameEventSubscriber
+import com.andy327.server.pubsub.{GameEventPublisher, GameEventSubscriber}
 
 /** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
@@ -57,6 +58,19 @@ class InMemMoveRepo(initial: Map[GameId, List[MoveRecord]] = Map.empty, loadFail
 
   def loadMoves(gameId: GameId): IO[List[MoveRecord]] =
     if (loadFails) IO.raiseError(new RuntimeException("move load failure") with NoStackTrace)
+    else IO.pure(db.getOrElse(gameId, Nil))
+}
+
+/** In-memory ChatRepository for unit tests; records appends and `loadFails` forces recent to raise. */
+class InMemChatRepo(initial: Map[GameId, List[PlayerEvent.ChatMessage]] = Map.empty, loadFails: Boolean = false)
+    extends ChatRepository {
+  private val db = scala.collection.concurrent.TrieMap(initial.toSeq: _*)
+
+  def append(message: PlayerEvent.ChatMessage): IO[Unit] =
+    IO(db.update(message.gameId, db.getOrElse(message.gameId, Nil) :+ message))
+
+  def recent(gameId: GameId): IO[List[PlayerEvent.ChatMessage]] =
+    if (loadFails) IO.raiseError(new RuntimeException("chat load failure") with NoStackTrace)
     else IO.pure(db.getOrElse(gameId, Nil))
 }
 
@@ -970,6 +984,111 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       // subscriber receives initial lobby state immediately via WebSocket
       wsProbe.expectMessageType[PlayerActor.WsMessage]
+    }
+
+    "broadcast a chat message to an active game's subscribers and publish it on SendChat" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val host = Player("alice")
+      val guest = Player("bob")
+      val published = new java.util.concurrent.ConcurrentLinkedQueue[(GameId, PlayerEvent)]()
+      val recordingPublisher = new GameEventPublisher {
+        def publish(gameId: GameId, event: PlayerEvent): Unit = { published.add((gameId, event)); () }
+      }
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, publisher = recordingPublisher))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, host, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, guest, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+      gm ! GameManager.SubscribeToGame(gameId, subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial game state on subscribe
+
+      gm ! GameManager.SendChat(gameId, host, "gg")
+
+      val Some(chat) = subscriberProbe.expectMessageType[PlayerActor.SendEvent].event match {
+        case c: PlayerEvent.ChatMessage => Some(c)
+        case _                          => None
+      }
+      chat.gameId shouldBe gameId
+      chat.senderId shouldBe host.id
+      chat.senderName shouldBe "alice"
+      chat.text shouldBe "gg"
+
+      // also relayed to other instances via the publisher
+      subscriberProbe.awaitAssert(published.size shouldBe 1)
+      published.peek()._2 shouldBe a[PlayerEvent.ChatMessage]
+    }
+
+    "broadcast a chat message to lobby subscribers on SendChat before the game starts" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val alice = Player("alice")
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      // connect alice so CreateLobby auto-subscribes her to the new lobby
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = responseProbe.expectMessageType[GameManager.LobbyCreated]
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // initial lobby state from the auto-subscribe
+
+      gm ! GameManager.SendChat(gameId, alice, "hello")
+      val frame = wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text
+      frame should include("ChatMessage")
+      frame should include("hello")
+    }
+
+    "persist each chat message to the chat repository on SendChat" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val chatRepo = new InMemChatRepo()
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val gameId: GameId = UUID.randomUUID()
+      val sender = Player("alice")
+
+      gm ! GameManager.SendChat(gameId, sender, "hello all")
+
+      // append is fire-and-forget, so poll the history until the message lands
+      responseProbe.awaitAssert {
+        gm ! GameManager.GetChatHistory(gameId, responseProbe.ref)
+        val history = responseProbe.expectMessageType[GameManager.ChatHistory]
+        history.messages.map(_.text) shouldBe List("hello all")
+      }
+    }
+
+    "return the recorded chat history on GetChatHistory" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val seeded = List(
+        PlayerEvent.ChatMessage(gameId, alice, "alice", "hi", Instant.EPOCH),
+        PlayerEvent.ChatMessage(gameId, bob, "bob", "hey", Instant.EPOCH)
+      )
+      val chatRepo = new InMemChatRepo(Map(gameId -> seeded))
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GetChatHistory(gameId, responseProbe.ref)
+      val history = responseProbe.expectMessageType[GameManager.ChatHistory]
+      history.gameId shouldBe gameId
+      history.messages shouldBe seeded
+    }
+
+    "reply with an error when the chat history load fails" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val chatRepo = new InMemChatRepo(loadFails = true)
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GetChatHistory(UUID.randomUUID(), responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.ErrorResponse]
     }
 
     "forward SubscribeToGame so the subscriber receives events after a move" in {

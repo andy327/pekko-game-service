@@ -26,7 +26,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.{GameId, GameType}
 import com.andy327.persistence.db.MoveRecord
-import com.andy327.server.actors.core.{GameManager, InMemMoveRepo, InMemRepo, PlayerActor}
+import com.andy327.server.actors.core.{GameManager, InMemChatRepo, InMemMoveRepo, InMemRepo, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.GridGameState
 import com.andy327.server.http.json.JsonProtocol._
@@ -183,6 +183,40 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
       }
 
+      "return the recorded chat history" in {
+        val gameId = UUID.randomUUID()
+        val messages = List(
+          PlayerEvent.ChatMessage(gameId, aliceId, "alice", "hi", Instant.EPOCH),
+          PlayerEvent.ChatMessage(gameId, bobId, "bob", "hey", Instant.EPOCH)
+        )
+        val chatSystem = ActorSystem(
+          GameManager(
+            persistProbe.ref,
+            new InMemRepo,
+            noOpLobbyRepo,
+            chatRepo = new InMemChatRepo(Map(gameId -> messages))
+          ),
+          "GameRoutesChatSystem"
+        )
+        val chatRoutes = new GameRoutes(GameType.TicTacToe, chatSystem).routes
+
+        Get(s"/tictactoe/$gameId/chat") ~> chatRoutes ~> check {
+          status shouldBe StatusCodes.OK
+          val history = responseAs[GameManager.ChatHistory]
+          history.gameId shouldBe gameId
+          history.messages.map(_.text) shouldBe List("hi", "hey")
+          history.messages.map(_.senderName) shouldBe List("alice", "bob")
+        }
+      }
+
+      "return an empty chat history for a game with no messages" in {
+        val gameId = UUID.randomUUID()
+        Get(s"/tictactoe/$gameId/chat") ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[GameManager.ChatHistory].messages shouldBe empty
+        }
+      }
+
       "return 400 for invalid game ID on move" in {
         val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
@@ -240,6 +274,10 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             replyTo ! GameManager.Ready // triggers /history fallback
             Behaviors.same
 
+          case GameManager.GetChatHistory(_, replyTo) =>
+            replyTo ! GameManager.Ready // triggers /chat fallback
+            Behaviors.same
+
           case _ => Behaviors.same
         }
 
@@ -253,7 +291,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           ("POST /move", Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
           ("GET /status", Get(s"/tictactoe/$fakeId/status")),
           ("POST /subscribe", Post(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader)),
-          ("GET /history", Get(s"/tictactoe/$fakeId/history"))
+          ("GET /history", Get(s"/tictactoe/$fakeId/history")),
+          ("GET /chat", Get(s"/tictactoe/$fakeId/chat"))
         )
 
         forAll(requests) { (description, req) =>
@@ -277,6 +316,9 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
                 replyTo ! response
                 Behaviors.same
               case GameManager.GetMoveHistory(_, replyTo) =>
+                replyTo ! response
+                Behaviors.same
+              case GameManager.GetChatHistory(_, replyTo) =>
                 replyTo ! response
                 Behaviors.same
               case _ => Behaviors.same
@@ -305,6 +347,11 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
         // /history maps a storage ErrorResponse to 500 as well
         Get(s"/tictactoe/$fakeId/history") ~> errorRoutes ~> check {
+          status shouldBe StatusCodes.InternalServerError
+          responseAs[String] should include("boom")
+        }
+        // /chat maps a storage ErrorResponse to 500 as well
+        Get(s"/tictactoe/$fakeId/chat") ~> errorRoutes ~> check {
           status shouldBe StatusCodes.InternalServerError
           responseAs[String] should include("boom")
         }

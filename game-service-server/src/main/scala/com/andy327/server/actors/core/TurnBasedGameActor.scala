@@ -34,6 +34,9 @@ object TurnBasedGameActor {
   /** Deregister a previously subscribed PlayerActor. */
   final case class Unsubscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command[Nothing]
 
+  /** Fan an already-built event (e.g. a chat message) out to the game's current subscribers. */
+  final case class Broadcast(event: PlayerEvent) extends Command[Nothing]
+
   /** Delivered by a `messageAdapter` after PersistenceProtocol.SaveSnapshot completes; logged but never causes a
     * state change while the game is active.
     */
@@ -76,6 +79,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
     Subscribe(playerRef)
+
+  override def broadcastCommand(event: PlayerEvent): GameActor.GameCommand =
+    Broadcast(event)
 
   override protected def snapshotSavedResult(cmd: Command): Option[Either[Throwable, Unit]] = cmd match {
     case SnapshotSaved(result) => Some(result)
@@ -209,6 +215,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       case Unsubscribe(playerRef) =>
         context.unwatch(playerRef)
         active(game, gameId, persist, gameManager, subscribers - playerRef, publisher)
+
+      case Broadcast(event) =>
+        subscribers.foreach(_ ! PlayerActor.SendEvent(event))
+        Behaviors.same
 
       case SnapshotSaved(result) =>
         result match {

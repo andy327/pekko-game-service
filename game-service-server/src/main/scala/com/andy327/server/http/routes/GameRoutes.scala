@@ -16,6 +16,7 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
+  ChatHistory,
   Command,
   ErrorResponse,
   GameNotFound,
@@ -43,6 +44,7 @@ import com.andy327.server.http.routes.RouteDirectives._
   *   - POST /{gameType}/{gameId}/move - Submit a move to the specified game
   *   - GET /{gameType}/{gameId}/status - Fetch the current state of a game
   *   - GET /{gameType}/{gameId}/history - Fetch the ordered move history for a game
+  *   - GET /{gameType}/{gameId}/chat - Fetch the recent chat history (backscroll) for a game
   */
 class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
   implicit val scheduler: Scheduler = system.scheduler
@@ -148,6 +150,25 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           get {
             onSuccess(system.ask[GameResponse](GameManager.GetMoveHistory(gameId, _))) {
               case history: MoveHistory => complete(history)
+              case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
+              case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+            }
+          }
+        } ~
+        /** Fetches the recent chat history (backscroll) for the specified game.
+          *
+          * Served from the chat store, so it works for both active and finished games (and returns an empty list for a
+          * game with no recorded messages). Live chat continues to arrive over the WebSocket.
+          *
+          * - Path: `gameId` — the UUID of the game
+          * - 200: `ChatHistory` — the recent messages, oldest first
+          * - 400: invalid UUID format
+          * - 500: unexpected error
+          */
+        path("chat") {
+          get {
+            onSuccess(system.ask[GameResponse](GameManager.GetChatHistory(gameId, _))) {
+              case history: ChatHistory => complete(history)
               case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
               case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
             }
