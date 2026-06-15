@@ -86,7 +86,7 @@ object GameServer {
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo, lobbyRepo, publisher, subscriber)
+      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, publisher, subscriber)
     }
 
     // Pekko actor system

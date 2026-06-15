@@ -1,7 +1,9 @@
 package com.andy327.server.http.json
 
+import java.time.Instant
 import java.util.UUID
 
+import io.circe.Json
 import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -9,11 +11,13 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.actors.core.GameManager.{
   ErrorResponse,
   LobbyCreated,
   LobbyJoined,
   LobbyLeft,
+  MoveHistory,
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
@@ -71,6 +75,24 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "round-trip serialize and deserialize" in {
       val ack = SubscribeAcknowledged(UUID.randomUUID())
       ack.asJson.as[SubscribeAcknowledged] shouldBe Right(ack)
+    }
+  }
+
+  "MoveHistory codec" should {
+    "round-trip serialize and deserialize, preserving move payload and timestamp" in {
+      val history = MoveHistory(
+        UUID.randomUUID(),
+        List(
+          MoveRecord(0, UUID.randomUUID(), Json.obj("col" -> 3.asJson), Instant.parse("2026-06-14T12:00:00Z")),
+          MoveRecord(1, UUID.randomUUID(), Json.obj("row" -> 1.asJson, "col" -> 2.asJson), Instant.EPOCH)
+        )
+      )
+      history.asJson.as[MoveHistory] shouldBe Right(history)
+    }
+
+    "round-trip an empty history" in {
+      val history = MoveHistory(UUID.randomUUID(), Nil)
+      history.asJson.as[MoveHistory] shouldBe Right(history)
     }
   }
 

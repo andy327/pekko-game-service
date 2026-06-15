@@ -21,6 +21,7 @@ import com.andy327.server.actors.core.GameManager.{
   GameNotFound,
   GameResponse,
   GameStatus,
+  MoveHistory,
   MoveRejected,
   SubscribeAcknowledged
 }
@@ -41,6 +42,7 @@ import com.andy327.server.http.routes.RouteDirectives._
   * Route Summary:
   *   - POST /{gameType}/{gameId}/move - Submit a move to the specified game
   *   - GET /{gameType}/{gameId}/status - Fetch the current state of a game
+  *   - GET /{gameType}/{gameId}/history - Fetch the ordered move history for a game
   */
 class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
   implicit val scheduler: Scheduler = system.scheduler
@@ -129,6 +131,25 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
               case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
               case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
               case unknown            => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+            }
+          }
+        } ~
+        /** Fetches the ordered move history for the specified game.
+          *
+          * Served from the move log, so it works for both active and finished games (and returns an empty list for a
+          * game with no recorded moves).
+          *
+          * - Path: `gameId` — the UUID of the game
+          * - 200: `MoveHistory` — the ordered list of moves played
+          * - 400: invalid UUID format
+          * - 500: unexpected error
+          */
+        path("history") {
+          get {
+            onSuccess(system.ask[GameResponse](GameManager.GetMoveHistory(gameId, _))) {
+              case history: MoveHistory => complete(history)
+              case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
+              case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
             }
           }
         } ~

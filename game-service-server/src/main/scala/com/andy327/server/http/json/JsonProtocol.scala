@@ -5,6 +5,7 @@ import io.circe.syntax._
 import io.circe.{Codec, Encoder, Json}
 import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 
+import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.actors.core.GameManager.{
   ErrorResponse,
   GameStarted,
@@ -12,6 +13,7 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyCreated,
   LobbyJoined,
   LobbyLeft,
+  MoveHistory,
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
@@ -50,6 +52,10 @@ object JsonProtocol extends CirceSupport {
 
   implicit val subscribeAcknowledgedCodec: Codec[SubscribeAcknowledged] = deriveCodec[SubscribeAcknowledged]
 
+  implicit val moveRecordCodec: Codec[MoveRecord] = deriveCodec[MoveRecord]
+
+  implicit val moveHistoryCodec: Codec[MoveHistory] = deriveCodec[MoveHistory]
+
   // Game state views
 
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
@@ -70,6 +76,7 @@ object JsonProtocol extends CirceSupport {
   implicit val lobbiesListedUnmarshaller: FromEntityUnmarshaller[LobbiesListed] = circeUnmarshaller[LobbiesListed]
   implicit val subscribeAcknowledgedUnmarshaller: FromEntityUnmarshaller[SubscribeAcknowledged] =
     circeUnmarshaller[SubscribeAcknowledged]
+  implicit val moveHistoryUnmarshaller: FromEntityUnmarshaller[MoveHistory] = circeUnmarshaller[MoveHistory]
 
   /** Write-only encoder for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *

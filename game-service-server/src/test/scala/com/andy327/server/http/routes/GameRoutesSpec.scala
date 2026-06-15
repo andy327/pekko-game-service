@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.Await
@@ -8,6 +9,8 @@ import scala.concurrent.duration._
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
+import io.circe.Json
+import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.scaladsl.AskPattern._
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -22,7 +25,8 @@ import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.{GameId, GameType}
-import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
+import com.andy327.persistence.db.MoveRecord
+import com.andy327.server.actors.core.{GameManager, InMemMoveRepo, InMemRepo, PlayerActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.GridGameState
 import com.andy327.server.http.json.JsonProtocol._
@@ -145,6 +149,40 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
       }
 
+      "return the recorded move history" in {
+        val gameId = UUID.randomUUID()
+        val moves = List(
+          MoveRecord(0, aliceId, Json.obj("row" -> 0.asJson, "col" -> 0.asJson), Instant.EPOCH),
+          MoveRecord(1, bobId, Json.obj("row" -> 1.asJson, "col" -> 1.asJson), Instant.EPOCH)
+        )
+        val histSystem = ActorSystem(
+          GameManager(
+            persistProbe.ref,
+            new InMemRepo,
+            noOpLobbyRepo,
+            moveRepo = new InMemMoveRepo(Map(gameId -> moves))
+          ),
+          "GameRoutesHistorySystem"
+        )
+        val histRoutes = new GameRoutes(GameType.TicTacToe, histSystem).routes
+
+        Get(s"/tictactoe/$gameId/history") ~> histRoutes ~> check {
+          status shouldBe StatusCodes.OK
+          val history = responseAs[GameManager.MoveHistory]
+          history.gameId shouldBe gameId
+          history.moves.map(_.seq) shouldBe List(0, 1)
+          history.moves.map(_.move) shouldBe moves.map(_.move)
+        }
+      }
+
+      "return an empty move history for a game with no moves" in {
+        val gameId = UUID.randomUUID()
+        Get(s"/tictactoe/$gameId/history") ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[GameManager.MoveHistory].moves shouldBe empty
+        }
+      }
+
       "return 400 for invalid game ID on move" in {
         val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
@@ -198,6 +236,10 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             replyTo ! GameManager.Ready // triggers /subscribe fallback
             Behaviors.same
 
+          case GameManager.GetMoveHistory(_, replyTo) =>
+            replyTo ! GameManager.Ready // triggers /history fallback
+            Behaviors.same
+
           case _ => Behaviors.same
         }
 
@@ -210,7 +252,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           ("description", "request"),
           ("POST /move", Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
           ("GET /status", Get(s"/tictactoe/$fakeId/status")),
-          ("POST /subscribe", Post(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader))
+          ("POST /subscribe", Post(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader)),
+          ("GET /history", Get(s"/tictactoe/$fakeId/history"))
         )
 
         forAll(requests) { (description, req) =>
@@ -231,6 +274,9 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           ActorSystem(
             Behaviors.receiveMessage[GameManager.Command] {
               case GameManager.RunGameOperation(_, _, replyTo) =>
+                replyTo ! response
+                Behaviors.same
+              case GameManager.GetMoveHistory(_, replyTo) =>
                 replyTo ! response
                 Behaviors.same
               case _ => Behaviors.same
@@ -256,6 +302,11 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
         Get(s"/tictactoe/$fakeId/status") ~> errorRoutes ~> check {
           status shouldBe StatusCodes.InternalServerError
+        }
+        // /history maps a storage ErrorResponse to 500 as well
+        Get(s"/tictactoe/$fakeId/history") ~> errorRoutes ~> check {
+          status shouldBe StatusCodes.InternalServerError
+          responseAs[String] should include("boom")
         }
       }
 
