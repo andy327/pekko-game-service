@@ -58,7 +58,7 @@ object GameServer {
       val gameRepo = new RedisGameRepository(postgresRepo, redis)
       val lobbyRepo = new RedisLobbyRepository(redis)
       val moveRepo = new PostgresMoveHistoryRepository(xa)
-      val chatRepo = new RedisChatRepository(redis)
+      val chatRepo = new RedisChatRepository(redis, config.getInt("pekko-game-service.chat.max-messages"))
 
       // Ensure the schema exists before starting the server
       for {
