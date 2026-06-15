@@ -157,7 +157,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   gameId = gameId,
                   gameType = gameType,
                   game = nextState,
-                  replyTo = context.messageAdapter(_ => SnapshotSaved(Right(())))
+                  // pass the real save outcome through so a failed snapshot is logged by the SnapshotSaved handler
+                  replyTo = context.messageAdapter(saved => SnapshotSaved(saved.result))
                 )
 
                 // record the move in the append-only history log; seq is the pre-move move count (0-based ordinal)
