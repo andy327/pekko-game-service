@@ -5,6 +5,8 @@ import java.util.UUID
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
+import io.circe.Json
+import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -48,6 +50,13 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     (bob, Location(1, 1)),
     (alice, Location(0, 2))
   )
+
+  /** Drains the two persistence messages emitted by one applied move: the snapshot save and the history append. */
+  private def expectMovePersisted(probe: TestProbe[PersistenceProtocol.Command]): Unit = {
+    probe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+    probe.expectMessageType[PersistenceProtocol.AppendMove]
+    ()
+  }
 
   "TicTacToeActor" should {
     "return an empty 3×3 board on GetState" in {
@@ -136,6 +145,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         override def currentPlayer: Any = "dummy"
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
+        override def moveCount: Int = 0
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
@@ -165,6 +175,27 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       board2(0)(0) shouldBe "X"
       board2(1)(1) shouldBe "O"
       current2 shouldBe "X"
+    }
+
+    "append each applied move to history with an incrementing seq and the move payload" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
+      replyProbe.receiveMessage()
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      val first = persistProbe.expectMessageType[PersistenceProtocol.AppendMove]
+      first.seq shouldBe 0
+      first.playerId shouldBe alice
+      first.move shouldBe Json.obj("row" -> 0.asJson, "col" -> 0.asJson)
+
+      actor ! TurnBasedGameActor.MakeMove(bob, Location(1, 1), replyProbe.ref)
+      replyProbe.receiveMessage()
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      val second = persistProbe.expectMessageType[PersistenceProtocol.AppendMove]
+      second.seq shouldBe 1
+      second.playerId shouldBe bob
+      second.move shouldBe Json.obj("row" -> 1.asJson, "col" -> 1.asJson)
     }
 
     "reject a move when it is not the player's turn" in {
@@ -243,7 +274,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
         subscriberProbe.expectMessageType[PlayerActor.SendEvent] // GameStateUpdated per move
-        val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
@@ -283,7 +314,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
@@ -298,7 +329,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       actor ! TurnBasedGameActor.SnapshotSaved(Left(ex))
@@ -312,7 +343,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       // GetState is ignored in terminating — no reply, actor stays alive
@@ -336,7 +367,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       // the watched subscriber dies mid-shutdown; without the Terminated handler this is a DeathPactException
@@ -358,7 +389,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
         replyProbe.receiveMessage() shouldBe a[Right[_, _]]
-        val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)

@@ -6,6 +6,7 @@ import scala.concurrent.duration._
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
+import io.circe.Json
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.model._
@@ -15,8 +16,8 @@ import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{Game, GameId, GameType}
-import com.andy327.persistence.db.GameRepository
+import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
@@ -32,6 +33,12 @@ class GameServerSpec extends AnyWordSpec with Matchers {
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
+  private val noOpMoveRepo: MoveHistoryRepository = new MoveHistoryRepository {
+    override def initialize(): IO[Unit] = IO.unit
+    override def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] = IO.unit
+    override def loadMoves(gameId: GameId): IO[List[MoveRecord]] = IO.pure(Nil)
+  }
+
   "GameServer" should {
     "start and respond to /tictactoe" in {
       val dummyRepo = new GameRepository {
@@ -41,7 +48,8 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
       }
 
-      val (system, binding) = GameServer.startServer("localhost", port = 0, dummyRepo, noOpLobbyRepo).unsafeRunSync()
+      val (system, binding) =
+        GameServer.startServer("localhost", port = 0, dummyRepo, noOpLobbyRepo, noOpMoveRepo).unsafeRunSync()
       val actualPort = binding.localAddress.getPort
       implicit val classicSystem: ActorSystem = system.classicSystem
 

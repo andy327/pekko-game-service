@@ -1,5 +1,7 @@
 package com.andy327.server.actors.tictactoe
 
+import io.circe.generic.semiauto.deriveEncoder
+
 import com.andy327.model.tictactoe.{Location, Mark, TicTacToe}
 import com.andy327.server.actors.core.TurnBasedGameActor
 import com.andy327.server.http.json.GridGameState
@@ -10,6 +12,7 @@ import com.andy327.server.http.json.GridGameState
   * `model.tictactoe.TicTacToe` model. X is seated first, O second.
   */
 object TicTacToeActor
-    extends TurnBasedGameActor[TicTacToe, Location, Mark, GridGameState](players =>
-      TicTacToe.empty(players(0), players(1))
+    extends TurnBasedGameActor[TicTacToe, Location, Mark, GridGameState](
+      players => TicTacToe.empty(players(0), players(1)),
+      deriveEncoder[Location]
     )

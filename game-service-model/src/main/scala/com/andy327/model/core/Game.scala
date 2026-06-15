@@ -25,6 +25,11 @@ trait Game[Move, State, Player, Status, Error] {
   /** The current status of the game (e.g., ongoing, won, draw). */
   def gameStatus: Status
 
+  /** The number of moves applied so far. Serves as the 0-based ordinal of the next move in the history log, and is
+    * derived from the game's own state so it survives a restart without consulting the move log.
+    */
+  def moveCount: Int
+
   /** Resolves an external player ID to this game's player token (e.g., a mark or seat).
     *
     * Returns None if the ID does not belong to a participant. This is the single place where platform identity

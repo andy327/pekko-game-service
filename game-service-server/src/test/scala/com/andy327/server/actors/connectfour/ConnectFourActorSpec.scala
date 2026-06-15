@@ -4,6 +4,8 @@ import java.util.UUID
 
 import scala.util.control.NoStackTrace
 
+import io.circe.Json
+import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
@@ -57,6 +59,13 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
     (bob, 1), // Yellow row 3 col 1
     (alice, 0) // Red   row 2 col 0 — four in a row, Red wins
   )
+
+  /** Drains the two persistence messages emitted by one applied move: the snapshot save and the history append. */
+  private def expectMovePersisted(probe: TestProbe[PersistenceProtocol.Command]): Unit = {
+    probe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+    probe.expectMessageType[PersistenceProtocol.AppendMove]
+    ()
+  }
 
   "ConnectFourActor" should {
     "return an empty 6×7 board on GetState" in {
@@ -124,6 +133,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         override def currentPlayer: Any = "dummy"
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
+        override def moveCount: Int = 0
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
@@ -153,6 +163,27 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       board2(5)(0) shouldBe "R"
       board2(5)(1) shouldBe "Y"
       current2 shouldBe "R"
+    }
+
+    "append each applied move to history with an incrementing seq and the move payload" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), replyProbe.ref)
+      replyProbe.receiveMessage()
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      val first = persistProbe.expectMessageType[PersistenceProtocol.AppendMove]
+      first.seq shouldBe 0
+      first.playerId shouldBe alice
+      first.move shouldBe Json.obj("col" -> 0.asJson)
+
+      actor ! TurnBasedGameActor.MakeMove(bob, Drop(1), replyProbe.ref)
+      replyProbe.receiveMessage()
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      val second = persistProbe.expectMessageType[PersistenceProtocol.AppendMove]
+      second.seq shouldBe 1
+      second.playerId shouldBe bob
+      second.move shouldBe Json.obj("col" -> 1.asJson)
     }
 
     "reject a move when it is not the player's turn" in {
@@ -230,7 +261,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
         replyProbe.receiveMessage()
         subscriberProbe.expectMessageType[PlayerActor.SendEvent] // GameStateUpdated per move
-        val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
@@ -256,7 +287,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
@@ -271,7 +302,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       actor ! TurnBasedGameActor.SnapshotSaved(Left(ex))
@@ -285,7 +316,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
         replyProbe.receiveMessage()
-        persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       // GetState is ignored in terminating — no reply, actor stays alive
@@ -306,7 +337,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
         replyProbe.receiveMessage() shouldBe a[Right[_, _]]
-        val _ = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+        expectMovePersisted(persistProbe)
       }
 
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)

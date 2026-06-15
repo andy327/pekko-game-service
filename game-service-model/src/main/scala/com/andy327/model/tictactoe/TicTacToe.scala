@@ -68,6 +68,9 @@ final case class TicTacToe(
     else if (playerId == playerO) Some(O)
     else None
 
+  /** The number of marks placed so far — one per move. */
+  def moveCount: Int = board.flatten.count(_.isDefined)
+
   private def nextPlayer: Mark = currentPlayer match {
     case X => O
     case O => X

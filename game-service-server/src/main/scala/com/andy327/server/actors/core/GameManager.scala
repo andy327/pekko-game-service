@@ -11,7 +11,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
-import com.andy327.persistence.db.GameRepository
+import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
@@ -80,6 +80,11 @@ object GameManager {
     * or [[ErrorResponse]] (internal failure).
     */
   final case class RunGameOperation(gameId: GameId, op: GameOperation, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Fetch the ordered move history for `gameId` from the move log; replies with [[MoveHistory]] (empty if none) or
+    * [[ErrorResponse]] on a storage failure. Served by a direct DB read, so it works for active and finished games.
+    */
+  final case class GetMoveHistory(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
   /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
@@ -178,6 +183,13 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  /** Carries the result of an async move-history load for a [[GetMoveHistory]] request. */
+  final private case class MoveHistoryLoaded(
+      result: Either[Throwable, List[MoveRecord]],
+      gameId: GameId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   // --- Response types (sent back to HTTP route handlers) ---
 
   sealed trait GameResponse
@@ -194,6 +206,9 @@ object GameManager {
   // Game responses
   final case class GameStarted(gameId: GameId) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
+
+  /** The ordered move history for a game; `moves` is empty if the game has no recorded moves. */
+  final case class MoveHistory(gameId: GameId, moves: List[MoveRecord]) extends GameResponse
 
   // Error responses
 
@@ -219,6 +234,8 @@ object GameManager {
     *
     * @param persistActor shared actor for all persistence I/O
     * @param gameRepo the repository used for the initial game restore and completed-game state lookups
+    * @param lobbyRepo the repository used to restore lobbies at startup and persist lobby changes
+    * @param moveRepo the repository read to serve move-history queries; defaults to no-op (empty history)
     * @param publisher publishes game events to Redis so remote instances can relay them; defaults to no-op
     * @param subscriber routes incoming Redis events to locally connected players watching remote games; `None` disables
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
@@ -228,6 +245,7 @@ object GameManager {
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
+      moveRepo: MoveHistoryRepository = NoOpMoveHistoryRepository,
       publisher: GameEventPublisher = NoOpGameEventPublisher,
       subscriber: Option[GameEventSubscriber] = None,
       onReady: Option[ActorRef[Ready.type]] = None
@@ -251,7 +269,17 @@ object GameManager {
             RestoreGames(Map.empty, Nil)
         }
 
-        initializing(lobbyManager, playerManager, persistActor, gameRepo, stash, publisher, subscriber, onReady)
+        initializing(
+          lobbyManager,
+          playerManager,
+          persistActor,
+          gameRepo,
+          moveRepo,
+          stash,
+          publisher,
+          subscriber,
+          onReady
+        )
       }
     }
 
@@ -265,6 +293,7 @@ object GameManager {
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
+      moveRepo: MoveHistoryRepository,
       stash: StashBuffer[Command],
       publisher: GameEventPublisher,
       subscriber: Option[GameEventSubscriber],
@@ -290,6 +319,7 @@ object GameManager {
             playerManager,
             persistActor,
             gameRepo,
+            moveRepo,
             publisher,
             subscriber
           )(runtime)
@@ -316,6 +346,7 @@ object GameManager {
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
       gameRepo: GameRepository,
+      moveRepo: MoveHistoryRepository,
       publisher: GameEventPublisher,
       subscriber: Option[GameEventSubscriber]
   )(implicit runtime: IORuntime): Behavior[Command] =
@@ -472,6 +503,7 @@ object GameManager {
               playerManager,
               persistActor,
               gameRepo,
+              moveRepo,
               publisher,
               subscriber
             )
@@ -490,6 +522,7 @@ object GameManager {
                 playerManager,
                 persistActor,
                 gameRepo,
+                moveRepo,
                 publisher,
                 subscriber
               )
@@ -540,6 +573,24 @@ object GameManager {
             case Left(ex) =>
               context.log.error("Failed to load completed game state from DB", ex)
               replyTo ! ErrorResponse("Failed to retrieve game state")
+          }
+          Behaviors.same
+
+        case GetMoveHistory(gameId, replyTo) =>
+          context.pipeToSelf(moveRepo.loadMoves(gameId).attempt.unsafeToFuture()) {
+            case Success(result) => MoveHistoryLoaded(result, gameId, replyTo)
+            // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
+            case Failure(ex) => MoveHistoryLoaded(Left(ex), gameId, replyTo)
+            // $COVERAGE-ON$
+          }
+          Behaviors.same
+
+        case MoveHistoryLoaded(result, gameId, replyTo) =>
+          result match {
+            case Right(moves) => replyTo ! MoveHistory(gameId, moves)
+            case Left(ex)     =>
+              context.log.error(s"Failed to load move history for $gameId", ex)
+              replyTo ! ErrorResponse("Failed to retrieve move history")
           }
           Behaviors.same
 

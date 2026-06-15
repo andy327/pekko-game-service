@@ -1,5 +1,6 @@
 package com.andy327.server.actors.core
 
+import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.duration._
@@ -10,6 +11,8 @@ import cats.effect.std.Queue
 import cats.effect.unsafe.IORuntime
 
 import fs2.Stream
+import io.circe.Json
+import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.http.scaladsl.model.ws.TextMessage
@@ -18,7 +21,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.persistence.db.GameRepository
+import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.game.{GameOperation, MovePayload}
@@ -40,6 +43,21 @@ class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map
 
   def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
     IO(db.toMap)
+}
+
+/** In-memory MoveHistoryRepository for unit tests; `loadFails` forces loadMoves to raise. */
+class InMemMoveRepo(initial: Map[GameId, List[MoveRecord]] = Map.empty, loadFails: Boolean = false)
+    extends MoveHistoryRepository {
+  private val db = scala.collection.concurrent.TrieMap(initial.toSeq: _*)
+
+  def initialize(): IO[Unit] = IO.unit
+
+  def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
+    IO(db.update(gameId, db.getOrElse(gameId, Nil) :+ MoveRecord(seq, playerId, move, Instant.EPOCH)))
+
+  def loadMoves(gameId: GameId): IO[List[MoveRecord]] =
+    if (loadFails) IO.raiseError(new RuntimeException("move load failure") with NoStackTrace)
+    else IO.pure(db.getOrElse(gameId, Nil))
 }
 
 class GameManagerSpec extends AnyWordSpecLike with Matchers {
@@ -360,6 +378,45 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
       response.lobbies.map(_.gameId) should contain only (gameId2, gameId3)
+    }
+
+    "return the recorded move history for a game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val moves = List(
+        MoveRecord(0, alice, Json.obj("col" -> 3.asJson), Instant.EPOCH),
+        MoveRecord(1, bob, Json.obj("col" -> 4.asJson), Instant.EPOCH)
+      )
+      val moveRepo = new InMemMoveRepo(Map(gameId -> moves))
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, moveRepo = moveRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.GetMoveHistory(gameId, responseProbe.ref)
+
+      responseProbe.expectMessage(GameManager.MoveHistory(gameId, moves))
+    }
+
+    "return an empty move history for a game with no recorded moves" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, moveRepo = new InMemMoveRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.GetMoveHistory(gameId, responseProbe.ref)
+
+      responseProbe.expectMessage(GameManager.MoveHistory(gameId, Nil))
+    }
+
+    "return an error when the move history load fails" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val moveRepo = new InMemMoveRepo(loadFails = true)
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, moveRepo = moveRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.GetMoveHistory(UUID.randomUUID(), responseProbe.ref)
+
+      val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
+      error.message should include("Failed to retrieve move history")
     }
 
     "mark game as completed when receiving GameCompleted message" in {

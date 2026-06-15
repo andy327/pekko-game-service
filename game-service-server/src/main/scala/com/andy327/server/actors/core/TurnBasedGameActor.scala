@@ -2,6 +2,7 @@ package com.andy327.server.actors.core
 
 import scala.reflect.ClassTag
 
+import io.circe.Encoder
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
@@ -47,14 +48,16 @@ object TurnBasedGameActor {
   *
   * Adding a new game type therefore requires no actor code beyond a binding:
   * {{{
-  *   object MyGameActor extends TurnBasedGameActor[MyGame, MyMove, MySeat, MyGameState](players =>
-  *     MyGame.empty(players(0), players(1))
+  *   object MyGameActor extends TurnBasedGameActor[MyGame, MyMove, MySeat, MyGameState](
+  *     players => MyGame.empty(players(0), players(1)),
+  *     deriveEncoder[MyMove]
   *   )
   * }}}
   * given a `GameTypeTag[MyGame]` (model) and a `GameStateView[MyGame, MyGameState]` (http.json) instance.
   *
   * @param newGame factory producing the initial game model from the seated players; the player count has already been
   *                validated against the GameType's bounds by [[GameManager]]
+  * @param moveEncoder serializes a move to JSON for the append-only history log
   * @tparam G the concrete game model type
   * @tparam M the game's move type
   * @tparam P the game's player-token (seat) type
@@ -62,7 +65,8 @@ object TurnBasedGameActor {
   * @see [[GameActor]] for the full actor lifecycle and behavioral contract.
   */
 class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <: GameState](
-    newGame: Seq[PlayerId] => G
+    newGame: Seq[PlayerId] => G,
+    moveEncoder: Encoder[M]
 )(implicit tag: GameTypeTag[G], view: GameStateView[G, S], ct: ClassTag[G])
     extends GameActor[G] {
 
@@ -156,9 +160,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   replyTo = context.messageAdapter(_ => SnapshotSaved(Right(())))
                 )
 
+                // record the move in the append-only history log; seq is the pre-move move count (0-based ordinal)
+                persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
+
                 val serialized = view.fromGame(nextState)
                 replyTo ! Right(serialized)
                 val stateEvent = PlayerEvent.GameStateUpdated(serialized)
+                // fan out to locally-connected players; publisher relays to players on other server instances
                 subscribers.foreach(_ ! PlayerActor.SendEvent(stateEvent))
                 publisher.publish(gameId, stateEvent)
 
