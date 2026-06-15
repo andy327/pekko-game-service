@@ -24,6 +24,7 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.chat.ChatRepository
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
@@ -57,6 +58,19 @@ class InMemMoveRepo(initial: Map[GameId, List[MoveRecord]] = Map.empty, loadFail
 
   def loadMoves(gameId: GameId): IO[List[MoveRecord]] =
     if (loadFails) IO.raiseError(new RuntimeException("move load failure") with NoStackTrace)
+    else IO.pure(db.getOrElse(gameId, Nil))
+}
+
+/** In-memory ChatRepository for unit tests; records appends and `loadFails` forces recent to raise. */
+class InMemChatRepo(initial: Map[GameId, List[PlayerEvent.ChatMessage]] = Map.empty, loadFails: Boolean = false)
+    extends ChatRepository {
+  private val db = scala.collection.concurrent.TrieMap(initial.toSeq: _*)
+
+  def append(message: PlayerEvent.ChatMessage): IO[Unit] =
+    IO(db.update(message.gameId, db.getOrElse(message.gameId, Nil) :+ message))
+
+  def recent(gameId: GameId): IO[List[PlayerEvent.ChatMessage]] =
+    if (loadFails) IO.raiseError(new RuntimeException("chat load failure") with NoStackTrace)
     else IO.pure(db.getOrElse(gameId, Nil))
 }
 
@@ -1030,6 +1044,51 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val frame = wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text
       frame should include("ChatMessage")
       frame should include("hello")
+    }
+
+    "persist each chat message to the chat repository on SendChat" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val chatRepo = new InMemChatRepo()
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val gameId: GameId = UUID.randomUUID()
+      val sender = Player("alice")
+
+      gm ! GameManager.SendChat(gameId, sender, "hello all")
+
+      // append is fire-and-forget, so poll the history until the message lands
+      responseProbe.awaitAssert {
+        gm ! GameManager.GetChatHistory(gameId, responseProbe.ref)
+        val history = responseProbe.expectMessageType[GameManager.ChatHistory]
+        history.messages.map(_.text) shouldBe List("hello all")
+      }
+    }
+
+    "return the recorded chat history on GetChatHistory" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val seeded = List(
+        PlayerEvent.ChatMessage(gameId, alice, "alice", "hi", Instant.EPOCH),
+        PlayerEvent.ChatMessage(gameId, bob, "bob", "hey", Instant.EPOCH)
+      )
+      val chatRepo = new InMemChatRepo(Map(gameId -> seeded))
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GetChatHistory(gameId, responseProbe.ref)
+      val history = responseProbe.expectMessageType[GameManager.ChatHistory]
+      history.gameId shouldBe gameId
+      history.messages shouldBe seeded
+    }
+
+    "reply with an error when the chat history load fails" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val chatRepo = new InMemChatRepo(loadFails = true)
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, chatRepo = chatRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GetChatHistory(UUID.randomUUID(), responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.ErrorResponse]
     }
 
     "forward SubscribeToGame so the subscriber receives events after a move" in {

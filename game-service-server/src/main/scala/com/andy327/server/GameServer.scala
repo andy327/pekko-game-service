@@ -21,6 +21,7 @@ import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepositor
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
+import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
 import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.server.pubsub.{
@@ -57,6 +58,7 @@ object GameServer {
       val gameRepo = new RedisGameRepository(postgresRepo, redis)
       val lobbyRepo = new RedisLobbyRepository(redis)
       val moveRepo = new PostgresMoveHistoryRepository(xa)
+      val chatRepo = new RedisChatRepository(redis)
 
       // Ensure the schema exists before starting the server
       for {
@@ -66,9 +68,17 @@ object GameServer {
         publisher = new RedisGameEventPublisher(publishFn)
         // Run the subscriber as a background fiber; it stays alive for the lifetime of the server
         _ <- subscriber.run.start
-        result <- startServer(host, port, gameRepo, lobbyRepo, moveRepo, publisher, Some(subscriber)).flatMap {
-          case (system, _) =>
-            IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
+        result <- startServer(
+          host,
+          port,
+          gameRepo,
+          lobbyRepo,
+          moveRepo,
+          chatRepo,
+          publisher,
+          Some(subscriber)
+        ).flatMap { case (system, _) =>
+          IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
       } yield result
     }.unsafeRunSync()
@@ -81,12 +91,13 @@ object GameServer {
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository,
+      chatRepo: ChatRepository = NoOpChatRepository,
       publisher: GameEventPublisher = NoOpGameEventPublisher,
       subscriber: Option[GameEventSubscriber] = None
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, publisher, subscriber)
+      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher, subscriber)
     }
 
     // Pekko actor system

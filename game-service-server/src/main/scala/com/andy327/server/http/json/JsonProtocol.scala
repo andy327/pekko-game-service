@@ -7,6 +7,7 @@ import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.actors.core.GameManager.{
+  ChatHistory,
   ErrorResponse,
   GameStarted,
   LobbiesListed,
@@ -17,6 +18,7 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
+import com.andy327.server.chat.ChatCodecs
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 
@@ -56,6 +58,12 @@ object JsonProtocol extends CirceSupport {
 
   implicit val moveHistoryCodec: Codec[MoveHistory] = deriveCodec[MoveHistory]
 
+  // Chat history records use the plain (untagged) chat-message form from ChatCodecs — see its scaladoc for how this
+  // differs from the tagged ChatMessage envelope that playerEventEncoder emits for live WebSocket push.
+  implicit val chatMessageCodec: Codec[PlayerEvent.ChatMessage] = ChatCodecs.chatMessageCodec
+
+  implicit val chatHistoryCodec: Codec[ChatHistory] = deriveCodec[ChatHistory]
+
   // Game state views
 
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
@@ -77,6 +85,7 @@ object JsonProtocol extends CirceSupport {
   implicit val subscribeAcknowledgedUnmarshaller: FromEntityUnmarshaller[SubscribeAcknowledged] =
     circeUnmarshaller[SubscribeAcknowledged]
   implicit val moveHistoryUnmarshaller: FromEntityUnmarshaller[MoveHistory] = circeUnmarshaller[MoveHistory]
+  implicit val chatHistoryUnmarshaller: FromEntityUnmarshaller[ChatHistory] = circeUnmarshaller[ChatHistory]
 
   /** Write-only encoder for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *
