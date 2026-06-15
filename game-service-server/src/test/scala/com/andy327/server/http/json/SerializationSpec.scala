@@ -140,5 +140,38 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.get[String]("type") shouldBe Right("GameEnded")
       json.hcursor.get[String]("result") shouldBe Right("Completed")
     }
+
+    "encode ChatMessage with a type discriminator and fields" in {
+      val event: PlayerEvent =
+        PlayerEvent.ChatMessage(
+          UUID.randomUUID(),
+          UUID.randomUUID(),
+          "alice",
+          "gg",
+          Instant.parse("2026-06-15T12:00:00Z")
+        )
+      val json = event.asJson
+      json.hcursor.get[String]("type") shouldBe Right("ChatMessage")
+      json.hcursor.get[String]("senderName") shouldBe Right("alice")
+      json.hcursor.get[String]("text") shouldBe Right("gg")
+      json.hcursor.get[String]("sentAt") shouldBe Right("2026-06-15T12:00:00Z")
+    }
+  }
+
+  "ClientMessage decoder" should {
+    "decode a ChatSend frame" in {
+      val gameId = UUID.randomUUID()
+      val json = s"""{"type":"ChatSend","gameId":"$gameId","text":"hello"}"""
+      io.circe.parser.decode[ClientMessage](json) shouldBe Right(ClientMessage.ChatSend(gameId, "hello"))
+    }
+
+    "reject an unknown message type with an explanatory error" in {
+      val error = io.circe.parser.decode[ClientMessage]("""{"type":"Nope"}""").swap.map(_.getMessage).getOrElse("")
+      error should include("Unknown client message type: Nope")
+    }
+
+    "reject a frame missing the type discriminator" in {
+      io.circe.parser.decode[ClientMessage]("""{"text":"no type"}""").isLeft shouldBe true
+    }
   }
 }
