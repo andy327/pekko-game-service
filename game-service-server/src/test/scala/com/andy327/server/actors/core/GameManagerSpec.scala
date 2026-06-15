@@ -1125,6 +1125,48 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       fiber.cancel.unsafeRunSync()
     }
 
+    "unregister a player from the subscriber on PlayerDisconnected" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val nonLocalGameId: GameId = UUID.randomUUID()
+      val json = """{"type":"GameStateUpdated"}"""
+
+      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
+      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
+      val fiber = subscriber.run.start.unsafeRunSync()
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
+
+      val player = Player("alice")
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(player, wsProbe.ref, playerRefProbe.ref)
+      val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.SubscribeToGame(nonLocalGameId, playerRef)
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      Thread.sleep(50) // let unsafeRunAndForget(registerPlayer) complete
+
+      // sanity: the player is registered and receiving the remote game's events
+      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
+      wsProbe.expectMessageType[PlayerActor.WsMessage]
+
+      // disconnect drops the player from the subscriber registry (and closes its session stream)
+      gm ! GameManager.PlayerDisconnected(player.id, playerRef)
+      wsProbe.expectMessage(PlayerActor.WsComplete) // the PlayerActor completes its stream as it stops
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+      Thread.sleep(50) // let unsafeRunAndForget(unregisterPlayer) complete
+
+      // a further event must NOT reach the now-unregistered player
+      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
+      wsProbe.expectNoMessage(100.millis)
+
+      fiber.cancel.unsafeRunSync()
+    }
+
     "call unregisterGame on the subscriber when a game completes" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
