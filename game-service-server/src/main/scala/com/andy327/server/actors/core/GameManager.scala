@@ -1,5 +1,7 @@
 package com.andy327.server.actors.core
 
+import java.time.Instant
+
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -88,6 +90,11 @@ object GameManager {
 
   /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
   final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  /** Post a chat message to a match: fans it out to the match's subscribers (the game actor's while in progress, the
+    * lobby's otherwise) and publishes it so other instances relay it to their watchers.
+    */
+  final case class SendChat(gameId: GameId, sender: Player, text: String) extends Command
 
   /** Subscribe the authenticated player to game push events as a spectator; replies with [[SubscribeAcknowledged]] or
     * [[ErrorResponse]].
@@ -435,6 +442,19 @@ object GameManager {
                   context.log.warn(s"SubscribeToGame: no active game found for $gameId")
               }
           }
+          Behaviors.same
+
+        case SendChat(gameId, sender, text) =>
+          val event = PlayerEvent.ChatMessage(gameId, sender.id, sender.name, text, Instant.now())
+          activeGames.get(gameId) match {
+            case Some((gameType, gameActor)) =>
+              gameActor ! GameRegistry.forType(gameType).actor.broadcastCommand(event)
+            case None =>
+              // not in progress (or unknown): fan out via the lobby; a bogus gameId is a harmless no-op there
+              lobbyManager ! LobbyManager.BroadcastChat(gameId, event)
+          }
+          // relay to watchers on other instances; local watchers are reached by the fan-out above
+          publisher.publish(gameId, event)
           Behaviors.same
 
         case SubscribePlayerToGame(gameId, playerId, replyTo) =>

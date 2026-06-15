@@ -1,5 +1,6 @@
 package com.andy327.server.actors.tictactoe
 
+import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.duration._
@@ -279,6 +280,18 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
         PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+    }
+
+    "fan a Broadcast event out to all subscribers" in {
+      val (actor, _) = newActor()
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
+
+      val chat = PlayerEvent.ChatMessage(UUID.randomUUID(), alice, "alice", "gg", Instant.EPOCH)
+      actor ! TurnBasedGameActor.Broadcast(chat)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe chat
     }
 
     "not push events to unsubscribed players" in {

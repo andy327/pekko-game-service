@@ -1,5 +1,6 @@
 package com.andy327.server.actors.core
 
+import java.time.Instant
 import java.util.UUID
 
 import cats.effect.IO
@@ -168,6 +169,22 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.responseProbe.expectMessageType[GameManager.LobbyJoined]
 
       subscriberProbe.expectNoMessage()
+    }
+
+    "fan a chat message out to lobby subscribers on BroadcastChat" in {
+      val f = newLobby()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+
+      f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, f.responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = f.responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial lobby state on subscribe
+
+      val chat = PlayerEvent.ChatMessage(gameId, alice.id, "alice", "hi", Instant.EPOCH)
+      f.lm ! LobbyManager.BroadcastChat(gameId, chat)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe chat
     }
 
     "push LobbyUpdated to a subscriber when a player joins" in {

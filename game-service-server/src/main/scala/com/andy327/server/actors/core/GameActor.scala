@@ -81,6 +81,9 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
   /** Produce the game-specific Subscribe command that registers `playerRef` for push events. */
   def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
 
+  /** Produce the game-specific command that fans `event` out to all of the game's subscribers (e.g. a chat message). */
+  def broadcastCommand(event: PlayerEvent): GameActor.GameCommand
+
   /** Extract the snapshot-save result from `cmd` if it is a `SnapshotSaved` message, otherwise `None`.
     *
     * Used by [[terminating]] to detect when the final snapshot has been confirmed without needing to know the
