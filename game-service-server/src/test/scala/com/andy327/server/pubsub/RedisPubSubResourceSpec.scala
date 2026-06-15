@@ -42,7 +42,9 @@ class RedisPubSubResourceSpec extends AnyWordSpec with Matchers with ForAllTestC
 
       val messages = RedisPubSubResource(redisConfig).use { case (publishFn, subscribeStream) =>
         for {
-          fiber <- subscribeStream.take(1).compile.toList.start
+          // interruptAfter bounds the wait: if the message is lost (e.g. published before the subscription is
+          // established), the stream ends empty and the assertion below fails fast, rather than joinWithNever hanging
+          fiber <- subscribeStream.take(1).interruptAfter(5.seconds).compile.toList.start
           _ <- IO.sleep(500.millis) // allow subscription to establish before publishing
           _ <- publishFn(channel, payload)
           msgs <- fiber.joinWithNever
