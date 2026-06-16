@@ -141,7 +141,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, gameResponseProbe.ref)
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
-      response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame))
+      response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame, None))
     }
 
     "ignore RestoreGames messages in running state" in {
@@ -523,7 +523,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.GameStatus]
-      response.state shouldBe GameStateConverters.serializeGame(game)
+      response.state shouldBe GameStateConverters.serializeGame(game, None)
     }
 
     "return an error when forwarding a move to a completed game" in {

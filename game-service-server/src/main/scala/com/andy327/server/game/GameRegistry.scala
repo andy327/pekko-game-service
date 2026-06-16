@@ -1,6 +1,6 @@
 package com.andy327.server.game
 
-import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.core.{Game, GameType, PlayerId}
 import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
@@ -19,12 +19,13 @@ import com.andy327.server.http.json.GameState
   */
 case class GameModuleBundle[G <: Game[_, _, _, _, _]](module: GameModule[G], actor: GameActor[G]) {
 
-  /** Serialize `game` to its HTTP representation.
+  /** Serialize `game` to its HTTP representation, rendered for `viewer` (`None` = public/spectator view).
     *
     * The caller must ensure that `game` was loaded using this bundle's `GameType`; the cast is safe because
     * [[GameRegistry]] constructs each bundle with matching `G` types.
     */
-  def serializeGame(game: Game[_, _, _, _, _]): GameState = module.serialize(game.asInstanceOf[G])
+  def serializeGame(game: Game[_, _, _, _, _], viewer: Option[PlayerId]): GameState =
+    module.serialize(game.asInstanceOf[G], viewer)
 }
 
 /** Maps each supported `GameType` to its [[GameModuleBundle]].

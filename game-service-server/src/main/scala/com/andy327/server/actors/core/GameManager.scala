@@ -616,7 +616,7 @@ object GameManager {
         case CompletedGameLoaded(result, gameId, gameType, replyTo) =>
           result match {
             case Right(Some(game)) =>
-              replyTo ! GameStatus(GameRegistry.forType(gameType).serializeGame(game))
+              replyTo ! GameStatus(GameRegistry.forType(gameType).serializeGame(game, None))
             case Right(None) =>
               context.log.warn(s"Completed game $gameId has no record in the database")
               replyTo ! GameNotFound(gameId)

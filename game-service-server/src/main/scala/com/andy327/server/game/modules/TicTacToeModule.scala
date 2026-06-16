@@ -6,7 +6,7 @@ import io.circe.Decoder
 import io.circe.generic.auto._
 import org.apache.pekko.actor.typed.ActorRef
 
-import com.andy327.model.core.GameError
+import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.tictactoe.{Location, TicTacToe}
 import com.andy327.server.actors.core.{GameActor, TurnBasedGameActor}
 import com.andy327.server.game.MovePayload.TicTacToeMove
@@ -38,5 +38,6 @@ object TicTacToeModule extends GameModule[TicTacToe] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: TicTacToe): GameState = GameStateConverters.serializeGame(game)
+  override def serialize(game: TicTacToe, viewer: Option[PlayerId]): GameState =
+    GameStateConverters.serializeGame(game, viewer)
 }

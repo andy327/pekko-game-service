@@ -65,7 +65,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = ConnectFour.empty(alice.id, bob.id)
-      ConnectFourModule.serialize(game) shouldBe a[GridGameState]
+      ConnectFourModule.serialize(game, None) shouldBe a[GridGameState]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {

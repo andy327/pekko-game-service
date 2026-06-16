@@ -170,7 +170,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                 // record the move in the append-only history log; seq is the pre-move move count (0-based ordinal)
                 persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
 
-                val serialized = view.fromGame(nextState)
+                val serialized = view.fromGame(nextState, None)
                 replyTo ! Right(serialized)
                 val stateEvent = PlayerEvent.GameStateUpdated(serialized)
                 // fan out to locally-connected players; publisher relays to players on other server instances
@@ -203,13 +203,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         }
 
       case GetState(replyTo) =>
-        replyTo ! Right(view.fromGame(game))
+        replyTo ! Right(view.fromGame(game, None))
         Behaviors.same
 
       case Subscribe(playerRef) =>
         // watch the subscriber so its termination (disconnect/reconnect) drops it from the set automatically
         context.watch(playerRef)
-        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game)))
+        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game, None)))
         active(game, gameId, persist, gameManager, subscribers + playerRef, publisher)
 
       case Unsubscribe(playerRef) =>

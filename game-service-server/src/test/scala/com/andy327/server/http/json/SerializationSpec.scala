@@ -98,17 +98,17 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "GridGameState codec" should {
     "round-trip a TicTacToe view" in {
-      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       view.asJson.as[GridGameState] shouldBe Right(view)
     }
 
     "round-trip a ConnectFour view" in {
-      val view = GameStateConverters.serializeGame(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()))
+      val view = GameStateConverters.serializeGame(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       view.asJson.as[GridGameState] shouldBe Right(view)
     }
 
     "omit an absent winner rather than serializing it as null" in {
-      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       view.asJson.deepDropNullValues.asObject.flatMap(_("winner")) should not be defined
     }
   }
@@ -129,7 +129,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
 
     "encode GameStateUpdated with a type discriminator and state" in {
-      val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()))
+      val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       val json = (PlayerEvent.GameStateUpdated(state): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
       json.asObject.flatMap(_("state")) should be(defined)
