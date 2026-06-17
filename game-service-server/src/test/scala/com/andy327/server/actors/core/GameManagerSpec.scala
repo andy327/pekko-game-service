@@ -1005,7 +1005,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(gameId, subscriberProbe.ref)
+      gm ! GameManager.SubscribeToGame(gameId, host.id, subscriberProbe.ref)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial game state on subscribe
 
       gm ! GameManager.SendChat(gameId, host, "gg")
@@ -1110,7 +1110,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(gameId, subscriberProbe.ref)
+      gm ! GameManager.SubscribeToGame(gameId, alice.id, subscriberProbe.ref)
 
       gm ! GameManager.RunGameOperation(
         gameId,
@@ -1172,7 +1172,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(nonexistentId, subscriberProbe.ref)
+      gm ! GameManager.SubscribeToGame(nonexistentId, UUID.randomUUID(), subscriberProbe.ref)
 
       // GM is still responsive
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -1229,7 +1229,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       // Ask GM to subscribe the player to a non-local game
-      gm ! GameManager.SubscribeToGame(nonLocalGameId, playerRef)
+      gm ! GameManager.SubscribeToGame(nonLocalGameId, UUID.randomUUID(), playerRef)
 
       // Drain in-flight messages so SubscribeToGame is processed before we enqueue
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -1262,7 +1262,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.RegisterPlayer(player, wsProbe.ref, playerRefProbe.ref)
       val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
-      gm ! GameManager.SubscribeToGame(nonLocalGameId, playerRef)
+      gm ! GameManager.SubscribeToGame(nonLocalGameId, player.id, playerRef)
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbiesListed]

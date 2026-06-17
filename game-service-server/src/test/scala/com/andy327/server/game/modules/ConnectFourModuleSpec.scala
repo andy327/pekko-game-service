@@ -1,5 +1,7 @@
 package com.andy327.server.game.modules
 
+import java.util.UUID
+
 import io.circe.parser.decode
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
@@ -55,10 +57,11 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
 
     "produce a Subscribe command for a given PlayerActor ref" in {
       val playerProbe = TestProbe[PlayerActor.Command]()
+      val playerId = UUID.randomUUID()
 
-      val result = ConnectFourActor.subscribeCommand(playerProbe.ref)
+      val result = ConnectFourActor.subscribeCommand(playerProbe.ref, playerId)
 
-      result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref)
+      result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
     "serialize a ConnectFour game to GridGameState" in {

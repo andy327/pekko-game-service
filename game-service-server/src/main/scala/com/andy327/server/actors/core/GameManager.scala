@@ -95,8 +95,9 @@ object GameManager {
     */
   final case class GetChatHistory(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Subscribe `playerRef` to game-state push events from the game actor for `gameId`. */
-  final case class SubscribeToGame(gameId: GameId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+  /** Subscribe `playerRef` (the session for `playerId`) to game-state push events from the game actor for `gameId`. */
+  final case class SubscribeToGame(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
+      extends Command
 
   /** Post a chat message to a match: fans it out to the match's subscribers (the game actor's while in progress, the
     * lobby's otherwise) and publishes it so other instances relay it to their watchers.
@@ -144,7 +145,7 @@ object GameManager {
       gameType: GameType,
       players: Set[PlayerId],
       replyTo: ActorRef[GameResponse],
-      subscribers: Set[ActorRef[PlayerActor.Command]] = Set.empty
+      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
   ) extends Command
 
   /** Adapter wrapper — converts a game actor's `Either[GameError, GameState]` reply into a [[GameResponse]]. */
@@ -176,6 +177,7 @@ object GameManager {
   final private case class PlayerRefForGameSpectate(
       playerRef: Option[ActorRef[PlayerActor.Command]],
       gameId: GameId,
+      playerId: PlayerId,
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
@@ -452,10 +454,10 @@ object GameManager {
           }
           Behaviors.same
 
-        case SubscribeToGame(gameId, playerRef) =>
+        case SubscribeToGame(gameId, playerId, playerRef) =>
           activeGames.get(gameId) match {
             case Some((gameType, gameActor)) =>
-              gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef)
+              gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef, playerId)
             case None =>
               subscriber match {
                 case Some(sub) =>
@@ -488,17 +490,17 @@ object GameManager {
         case SubscribePlayerToGame(gameId, playerId, replyTo) =>
           implicit val t: Timeout = subscribeAskTimeout
           context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
-            case Success(ref) => PlayerRefForGameSpectate(ref, gameId, replyTo)
-            case Failure(_)   => PlayerRefForGameSpectate(None, gameId, replyTo)
+            case Success(ref) => PlayerRefForGameSpectate(ref, gameId, playerId, replyTo)
+            case Failure(_)   => PlayerRefForGameSpectate(None, gameId, playerId, replyTo)
           }
           Behaviors.same
 
-        case PlayerRefForGameSpectate(playerRefOpt, gameId, replyTo) =>
+        case PlayerRefForGameSpectate(playerRefOpt, gameId, playerId, replyTo) =>
           playerRefOpt match {
             case Some(ref) =>
               activeGames.get(gameId) match {
                 case Some((gameType, gameActor)) =>
-                  gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(ref)
+                  gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(ref, playerId)
                   replyTo ! SubscribeAcknowledged(gameId)
                 case None =>
                   replyTo ! ErrorResponse(s"No active game found for $gameId")
@@ -533,7 +535,7 @@ object GameManager {
             val (game, behavior) = bundle.actor.create(gameId, players.toSeq, persistActor, context.self, publisher)
             val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
-            subscribers.foreach(ref => actorRef ! bundle.actor.subscribeCommand(ref))
+            subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
 
             persistActor ! PersistenceProtocol.SaveSnapshot(
               gameId,

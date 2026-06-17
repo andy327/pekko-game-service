@@ -247,7 +247,7 @@ object LobbyManager {
           case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
             context.log.info(s"Lobby $gameId validated for start — delegating game actor spawn to GameManager")
             val updatedMetadata = metadata.copy(status = GameLifecycleStatus.InProgress)
-            val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty).values.toSet
+            val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty)
             gameManager ! GameManager.SpawnGame(
               gameId,
               metadata.gameType,

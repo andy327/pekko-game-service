@@ -256,7 +256,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
@@ -268,7 +268,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       xWinsMoves.foreach { case (player, loc) =>
@@ -286,7 +286,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       val chat = PlayerEvent.ChatMessage(UUID.randomUUID(), alice, "alice", "gg", Instant.EPOCH)
@@ -298,7 +298,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
       actor ! TurnBasedGameActor.Unsubscribe(subscriberProbe.ref)
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
@@ -311,7 +311,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriber)
+      actor ! TurnBasedGameActor.Subscribe(subscriber, alice)
       // the game actor watches the subscriber; stopping it must drop it via Terminated, not DeathPactException
       testKit.stop(subscriber)
 
@@ -374,7 +374,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
       val deathWatch = createTestProbe[Any]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriber)
+      actor ! TurnBasedGameActor.Subscribe(subscriber, alice)
 
       // drive the game to completion → actor enters `terminating`, awaiting the final SnapshotSaved
       xWinsMoves.foreach { case (player, loc) =>

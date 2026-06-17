@@ -235,7 +235,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
 
       f.lm ! LobbyManager.StartGame(gameId, alice.id, f.responseProbe.ref)
       val spawnMsg = f.gmProbe.expectMessageType[GameManager.SpawnGame]
-      spawnMsg.subscribers should contain(subscriberProbe.ref)
+      spawnMsg.subscribers shouldBe Map(alice.id -> subscriberProbe.ref)
 
       // subscriber is removed from LobbyManager after handoff to game actor
       f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
