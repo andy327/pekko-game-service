@@ -1,10 +1,11 @@
 package com.andy327.server.game
 
 import com.andy327.model.core.{Game, GameType, PlayerId}
+import com.andy327.server.actors.battleship.BattleshipActor
 import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.game.modules.{ConnectFourModule, GameModule, TicTacToeModule}
+import com.andy327.server.game.modules.{BattleshipModule, ConnectFourModule, GameModule, TicTacToeModule}
 import com.andy327.server.http.json.GameState
 
 /** Groups the [[com.andy327.server.game.modules.GameModule]] and [[com.andy327.server.actors.core.GameActor]] implementations for a single game type.
@@ -37,15 +38,12 @@ object GameRegistry {
 
   /** Look up the bundle for a given `GameType`.
     *
-    * `GameType.Battleship` is registered as a persistable type but has no server bundle yet (wired in the next commit),
-    * so the match is intentionally partial; it is unreachable because `GameType.fromString` does not yet parse it.
-    *
     * @param gameType the game type to look up
     * @return the bundle containing module and actor for that game type
     */
-  @annotation.nowarn("msg=match may not be exhaustive")
   def forType(gameType: GameType): GameModuleBundle[_] = gameType match {
     case GameType.TicTacToe   => GameModuleBundle(TicTacToeModule, TicTacToeActor)
     case GameType.ConnectFour => GameModuleBundle(ConnectFourModule, ConnectFourActor)
+    case GameType.Battleship  => GameModuleBundle(BattleshipModule, BattleshipActor)
   }
 }

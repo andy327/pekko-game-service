@@ -21,4 +21,11 @@ object MovePayload {
     * @param col The column index (0-based, 0–6)
     */
   final case class ConnectFourMove(col: Int) extends MovePayload
+
+  /** A move for Battleship: fire a shot at a coordinate on the opponent's board.
+    *
+    * @param row The row index (0-based)
+    * @param col The column index (0-based)
+    */
+  final case class BattleshipMove(row: Int, col: Int) extends MovePayload
 }

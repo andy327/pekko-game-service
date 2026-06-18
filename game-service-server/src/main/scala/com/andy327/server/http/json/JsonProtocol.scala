@@ -68,9 +68,14 @@ object JsonProtocol extends CirceSupport {
 
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
 
-  /** Encoder for the polymorphic `GameState` hierarchy; currently every view is a [[GridGameState]]. */
-  implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance { case s: GridGameState =>
-    s.asJson
+  implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
+
+  /** Encoder for the polymorphic `GameState` hierarchy (grid games share [[GridGameState]]; Battleship has its own
+    * per-viewer [[BattleshipState]]).
+    */
+  implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
+    case s: GridGameState   => s.asJson
+    case s: BattleshipState => s.asJson
   }
 
   // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see

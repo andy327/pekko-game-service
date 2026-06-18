@@ -39,6 +39,7 @@ object GameType {
   def fromString(s: String): Option[GameType] = s.toLowerCase match {
     case "tictactoe"   => Some(TicTacToe)
     case "connectfour" => Some(ConnectFour)
+    case "battleship"  => Some(Battleship)
     case _             => None
   }
 }
