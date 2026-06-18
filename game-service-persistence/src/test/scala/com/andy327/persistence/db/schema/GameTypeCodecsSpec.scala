@@ -2,11 +2,14 @@ package com.andy327.persistence.db.schema
 
 import java.util.UUID
 
+import scala.util.Random
+
 import io.circe.parser._
 import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
 import com.andy327.model.tictactoe.{Location, TicTacToe, X}
@@ -90,6 +93,48 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     "return Left if ConnectFour game JSON is invalid" in {
       val badJson = """{ "not": "valid" }"""
       val result = deserializeGame(GameType.ConnectFour, badJson)
+      result.isLeft shouldBe true
+    }
+
+    "correctly encode and decode GameType.Battleship" in {
+      val t: GameType = GameType.Battleship
+      val json = t.asJson.noSpaces
+      json shouldBe "\"Battleship\""
+
+      val decoded = decode[GameType](json)
+      decoded shouldBe Right(GameType.Battleship)
+    }
+
+    "round-trip a Battleship game through serializeGame and deserializeGame" in {
+      val game = Battleship.random(alice, bob, new Random(1)).play(Player1, Fire(Coord(0, 0))).toOption.get
+      val json = serializeGame(GameType.Battleship, game)
+      deserializeGame(GameType.Battleship, json) shouldBe Right(game)
+    }
+
+    "round-trip a finished Battleship game, decoding both Player1 and Player2 seats" in {
+      // winner serializes as "P1" and currentPlayer as "P2", so the round-trip exercises both Seat decode branches
+      val game = Battleship(
+        alice,
+        bob,
+        PlayerBoard(List(Ship(Set(Coord(0, 0)))), Set.empty),
+        PlayerBoard(List(Ship(Set(Coord(0, 0)))), Set(Coord(0, 0))),
+        currentPlayer = Player2,
+        winner = Some(Player1)
+      )
+      val json = serializeGame(GameType.Battleship, game)
+      deserializeGame(GameType.Battleship, json) shouldBe Right(game)
+    }
+
+    "fail to decode an invalid Battleship Seat" in {
+      val baseJson = Battleship.random(alice, bob, new Random(1)).asJson.noSpaces
+      val corruptedJson = baseJson.replace("\"currentPlayer\":\"P1\"", "\"currentPlayer\":\"Z\"")
+      val result = deserializeGame(GameType.Battleship, corruptedJson)
+      result.isLeft shouldBe true
+    }
+
+    "return Left if Battleship game JSON is invalid" in {
+      val badJson = """{ "not": "valid" }"""
+      val result = deserializeGame(GameType.Battleship, badJson)
       result.isLeft shouldBe true
     }
   }

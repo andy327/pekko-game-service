@@ -37,9 +37,13 @@ object GameRegistry {
 
   /** Look up the bundle for a given `GameType`.
     *
+    * `GameType.Battleship` is registered as a persistable type but has no server bundle yet (wired in the next commit),
+    * so the match is intentionally partial; it is unreachable because `GameType.fromString` does not yet parse it.
+    *
     * @param gameType the game type to look up
     * @return the bundle containing module and actor for that game type
     */
+  @annotation.nowarn("msg=match may not be exhaustive")
   def forType(gameType: GameType): GameModuleBundle[_] = gameType match {
     case GameType.TicTacToe   => GameModuleBundle(TicTacToeModule, TicTacToeActor)
     case GameType.ConnectFour => GameModuleBundle(ConnectFourModule, ConnectFourActor)
