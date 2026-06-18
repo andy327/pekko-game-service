@@ -7,7 +7,7 @@ import io.circe.generic.auto._
 import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.model.connectfour.{ConnectFour, Drop}
-import com.andy327.model.core.GameError
+import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.server.actors.core.{GameActor, TurnBasedGameActor}
 import com.andy327.server.game.MovePayload.ConnectFourMove
 import com.andy327.server.game.{GameOperation, MovePayload}
@@ -38,5 +38,6 @@ object ConnectFourModule extends GameModule[ConnectFour] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: ConnectFour): GameState = GameStateConverters.serializeGame(game)
+  override def serialize(game: ConnectFour, viewer: Option[PlayerId]): GameState =
+    GameStateConverters.serializeGame(game, viewer)
 }

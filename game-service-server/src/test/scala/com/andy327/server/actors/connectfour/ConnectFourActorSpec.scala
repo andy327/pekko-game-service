@@ -240,7 +240,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameState]]().ref)
@@ -254,7 +254,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       redWinsMoves.foreach { case (playerId, col) =>
@@ -272,7 +272,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val (actor, _) = newActor()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
-      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref)
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
       actor ! TurnBasedGameActor.Unsubscribe(subscriberProbe.ref)
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameState]]().ref)

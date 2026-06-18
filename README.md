@@ -18,7 +18,7 @@ The architecture is built around the actor model: each game is an isolated actor
 
 - 🔐 JWT-authenticated player actions
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
-- 🎲 Multiple game types — Tic-Tac-Toe and Connect Four (Battleship in progress)
+- 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, and Battleship
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
 - ⚡ Real-time state delivery to all participants over WebSockets
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
@@ -127,7 +127,7 @@ Planned work, in rough priority order:
 - **Metrics & analytics** — an event-driven analytics consumer that subscribes to a `game-analytics:*` stream of domain events and exposes aggregate metrics (games played, move counts, durations, win/draw rates by game type) to Prometheus. The game actors already sit at the right emit points; this gives that event stream a first-class consumer.
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would replace the current Redis event relay for cross-instance fan-out, while the analytics stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
 - **Real authentication** — credentialed accounts and durable player identity (today players are JWT-only), token expiry, and removal of the dev token-issuance path. A prerequisite for per-player stats and leaderboards.
-- **More game types** — finishing Battleship (hidden-state showcase), then additional turn-based games (e.g. Pig, Liar's Dice, Mastermind, Texas Hold 'Em).
+- **More game types** — additional turn-based games beyond the current three (e.g. Pig, Liar's Dice, Mastermind, Texas Hold 'Em).
 - **AI opponent** — a bot player for single-player matches and testing.
 - **Load testing** — throughput/latency benchmarking, plus retention policies for snapshots and move logs.
 

@@ -66,6 +66,12 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         host.id shouldBe aliceId
       }
 
+    "create a lobby for the battleship game type" in
+      Post("/lobby/create/battleship").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbyCreated].host.name shouldBe "alice"
+      }
+
     "reject creating a lobby with an invalid game type" in
       Post("/lobby/create/unknowngame").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest

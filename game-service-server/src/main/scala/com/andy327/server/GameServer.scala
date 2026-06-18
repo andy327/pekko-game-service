@@ -110,6 +110,7 @@ object GameServer {
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,
+      new GameRoutes(GameType.Battleship, system).routes,
       new WebSocketRoutes(system).routes
     )
 

@@ -78,8 +78,11 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
       publisher: GameEventPublisher
   ): Behavior[Command]
 
-  /** Produce the game-specific Subscribe command that registers `playerRef` for push events. */
-  def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
+  /** Produce the game-specific Subscribe command that registers `playerRef` (the session for `playerId`) for push
+    * events. The `playerId` lets the actor render each subscriber's own view — full-information games ignore it,
+    * hidden-state games use it for per-viewer serialization.
+    */
+  def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand
 
   /** Produce the game-specific command that fans `event` out to all of the game's subscribers (e.g. a chat message). */
   def broadcastCommand(event: PlayerEvent): GameActor.GameCommand

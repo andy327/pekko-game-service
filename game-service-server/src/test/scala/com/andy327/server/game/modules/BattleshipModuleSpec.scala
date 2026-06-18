@@ -2,45 +2,47 @@ package com.andy327.server.game.modules
 
 import java.util.UUID
 
+import scala.util.Random
+
 import io.circe.parser.decode
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.connectfour.{ConnectFour, Drop}
+import com.andy327.model.battleship.{Battleship, Coord, Fire}
 import com.andy327.model.core.GameError
-import com.andy327.server.actors.connectfour.ConnectFourActor
+import com.andy327.server.actors.battleship.BattleshipActor
 import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
 import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GridGameState}
+import com.andy327.server.http.json.{BattleshipState, GameState}
 import com.andy327.server.lobby.Player
 
-class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
+class BattleshipModuleSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
   import testKit._
 
-  "ConnectFourModule" should {
-    "successfully decode a valid ConnectFour move JSON" in {
-      val json = """{"col":3}"""
-      decode[MovePayload](json)(ConnectFourModule.moveDecoder) shouldBe Right(MovePayload.ConnectFourMove(3))
+  "BattleshipModule" should {
+    "successfully decode a valid Battleship move JSON" in {
+      val json = """{"row":1,"col":2}"""
+      decode[MovePayload](json)(BattleshipModule.moveDecoder) shouldBe Right(MovePayload.BattleshipMove(1, 2))
     }
 
-    "fail to decode an invalid ConnectFour move JSON" in {
+    "fail to decode an invalid Battleship move JSON" in {
       val json = """{"bad":"data"}"""
-      decode[MovePayload](json)(ConnectFourModule.moveDecoder).isLeft shouldBe true
+      decode[MovePayload](json)(BattleshipModule.moveDecoder).isLeft shouldBe true
     }
 
-    "convert a valid GameOperation.MakeMove to a GameCommand" in {
+    "convert a valid GameOperation.MakeMove to a Fire GameCommand" in {
       val alice = Player("alice")
       val replyProbe = TestProbe[Either[GameError, GameState]]()
-      val move = MovePayload.ConnectFourMove(3)
+      val move = MovePayload.BattleshipMove(3, 4)
 
-      val result = ConnectFourModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
+      val result = BattleshipModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
 
       result match {
-        case Right(TurnBasedGameActor.MakeMove(playerId, drop, reply)) =>
+        case Right(TurnBasedGameActor.MakeMove(playerId, fire, reply)) =>
           playerId shouldBe alice.id
-          drop shouldBe Drop(3)
+          fire shouldBe Fire(Coord(3, 4))
           reply shouldBe replyProbe.ref
 
         case other => fail(s"Unexpected result: $other")
@@ -50,7 +52,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
     "convert GetState to a GetState GameCommand" in {
       val replyProbe = TestProbe[Either[GameError, GameState]]()
 
-      val result = ConnectFourModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
+      val result = BattleshipModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
       result shouldBe Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
@@ -59,30 +61,28 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       val playerProbe = TestProbe[PlayerActor.Command]()
       val playerId = UUID.randomUUID()
 
-      val result = ConnectFourActor.subscribeCommand(playerProbe.ref, playerId)
+      val result = BattleshipActor.subscribeCommand(playerProbe.ref, playerId)
 
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a ConnectFour game to GridGameState" in {
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val game = ConnectFour.empty(alice.id, bob.id)
-      ConnectFourModule.serialize(game, None) shouldBe a[GridGameState]
+    "serialize a Battleship game to BattleshipState" in {
+      val game = Battleship.random(Player("alice").id, Player("bob").id, new Random(0))
+      BattleshipModule.serialize(game, None) shouldBe a[BattleshipState]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
       val replyProbe = TestProbe[Either[GameError, GameState]]()
-      val unsupportedMove = null.asInstanceOf[MovePayload]
+      val unsupportedMove = null.asInstanceOf[MovePayload] // simulate invalid move type
 
-      val result = ConnectFourModule.toGameCommand(
+      val result = BattleshipModule.toGameCommand(
         GameOperation.MakeMove(alice.id, unsupportedMove),
         replyProbe.ref
       )
 
       val Left(err) = result
-      err.message should include("Unsupported move type for ConnectFour")
+      err.message should include("Unsupported move type for Battleship")
     }
   }
 }

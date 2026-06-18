@@ -5,6 +5,7 @@ import io.circe.parser.decode
 import io.circe.syntax._
 import io.circe.{Codec, Decoder, Encoder}
 
+import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Mark => ConnectFourMark, Red, Yellow}
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.tictactoe.{Mark, O, TicTacToe, X}
@@ -21,11 +22,13 @@ object GameTypeCodecs {
     Decoder.decodeString.emap {
       case "TicTacToe"   => Right(GameType.TicTacToe)
       case "ConnectFour" => Right(GameType.ConnectFour)
+      case "Battleship"  => Right(GameType.Battleship)
       case other         => Left(s"Unknown GameType: $other")
     },
     Encoder.encodeString.contramap[GameType] {
       case GameType.TicTacToe   => "TicTacToe"
       case GameType.ConnectFour => "ConnectFour"
+      case GameType.Battleship  => "Battleship"
     }
   )
 
@@ -51,10 +54,26 @@ object GameTypeCodecs {
 
   implicit val connectFourCodec: Codec[ConnectFour] = deriveCodec[ConnectFour]
 
+  implicit val battleshipSeatCodec: Codec[Seat] = Codec.from(
+    Decoder.decodeString.emap {
+      case "P1"  => Right(Player1)
+      case "P2"  => Right(Player2)
+      case other => Left(s"Invalid Seat: expected 'P1' or 'P2', got '$other'")
+    },
+    Encoder.encodeString.contramap[Seat](_.symbol)
+  )
+
+  // Codecs are declared in dependency order so each is in scope for the deriveCodec that needs it.
+  implicit val coordCodec: Codec[Coord] = deriveCodec[Coord]
+  implicit val shipCodec: Codec[Ship] = deriveCodec[Ship]
+  implicit val playerBoardCodec: Codec[PlayerBoard] = deriveCodec[PlayerBoard]
+  implicit val battleshipCodec: Codec[Battleship] = deriveCodec[Battleship]
+
   /** Serializes a game instance to a JSON string using the codec for the given GameType. */
   def serializeGame(gameType: GameType, game: Game[_, _, _, _, _]): String = gameType match {
     case GameType.TicTacToe   => game.asInstanceOf[TicTacToe].asJson.noSpaces
     case GameType.ConnectFour => game.asInstanceOf[ConnectFour].asJson.noSpaces
+    case GameType.Battleship  => game.asInstanceOf[Battleship].asJson.noSpaces
   }
 
   /** Deserializes a game state JSON string into a Game instance based on the provided GameType. */
@@ -62,5 +81,6 @@ object GameTypeCodecs {
     gameType match {
       case GameType.TicTacToe   => decode[TicTacToe](json).left.map(err => new Exception(err))
       case GameType.ConnectFour => decode[ConnectFour](json).left.map(err => new Exception(err))
+      case GameType.Battleship  => decode[Battleship](json).left.map(err => new Exception(err))
     }
 }

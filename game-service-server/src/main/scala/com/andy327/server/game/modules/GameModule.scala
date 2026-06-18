@@ -3,7 +3,7 @@ package com.andy327.server.game.modules
 import io.circe.Decoder
 import org.apache.pekko.actor.typed.ActorRef
 
-import com.andy327.model.core.{Game, GameError}
+import com.andy327.model.core.{Game, GameError, PlayerId}
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.GameState
@@ -41,10 +41,12 @@ import com.andy327.server.http.json.GameState
   *       }
   *     }}}
   *
-  *  3. `serialize` — convert the game model to its HTTP view. Given a [[com.andy327.server.http.json.GameStateView]]
-  *     instance in the `GameStateView` companion, this is always the same one-liner:
+  *  3. `serialize` — convert the game model to its HTTP view for `viewer`. Given a
+  *     [[com.andy327.server.http.json.GameStateView]] instance in the `GameStateView` companion, this is always the
+  *     same one-liner:
   *     {{{
-  *       override def serialize(game: MyGame): GameState = GameStateConverters.serializeGame(game)
+  *       override def serialize(game: MyGame, viewer: Option[PlayerId]): GameState =
+  *         GameStateConverters.serializeGame(game, viewer)
   *     }}}
   *
   * @tparam G the concrete game model type this module handles
@@ -65,10 +67,12 @@ trait GameModule[G <: Game[_, _, _, _, _]] {
       replyTo: ActorRef[Either[GameError, GameState]]
   ): Either[GameError, GameActor.GameCommand]
 
-  /** Convert a concrete game model into its HTTP-serializable `GameState` representation.
+  /** Convert a concrete game model into its HTTP-serializable `GameState` representation, rendered for `viewer`.
     *
     * @param game the game to serialize; guaranteed by [[com.andy327.server.game.GameModuleBundle]] to be of type `G`
+    * @param viewer `Some(playerId)` for that player's own view, or `None` for a public/spectator view; full-information
+    *               games ignore it
     * @return the corresponding `GameState` for delivery over HTTP or WebSocket
     */
-  def serialize(game: G): GameState
+  def serialize(game: G, viewer: Option[PlayerId]): GameState
 }

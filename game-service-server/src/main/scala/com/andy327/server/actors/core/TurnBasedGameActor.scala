@@ -28,8 +28,10 @@ object TurnBasedGameActor {
   /** Return the current serialized game state without mutating it. */
   final case class GetState(replyTo: ActorRef[Either[GameError, GameState]]) extends Command[Nothing]
 
-  /** Register a PlayerActor to receive push events (state updates and game-end notifications). */
-  final case class Subscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command[Nothing]
+  /** Register a PlayerActor (the session for `playerId`) to receive push events (state updates and game-end
+    * notifications). `playerId` identifies the viewer so each subscriber can be sent their own rendering of the state.
+    */
+  final case class Subscribe(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId) extends Command[Nothing]
 
   /** Deregister a previously subscribed PlayerActor. */
   final case class Unsubscribe(playerRef: ActorRef[PlayerActor.Command]) extends Command[Nothing]
@@ -77,8 +79,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
   type Command = TurnBasedGameActor.Command[M]
 
-  override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
-    Subscribe(playerRef)
+  override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand =
+    Subscribe(playerRef, playerId)
 
   override def broadcastCommand(event: PlayerEvent): GameActor.GameCommand =
     Broadcast(event)
@@ -99,7 +101,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     val game = newGame(players)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$gameId] starting new game")
-      active(game, gameId, persist, gameManager, Set.empty, publisher)
+      active(game, gameId, persist, gameManager, Map.empty, publisher)
     }
     (game, behavior)
   }
@@ -123,7 +125,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
           game.gameStatus match {
             case InProgress =>
               context.log.info(s"[$gameId] restored in-progress game")
-              active(game, gameId, persist, gameManager, Set.empty, publisher)
+              active(game, gameId, persist, gameManager, Map.empty, publisher)
             case Won(_) | Draw =>
               context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
               gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
@@ -147,7 +149,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       gameId: GameId,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      subscribers: Set[ActorRef[PlayerActor.Command]],
+      subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
       publisher: GameEventPublisher
   ): Behavior[Command] = Behaviors.receive[Command] { (context, msg) =>
     msg match {
@@ -170,18 +172,20 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                 // record the move in the append-only history log; seq is the pre-move move count (0-based ordinal)
                 persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
 
-                val serialized = view.fromGame(nextState)
-                replyTo ! Right(serialized)
-                val stateEvent = PlayerEvent.GameStateUpdated(serialized)
-                // fan out to locally-connected players; publisher relays to players on other server instances
-                subscribers.foreach(_ ! PlayerActor.SendEvent(stateEvent))
-                publisher.publish(gameId, stateEvent)
+                // reply to the mover with their own view; fan out a per-viewer view to each subscriber
+                replyTo ! Right(view.fromGame(nextState, Some(playerId)))
+                subscribers.foreach { case (ref, viewerId) =>
+                  ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(nextState, Some(viewerId))))
+                }
+                // publisher relays to other instances; carries the public view (per-viewer multi-instance is deferred)
+                publisher.publish(gameId, PlayerEvent.GameStateUpdated(view.fromGame(nextState, None)))
 
                 nextState.gameStatus match {
                   case Won(_) | Draw =>
                     context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
                     val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
-                    subscribers.foreach(_ ! PlayerActor.SendEvent(endEvent))
+                    // GameEnded carries no board, so it is identical for every viewer
+                    subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
                     publisher.publish(gameId, endEvent)
                     gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
                     terminating(gameId)
@@ -203,21 +207,22 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         }
 
       case GetState(replyTo) =>
-        replyTo ! Right(view.fromGame(game))
+        replyTo ! Right(view.fromGame(game, None))
         Behaviors.same
 
-      case Subscribe(playerRef) =>
-        // watch the subscriber so its termination (disconnect/reconnect) drops it from the set automatically
+      case Subscribe(playerRef, playerId) =>
+        // watch the subscriber so its termination (disconnect/reconnect) drops it from the map automatically
         context.watch(playerRef)
-        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game)))
-        active(game, gameId, persist, gameManager, subscribers + playerRef, publisher)
+        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game, Some(playerId))))
+        active(game, gameId, persist, gameManager, subscribers + (playerRef -> playerId), publisher)
 
       case Unsubscribe(playerRef) =>
         context.unwatch(playerRef)
         active(game, gameId, persist, gameManager, subscribers - playerRef, publisher)
 
       case Broadcast(event) =>
-        subscribers.foreach(_ ! PlayerActor.SendEvent(event))
+        // chat and other broadcasts carry no hidden state, so every viewer gets the same event
+        subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(event) }
         Behaviors.same
 
       case SnapshotSaved(result) =>
@@ -230,6 +235,6 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
   }.receiveSignal { case (context, Terminated(ref)) =>
     // a subscribed PlayerActor stopped; drop its (now-dead) ref so we stop fanning events to it
     context.log.debug(s"[$gameId] subscriber $ref terminated; removing from subscribers")
-    active(game, gameId, persist, gameManager, subscribers.filterNot(_ == ref), publisher)
+    active(game, gameId, persist, gameManager, subscribers.filterNot { case (r, _) => r == ref }, publisher)
   }
 }

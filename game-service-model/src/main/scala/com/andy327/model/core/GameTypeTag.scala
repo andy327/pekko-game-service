@@ -1,5 +1,6 @@
 package com.andy327.model.core
 
+import com.andy327.model.battleship.Battleship
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.tictactoe.TicTacToe
 
@@ -26,5 +27,9 @@ object GameTypeTag {
 
   implicit val connectFourTag: GameTypeTag[ConnectFour] = new GameTypeTag[ConnectFour] {
     override val value: GameType = GameType.ConnectFour
+  }
+
+  implicit val battleshipTag: GameTypeTag[Battleship] = new GameTypeTag[Battleship] {
+    override val value: GameType = GameType.Battleship
   }
 }
