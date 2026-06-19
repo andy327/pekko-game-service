@@ -3,7 +3,7 @@ package com.andy327.server.actors.core
 import scala.reflect.ClassTag
 
 import io.circe.Encoder
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTypeTag, InProgress, PlayerId, Won}
@@ -24,6 +24,12 @@ object TurnBasedGameActor {
   /** Attempt to apply `move` on behalf of `playerId`. */
   final case class MakeMove[M](playerId: PlayerId, move: M, replyTo: ActorRef[Either[GameError, GameState]])
       extends Command[M]
+
+  /** Apply the effect of `playerId` leaving the game (a forfeit for two-player games). Replies with the leaver's view
+    * of the resulting state, or a `GameError` if the model rejects the leave (e.g. not a participant, or unsupported).
+    */
+  final case class PlayerLeft(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameState]])
+      extends Command[Nothing]
 
   /** Return the current serialized game state without mutating it. */
   final case class GetState(replyTo: ActorRef[Either[GameError, GameState]]) extends Command[Nothing]
@@ -85,6 +91,12 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
   override def broadcastCommand(event: PlayerEvent): GameActor.GameCommand =
     Broadcast(event)
 
+  override def forfeitCommand(
+      playerId: PlayerId,
+      replyTo: ActorRef[Either[GameError, GameState]]
+  ): GameActor.GameCommand =
+    PlayerLeft(playerId, replyTo)
+
   override protected def snapshotSavedResult(cmd: Command): Option[Either[Throwable, Unit]] = cmd match {
     case SnapshotSaved(result) => Some(result)
     case _                     => None
@@ -137,6 +149,63 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       }
     }
 
+  /** Persists, fans out, and completes a successful state transition — shared by `MakeMove` and `PlayerLeft`.
+    *
+    * Saves a snapshot, replies to the acting player with their own view, fans a per-viewer view out to every
+    * subscriber, and publishes the public view for other instances. The resulting `gameStatus` then decides the next
+    * behavior: a terminal status emits `GameEnded`, notifies GameManager, and transitions to [[terminating]]; an
+    * `InProgress` status returns to [[active]] with the new state.
+    *
+    * @param viewerId the acting player (mover or leaver), used to render the reply sent back to them
+    * @param appendMove run immediately after the snapshot save — a move appends to the history log here, whereas a
+    *                   forfeit passes the default no-op (the winning result is derived, not a recorded move)
+    */
+  private def applyTransition(
+      context: ActorContext[Command],
+      nextState: G,
+      viewerId: PlayerId,
+      gameId: GameId,
+      persist: ActorRef[PersistenceProtocol.Command],
+      gameManager: ActorRef[GameManager.Command],
+      subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
+      publisher: GameEventPublisher,
+      replyTo: ActorRef[Either[GameError, GameState]]
+  )(appendMove: => Unit = ()): Behavior[Command] = {
+    context.log.info(s"Game $gameId updated:\n$nextState")
+
+    persist ! PersistenceProtocol.SaveSnapshot(
+      gameId = gameId,
+      gameType = gameType,
+      game = nextState,
+      // pass the real save outcome through so a failed snapshot is logged by the SnapshotSaved handler
+      replyTo = context.messageAdapter(saved => SnapshotSaved(saved.result))
+    )
+
+    appendMove
+
+    // reply to the acting player with their own view; fan out a per-viewer view to each subscriber
+    replyTo ! Right(view.fromGame(nextState, Some(viewerId)))
+    subscribers.foreach { case (ref, subscriberId) =>
+      ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(nextState, Some(subscriberId))))
+    }
+    // publisher relays to other instances; carries the public view (per-viewer multi-instance is deferred)
+    publisher.publish(gameId, PlayerEvent.GameStateUpdated(view.fromGame(nextState, None)))
+
+    nextState.gameStatus match {
+      case Won(_) | Draw =>
+        context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
+        val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+        // GameEnded carries no board, so it is identical for every viewer
+        subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
+        publisher.publish(gameId, endEvent)
+        gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+        terminating(gameId)
+
+      case InProgress =>
+        active(nextState, gameId, persist, gameManager, subscribers, publisher)
+    }
+  }
+
   /** Core recursive behavior that drives a single game from first move to completion.
     *
     * Each state-changing message (MakeMove) produces a new `active` behavior with updated game and subscriber state.
@@ -159,39 +228,19 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
           case Some(player) =>
             game.play(player, move) match {
               case Right(nextState) =>
-                context.log.info(s"Game $gameId updated:\n$nextState")
-
-                persist ! PersistenceProtocol.SaveSnapshot(
-                  gameId = gameId,
-                  gameType = gameType,
-                  game = nextState,
-                  // pass the real save outcome through so a failed snapshot is logged by the SnapshotSaved handler
-                  replyTo = context.messageAdapter(saved => SnapshotSaved(saved.result))
-                )
-
-                // record the move in the append-only history log; seq is the pre-move move count (0-based ordinal)
-                persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
-
-                // reply to the mover with their own view; fan out a per-viewer view to each subscriber
-                replyTo ! Right(view.fromGame(nextState, Some(playerId)))
-                subscribers.foreach { case (ref, viewerId) =>
-                  ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(nextState, Some(viewerId))))
-                }
-                // publisher relays to other instances; carries the public view (per-viewer multi-instance is deferred)
-                publisher.publish(gameId, PlayerEvent.GameStateUpdated(view.fromGame(nextState, None)))
-
-                nextState.gameStatus match {
-                  case Won(_) | Draw =>
-                    context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
-                    val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
-                    // GameEnded carries no board, so it is identical for every viewer
-                    subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
-                    publisher.publish(gameId, endEvent)
-                    gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-                    terminating(gameId)
-
-                  case InProgress =>
-                    active(nextState, gameId, persist, gameManager, subscribers, publisher)
+                applyTransition(
+                  context,
+                  nextState,
+                  playerId,
+                  gameId,
+                  persist,
+                  gameManager,
+                  subscribers,
+                  publisher,
+                  replyTo
+                ) {
+                  // record the move in the append-only history log; seq is the pre-move count (0-based ordinal)
+                  persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
                 }
 
               case Left(err) =>
@@ -203,6 +252,29 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
           case None =>
             context.log.warn(s"[$gameId] Player ID '$playerId' is not part of this game.")
             replyTo ! Left(GameError.InvalidPlayer(playerId))
+            Behaviors.same
+        }
+
+      case PlayerLeft(playerId, replyTo) =>
+        // forfeit/fold-out semantics live in the model; the resulting status drives completion exactly like a move
+        game.playerLeft(playerId) match {
+          case Right(nextState) =>
+            context.log.info(s"[$gameId] player $playerId left the game")
+            applyTransition(
+              context,
+              nextState,
+              playerId,
+              gameId,
+              persist,
+              gameManager,
+              subscribers,
+              publisher,
+              replyTo
+            )()
+
+          case Left(err) =>
+            context.log.warn(s"[$gameId] leave rejected: $err")
+            replyTo ! Left(err)
             Behaviors.same
         }
 

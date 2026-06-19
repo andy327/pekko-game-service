@@ -147,6 +147,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
         override def moveCount: Int = 0
+        override def playerLeft(playerId: PlayerId): Either[GameError, Any] = Left(GameError.Unknown("not implemented"))
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
@@ -406,6 +407,41 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+    }
+
+    "forfeit the game to the opponent when a player leaves, appending no move" in {
+      val gameManagerProbe = createTestProbe[GameManager.Command]()
+      val gameId: GameId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
+
+      // Bob (O) leaves the in-progress game → Alice (X) wins by forfeit
+      actor ! TurnBasedGameActor.PlayerLeft(bob, replyProbe.ref)
+      val Right(GridGameState(_, _, winner, _)) = replyProbe.receiveMessage()
+      winner shouldBe Some("X")
+
+      // a forfeit saves a final snapshot but, unlike a move, appends nothing to the history log
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      persistProbe.expectNoMessage()
+
+      // the subscriber sees the finished state then the game-ended event; GameManager is notified
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
+        PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
+      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+    }
+
+    "reject a leave from a player not in the game" in {
+      val eve: PlayerId = UUID.randomUUID()
+      val (actor, _) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      actor ! TurnBasedGameActor.PlayerLeft(eve, replyProbe.ref)
+      replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
     }
   }
 }

@@ -16,6 +16,7 @@ import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.http.scaladsl.model.ws.TextMessage
+import org.scalatest.concurrent.Eventually
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -74,7 +75,7 @@ class InMemChatRepo(initial: Map[GameId, List[PlayerEvent.ChatMessage]] = Map.em
     else IO.pure(db.getOrElse(gameId, Nil))
 }
 
-class GameManagerSpec extends AnyWordSpecLike with Matchers {
+class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
   private val testKit = ActorTestKit()
   import testKit._
 
@@ -655,6 +656,59 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers {
       gm ! GameManager.LeaveLobby(gameId, alice, responseProbe.ref)
       val aliceLeft = responseProbe.expectMessageType[GameManager.LobbyLeft]
       aliceLeft.message should include("host left")
+    }
+
+    "forfeit an in-progress game when a player leaves" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Bob (O) leaves the in-progress game — Alice (X) wins by forfeit
+      gm ! GameManager.LeaveLobby(gameId, bob, responseProbe.ref)
+      val forfeited = responseProbe.expectMessageType[GameManager.GameForfeited]
+      forfeited.state.asInstanceOf[GridGameState].winner shouldBe Some("X")
+
+      // the lobby has been moved to Completed by the GameCompleted -> MarkCompleted flow
+      eventually {
+        gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+        responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Completed
+      }
+    }
+
+    "reject a forfeit from a non-participant of an in-progress game" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val carol = Player("carol")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // Carol is not seated in the game; her leave is rejected and the game stays live
+      gm ! GameManager.LeaveLobby(gameId, carol, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.MoveRejected]
+
+      gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.InProgress
     }
 
     "handle a player trying to leave a nonexistent lobby" in {
