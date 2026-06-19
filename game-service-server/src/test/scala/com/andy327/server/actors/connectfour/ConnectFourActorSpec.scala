@@ -134,6 +134,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
         override def moveCount: Int = 0
+        override def playerLeft(playerId: PlayerId): Either[GameError, Any] = Left(GameError.Unknown("not implemented"))
       }
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()

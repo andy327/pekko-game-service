@@ -141,6 +141,18 @@ final case class Battleship(
       }
     }
 
+  /** Forfeits the game on behalf of the leaving player: the opponent is declared the winner.
+    *
+    * Rejects with [[core.GameError.InvalidPlayer]] if `playerId` is not a participant, or [[core.GameError.GameOver]]
+    * if the game has already ended. The full state is retained, so the fog-of-war view layer is unaffected.
+    */
+  override def playerLeft(playerId: PlayerId): Either[GameError, Battleship] =
+    playerFor(playerId) match {
+      case None                                => Left(GameError.InvalidPlayer(playerId))
+      case Some(_) if gameStatus != InProgress => Left(GameOver)
+      case Some(leaver)                        => Right(copy(winner = Some(opponent(leaver))))
+    }
+
   /** Renders both players' boards for logging: `S` ship, `X` hit, `o` miss, `.` empty water. */
   def render: String = {
     def renderBoard(b: PlayerBoard): String = {

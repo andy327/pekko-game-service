@@ -152,6 +152,15 @@ object GameManager {
   final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
       extends Command
 
+  /** Adapter wrapper — converts a game actor's forfeit reply (from a `LeaveLobby` on an in-progress game) into a
+    * [[GameForfeited]] on success or a [[MoveRejected]] if the model rejected the leave.
+    */
+  final private case class WrappedForfeitResponse(
+      response: Either[GameError, GameState],
+      gameId: GameId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   /** Adapter wrapper — converts [[LobbyManager.LobbiesListed]] into a [[GameResponse]] for the HTTP caller. */
   final private case class WrappedLobbiesListed(listed: LobbyManager.LobbiesListed, replyTo: ActorRef[GameResponse])
       extends Command
@@ -229,6 +238,9 @@ object GameManager {
   // Game responses
   final case class GameStarted(gameId: GameId) extends GameResponse
   final case class GameStatus(state: GameState) extends GameResponse
+
+  /** A player left an in-progress game and thereby forfeited it; `state` is the leaver's view of the finished game. */
+  final case class GameForfeited(gameId: GameId, state: GameState) extends GameResponse
 
   /** The ordered move history for a game; `moves` is empty if the game has no recorded moves. */
   final case class MoveHistory(gameId: GameId, moves: List[MoveRecord]) extends GameResponse
@@ -395,7 +407,17 @@ object GameManager {
           Behaviors.same
 
         case LeaveLobby(gameId, player, replyTo) =>
-          lobbyManager ! LobbyManager.LeaveLobby(gameId, player, replyTo)
+          activeGames.get(gameId) match {
+            // game in progress: leaving it is a forfeit, handled by the game actor (which then self-completes and
+            // triggers GameCompleted -> MarkCompleted, moving the lobby to Completed)
+            case Some((gameType, gameActor)) =>
+              val adaptedRef: ActorRef[Either[GameError, GameState]] =
+                context.messageAdapter(response => WrappedForfeitResponse(response, gameId, replyTo))
+              gameActor ! GameRegistry.forType(gameType).actor.forfeitCommand(player.id, adaptedRef)
+            // pre-game (or unknown) lobby: ordinary leave / host-cancel handled by LobbyManager as before
+            case None =>
+              lobbyManager ! LobbyManager.LeaveLobby(gameId, player, replyTo)
+          }
           Behaviors.same
 
         case StartGame(gameId, playerId, replyTo) =>
@@ -671,6 +693,13 @@ object GameManager {
         case WrappedGameResponse(response, replyTo) =>
           response match {
             case Right(state) => replyTo ! GameStatus(state)
+            case Left(error)  => replyTo ! MoveRejected(error.message)
+          }
+          Behaviors.same
+
+        case WrappedForfeitResponse(response, gameId, replyTo) =>
+          response match {
+            case Right(state) => replyTo ! GameForfeited(gameId, state)
             case Left(error)  => replyTo ! MoveRejected(error.message)
           }
           Behaviors.same

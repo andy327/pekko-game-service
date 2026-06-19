@@ -91,6 +91,34 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
       result shouldBe Left(GameError.GameOver)
     }
 
+    "forfeit to the opponent when a player leaves" in {
+      val game = TicTacToe.empty(alice, bob).play(X, Location(0, 0)).toOption.get
+      val Right(forfeited) = game.playerLeft(bob) // O leaves
+      forfeited.gameStatus shouldBe Won(X)
+    }
+
+    "let either seat forfeit to the other" in {
+      val game = TicTacToe.empty(alice, bob)
+      game.playerLeft(alice).map(_.gameStatus) shouldBe Right(Won(O))
+      game.playerLeft(bob).map(_.gameStatus) shouldBe Right(Won(X))
+    }
+
+    "reject a leave from a non-participant" in {
+      val game = TicTacToe.empty(alice, bob)
+      game.playerLeft(UUID.randomUUID()) shouldBe a[Left[_, _]]
+    }
+
+    "reject a leave once the game is already over" in {
+      val game = TicTacToe.empty(alice, bob)
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 0)).toOption.get
+        .play(X, Location(0, 1)).toOption.get
+        .play(O, Location(1, 1)).toOption.get
+        .play(X, Location(0, 2)).toOption.get // X wins
+
+      game.playerLeft(bob) shouldBe Left(GameError.GameOver)
+    }
+
     "properly render a game board" in {
       val game = TicTacToe.empty(alice, bob)
         .play(X, Location(0, 0)).toOption.get

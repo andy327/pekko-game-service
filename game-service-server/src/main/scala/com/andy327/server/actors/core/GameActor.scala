@@ -3,8 +3,9 @@ package com.andy327.server.actors.core
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.model.core.{Game, GameId, GameType, GameTypeTag, PlayerId}
+import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.http.json.GameState
 import com.andy327.server.pubsub.GameEventPublisher
 
 object GameActor {
@@ -86,6 +87,12 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
 
   /** Produce the game-specific command that fans `event` out to all of the game's subscribers (e.g. a chat message). */
   def broadcastCommand(event: PlayerEvent): GameActor.GameCommand
+
+  /** Produce the game-specific command that applies `playerId` leaving the game (a forfeit for two-player games),
+    * replying to `replyTo` with the leaver's view of the resulting state or a `GameError` if the leave is rejected.
+    * Lets GameManager trigger a forfeit without knowing the game's concrete move/command types.
+    */
+  def forfeitCommand(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameState]]): GameActor.GameCommand
 
   /** Extract the snapshot-save result from `cmd` if it is a `SnapshotSaved` message, otherwise `None`.
     *

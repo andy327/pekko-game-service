@@ -129,6 +129,18 @@ final case class ConnectFour(
           )
       }
 
+  /** Forfeits the game on behalf of the leaving player: the opponent is declared the winner.
+    *
+    * Rejects with [[core.GameError.InvalidPlayer]] if `playerId` is not a participant, or [[core.GameError.GameOver]]
+    * if the game has already ended.
+    */
+  override def playerLeft(playerId: PlayerId): Either[GameError, ConnectFour] =
+    playerFor(playerId) match {
+      case None                                => Left(GameError.InvalidPlayer(playerId))
+      case Some(_) if gameStatus != InProgress => Left(GameOver)
+      case Some(leaver)                        => Right(copy(winner = Some(if (leaver == Red) Yellow else Red)))
+    }
+
   /** Returns a human-readable representation of the board for logging. */
   def render: String = {
     val border = "-" * (Cols * 2 + 1)

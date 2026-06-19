@@ -202,9 +202,9 @@ object LobbyManager {
 
       case LeaveLobby(gameId, player, replyTo) =>
         lobbies.get(gameId) match {
-          // TODO(#28): leaving an in-progress game should eventually mean forfeiting it (or folding out of
-          // multiplayer games); until that exists, reject the request so the lobby cannot revert to a joinable
-          // status while its game actor is still running.
+          // Leaving an in-progress game is a forfeit, handled by the game actor; GameManager routes those directly and
+          // never forwards them here. This branch only guards the edge case where a lobby still shows InProgress but no
+          // live game actor exists (e.g. mid-restore) — reject so the lobby cannot revert to a joinable status.
           case Some(metadata) if metadata.status == GameLifecycleStatus.InProgress =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameInProgress(gameId))
             Behaviors.same

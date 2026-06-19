@@ -144,6 +144,41 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
+    "forfeit an in-progress game when a player leaves it" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      // Bob (O) leaves the live game: 200 with the finished game state, Alice (X) the winner
+      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] should include(""""winner":"X"""")
+      }
+    }
+
+    "reject a forfeit from a non-participant of an in-progress game" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      // Carl is not seated in the game; leaving is rejected with 409 and the game stays live
+      Post(s"/lobby/$gameId/leave").withHeaders(carlHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Conflict
+      }
+    }
+
     "reject leaving a lobby if the lobby does not exist" in {
       val fakeId = UUID.randomUUID()
 

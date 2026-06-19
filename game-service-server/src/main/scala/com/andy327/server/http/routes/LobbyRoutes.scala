@@ -13,6 +13,7 @@ import com.andy327.model.core.GameType
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{
   ErrorResponse,
+  GameForfeited,
   GameResponse,
   GameStarted,
   LobbiesListed,
@@ -21,6 +22,7 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyInfo,
   LobbyJoined,
   LobbyLeft,
+  MoveRejected,
   SubscribeAcknowledged
 }
 import com.andy327.server.http.auth.JwtPlayerDirectives._
@@ -148,11 +150,12 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           *
           * - Auth: Bearer token required
           * - Path: `gameId` — the UUID of the lobby to leave
-          * - 200: `LobbyLeft` with the game ID and a status message
+          * - 200: `LobbyLeft` (pre-game leave) with the game ID and a status message, or the leaver's final game
+          *   state if the game was in progress (leaving forfeits it — the opponent wins)
           * - 400: invalid UUID format
           * - 401: missing or invalid token
           * - 404: lobby not found
-          * - 409: game is in progress; leaving a started game is not supported
+          * - 409: the caller is not a participant in the in-progress game, or the game type does not support leaving
           * - 500: unexpected error
           */
         path("leave") {
@@ -160,6 +163,8 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(gameId, player, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
+                case GameForfeited(_, state)   => complete(state)
+                case MoveRejected(msg)         => complete(StatusCodes.Conflict -> msg)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }

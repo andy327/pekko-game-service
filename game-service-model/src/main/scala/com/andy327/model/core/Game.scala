@@ -46,4 +46,18 @@ trait Game[Move, State, Player, Status, Error] {
     *   - Return either a new game state or an error
     */
   def play(player: Player, move: Move): Either[Error, State]
+
+  /** Applies the effect of `playerId` leaving an in-progress game.
+    *
+    * The returned state's [[gameStatus]] drives what happens next, exactly as for a move: a terminal status (won or
+    * draw) runs the game's normal completion machinery, while an `InProgress` status means the game continues with the
+    * remaining players (the fold-out case for games with more than two players). A `Left` rejects the leave and leaves
+    * the game untouched.
+    *
+    * Each game defines its own leave semantics: two-player games forfeit — the leaver loses and the opponent wins — so
+    * the implementation should reject a non-participant and an already-finished game, then transition to a win for the
+    * remaining player. Returns a core [[GameError]] rather than the game-specific `Error` type because leaving never
+    * produces a game-rule error.
+    */
+  def playerLeft(playerId: PlayerId): Either[GameError, State]
 }

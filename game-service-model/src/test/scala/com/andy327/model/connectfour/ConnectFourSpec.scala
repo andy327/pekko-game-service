@@ -134,6 +134,30 @@ class ConnectFourSpec extends AnyWordSpec with Matchers {
       won.play(Yellow, Drop(0)) shouldBe Left(GameError.GameOver)
     }
 
+    "forfeit to the opponent when a player leaves" in {
+      val game = ConnectFour.empty(alice, bob)
+      game.playerLeft(alice).map(_.gameStatus) shouldBe Right(Won(Yellow))
+      game.playerLeft(bob).map(_.gameStatus) shouldBe Right(Won(Red))
+    }
+
+    "reject a leave from a non-participant" in {
+      ConnectFour.empty(alice, bob).playerLeft(UUID.randomUUID()) shouldBe a[Left[_, _]]
+    }
+
+    "reject a leave once the game is already over" in {
+      val won = ConnectFour.empty(alice, bob)
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get // Red connects four vertically in column 0
+
+      won.gameStatus shouldBe Won(Red)
+      won.playerLeft(bob) shouldBe Left(GameError.GameOver)
+    }
+
     "render the board as a human-readable string" in {
       val game = ConnectFour.empty(alice, bob)
         .play(Red, Drop(0)).toOption.get // Red  (5,0)
