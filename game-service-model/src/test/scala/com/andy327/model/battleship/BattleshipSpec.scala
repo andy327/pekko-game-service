@@ -105,6 +105,24 @@ class BattleshipSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "A leaving player" should {
+    "forfeit to the opponent" in {
+      val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))))
+      game.playerLeft(alice).map(_.gameStatus) shouldBe Right(Won(Player2))
+      game.playerLeft(bob).map(_.gameStatus) shouldBe Right(Won(Player1))
+    }
+
+    "be rejected for a non-participant" in {
+      val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))))
+      game.playerLeft(UUID.randomUUID()) shouldBe a[Left[_, _]]
+    }
+
+    "be rejected once the game is already over" in {
+      val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))), winner = Some(Player1))
+      game.playerLeft(bob) shouldBe Left(GameOver)
+    }
+  }
+
   "Battleship.random" should {
     "start a fresh game with Player1 to move, no winner, and no shots fired" in {
       val game = Battleship.random(alice, bob, new Random(7))

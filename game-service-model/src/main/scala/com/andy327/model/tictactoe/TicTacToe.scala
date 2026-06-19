@@ -110,6 +110,18 @@ final case class TicTacToe(
       )
     }
 
+  /** Forfeits the game on behalf of the leaving player: the opponent is declared the winner.
+    *
+    * Rejects with [[core.GameError.InvalidPlayer]] if `playerId` is not a participant, or [[core.GameError.GameOver]]
+    * if the game has already ended.
+    */
+  override def playerLeft(playerId: PlayerId): Either[GameError, TicTacToe] =
+    playerFor(playerId) match {
+      case None                                => Left(GameError.InvalidPlayer(playerId))
+      case Some(_) if gameStatus != InProgress => Left(GameOver)
+      case Some(leaver)                        => Right(copy(winner = Some(if (leaver == X) O else X)))
+    }
+
   def render: String = {
     val border = "-" * 7
     val rows = board.map { row =>
