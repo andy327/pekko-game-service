@@ -11,8 +11,8 @@ import com.andy327.model.battleship.{Coord, Fire}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.NoOpAnalyticsPublisher
 import com.andy327.server.http.json.{BattleshipState, GameState}
-import com.andy327.server.pubsub.NoOpGameEventPublisher
 
 class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -31,7 +31,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
         Seq(alice, bob),
         persistProbe.ref,
         dummyGameManager,
-        NoOpGameEventPublisher
+        NoOpAnalyticsPublisher
       )
     (spawn(behavior), persistProbe)
   }

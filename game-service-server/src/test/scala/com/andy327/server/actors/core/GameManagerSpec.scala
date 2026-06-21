@@ -4,13 +4,12 @@ import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 import scala.util.control.NoStackTrace
 
 import cats.effect.IO
-import cats.effect.std.Queue
 import cats.effect.unsafe.IORuntime
 
-import fs2.Stream
 import io.circe.Json
 import io.circe.syntax._
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
@@ -25,11 +24,11 @@ import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.server.chat.ChatRepository
 import com.andy327.server.game.{GameOperation, MovePayload}
 import com.andy327.server.http.json.{GameStateConverters, GridGameState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
-import com.andy327.server.pubsub.{GameEventPublisher, GameEventSubscriber}
 
 /** In-memory GameRepository for unit tests */
 class InMemRepo(initialGames: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty) extends GameRepository {
@@ -1040,13 +1039,13 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       wsProbe.expectMessageType[PlayerActor.WsMessage]
     }
 
-    "broadcast a chat message to an active game's subscribers and publish it on SendChat" in {
+    "broadcast a chat message to an active game's subscribers and emit a ChatSent analytics event on SendChat" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val host = Player("alice")
       val guest = Player("bob")
-      val published = new java.util.concurrent.ConcurrentLinkedQueue[(GameId, PlayerEvent)]()
-      val recordingPublisher = new GameEventPublisher {
-        def publish(gameId: GameId, event: PlayerEvent): Unit = { published.add((gameId, event)); () }
+      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameAnalyticsEvent]()
+      val recordingPublisher = new AnalyticsPublisher {
+        def publish(event: GameAnalyticsEvent): Unit = { published.add(event); () }
       }
       val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, publisher = recordingPublisher))
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -1073,9 +1072,12 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       chat.senderName shouldBe "alice"
       chat.text shouldBe "gg"
 
-      // also relayed to other instances via the publisher
-      subscriberProbe.awaitAssert(published.size shouldBe 1)
-      published.peek()._2 shouldBe a[PlayerEvent.ChatMessage]
+      // the send is also recorded for analytics, tagged with the in-progress game's type
+      subscriberProbe.awaitAssert {
+        val chatEvents = published.iterator().asScala.collect { case c: GameAnalyticsEvent.ChatSent => c }.toList
+        chatEvents.map(_.gameId) shouldBe List(gameId)
+        chatEvents.head.gameType shouldBe Some(GameType.TicTacToe)
+      }
     }
 
     "broadcast a chat message to lobby subscribers on SendChat before the game starts" in {
@@ -1262,128 +1264,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")
-    }
-
-    "register a remote player with the subscriber and route events on SubscribeToGame for a non-local game" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val nonLocalGameId: GameId = UUID.randomUUID()
-      val json = """{"type":"GameStateUpdated"}"""
-
-      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
-      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
-      val fiber = subscriber.run.start.unsafeRunSync()
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
-
-      // Register a player via GameManager so the ref lives inside the actor system
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
-      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
-      gm ! GameManager.RegisterPlayer(Player("alice"), wsProbe.ref, playerRefProbe.ref)
-      val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
-
-      // Ask GM to subscribe the player to a non-local game
-      gm ! GameManager.SubscribeToGame(nonLocalGameId, UUID.randomUUID(), playerRef)
-
-      // Drain in-flight messages so SubscribeToGame is processed before we enqueue
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
-      Thread.sleep(50) // let unsafeRunAndForget(registerPlayer) complete
-
-      // Push an event through the subscriber's stream
-      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
-      wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text shouldBe json
-
-      fiber.cancel.unsafeRunSync()
-    }
-
-    "unregister a player from the subscriber on PlayerDisconnected" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val nonLocalGameId: GameId = UUID.randomUUID()
-      val json = """{"type":"GameStateUpdated"}"""
-
-      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
-      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
-      val fiber = subscriber.run.start.unsafeRunSync()
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
-
-      val player = Player("alice")
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
-      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
-      gm ! GameManager.RegisterPlayer(player, wsProbe.ref, playerRefProbe.ref)
-      val playerRef = playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
-
-      gm ! GameManager.SubscribeToGame(nonLocalGameId, player.id, playerRef)
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
-      Thread.sleep(50) // let unsafeRunAndForget(registerPlayer) complete
-
-      // sanity: the player is registered and receiving the remote game's events
-      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
-      wsProbe.expectMessageType[PlayerActor.WsMessage]
-
-      // disconnect drops the player from the subscriber registry (and closes its session stream)
-      gm ! GameManager.PlayerDisconnected(player.id, playerRef)
-      wsProbe.expectMessage(PlayerActor.WsComplete) // the PlayerActor completes its stream as it stops
-      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
-      Thread.sleep(50) // let unsafeRunAndForget(unregisterPlayer) complete
-
-      // a further event must NOT reach the now-unregistered player
-      queue.offer((s"game-events:$nonLocalGameId", json)).unsafeRunSync()
-      wsProbe.expectNoMessage(100.millis)
-
-      fiber.cancel.unsafeRunSync()
-    }
-
-    "call unregisterGame on the subscriber when a game completes" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val alice = Player("alice")
-      val bob = Player("bob")
-      val json = """{"type":"GameStateUpdated"}"""
-
-      val queue = Queue.unbounded[IO, (String, String)].unsafeRunSync()
-      val subscriber = GameEventSubscriber.create(Stream.fromQueueUnterminated(queue)).unsafeRunSync()
-      val fiber = subscriber.run.start.unsafeRunSync()
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, subscriber = Some(subscriber)))
-
-      // Start a game so it appears in activeGames
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
-      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbyJoined]
-      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.GameStarted]
-
-      // Register a player directly with the subscriber (simulating a remote instance)
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
-      val playerRef = spawn(PlayerActor(alice, wsProbe.ref))
-      subscriber.registerPlayer(gameId, playerRef).unsafeRunSync()
-
-      // Sanity check: events are routed before completion
-      queue.offer((s"game-events:$gameId", json)).unsafeRunSync()
-      wsProbe.expectMessageType[PlayerActor.WsMessage]
-
-      // Complete the game — should call unregisterGame on the subscriber
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-
-      // Drain in-flight messages and let unsafeRunAndForget(unregisterGame) complete
-      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
-      Thread.sleep(50)
-
-      // Push another event — player should NOT receive it (game unregistered)
-      queue.offer((s"game-events:$gameId", json)).unsafeRunSync()
-      wsProbe.expectNoMessage(100.millis)
-
-      fiber.cancel.unsafeRunSync()
     }
 
   }

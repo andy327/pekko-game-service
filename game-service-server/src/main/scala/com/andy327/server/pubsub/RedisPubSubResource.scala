@@ -8,10 +8,12 @@ import cats.effect.IO
 import cats.effect.kernel.Resource
 
 import dev.profunktor.redis4cats.connection.RedisClient
-import dev.profunktor.redis4cats.data.{RedisChannel, RedisCodec, RedisPattern}
+import dev.profunktor.redis4cats.data.{RedisChannel, RedisCodec}
 import dev.profunktor.redis4cats.effect.Log
 import dev.profunktor.redis4cats.pubsub.PubSub
 import fs2.Stream
+
+import com.andy327.server.analytics.RedisAnalyticsPublisher
 
 /** Factory for a managed Redis pub/sub connection that hides the redis4cats streaming type machinery.
   *
@@ -19,8 +21,8 @@ import fs2.Stream
   * pub/sub connections are stateful and cannot share a regular command connection.
   *
   * Concrete redis4cats streaming types are hidden behind plain Scala abstractions so callers
-  * ([[RedisGameEventPublisher]], [[GameEventSubscriber]]) do not need to carry the higher-kinded `F` parameter that
-  * redis4cats-streams uses internally.
+  * ([[com.andy327.server.analytics.RedisAnalyticsPublisher]], [[com.andy327.server.analytics.AnalyticsConsumer]]) do
+  * not need to carry the higher-kinded `F` parameter that redis4cats-streams uses internally.
   */
 object RedisPubSubResource {
 
@@ -36,9 +38,9 @@ object RedisPubSubResource {
     * @param config application config; must contain `pekko-game-service.redis.uri`
     * @return a `Resource` that connects on acquire and disconnects on release, yielding:
     *         - `publishFn(channel, message) => IO[Unit]` — publishes to a named channel
-    *         - `subscribeStream: Stream[IO, (channel, message)]` — all `game-events:*` events
+    *         - `subscribeStream: Stream[IO, String]` — the message bodies on the analytics channel
     */
-  def apply(config: Config): Resource[IO, ((String, String) => IO[Unit], Stream[IO, (String, String)])] = {
+  def apply(config: Config): Resource[IO, ((String, String) => IO[Unit], Stream[IO, String])] = {
     val uri = config.getString("pekko-game-service.redis.uri")
     RedisClient[IO].from(uri).flatMap { client =>
       // Let the type of `pubSub` be fully inferred to avoid writing the higher-kinded F type parameter.
@@ -48,8 +50,8 @@ object RedisPubSubResource {
         val publishFn: (String, String) => IO[Unit] =
           (channel, msg) => Stream.emit(msg).covary[IO].through(pubSub.publish(RedisChannel(channel))).compile.drain
 
-        val subscribeStream: Stream[IO, (String, String)] =
-          pubSub.psubscribe(RedisPattern("game-events:*")).map(e => (e.channel, e.data))
+        val subscribeStream: Stream[IO, String] =
+          pubSub.subscribe(RedisChannel(RedisAnalyticsPublisher.Channel))
 
         (publishFn, subscribeStream)
       }

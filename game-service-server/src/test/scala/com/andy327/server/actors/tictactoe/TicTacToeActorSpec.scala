@@ -4,6 +4,7 @@ import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 import scala.util.control.NoStackTrace
 
 import io.circe.Json
@@ -18,9 +19,9 @@ import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
 import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
-import com.andy327.server.pubsub.NoOpGameEventPublisher
 
 class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -39,7 +40,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       gameId: GameId = UUID.randomUUID()
   ): (ActorRef[TicTacToeActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpGameEventPublisher)
+    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpAnalyticsPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -50,6 +51,21 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     (alice, Location(0, 1)),
     (bob, Location(1, 1)),
     (alice, Location(0, 2))
+  )
+
+  /** Nine moves filling the board with no three-in-a-row, ending in a draw (cat's game):
+    * {{{ X O X / O O X / X X O }}}
+    */
+  private val drawMoves: Seq[(PlayerId, Location)] = Seq(
+    (alice, Location(0, 0)),
+    (bob, Location(1, 1)),
+    (alice, Location(0, 2)),
+    (bob, Location(0, 1)),
+    (alice, Location(2, 0)),
+    (bob, Location(1, 0)),
+    (alice, Location(1, 2)),
+    (bob, Location(2, 2)),
+    (alice, Location(2, 1))
   )
 
   /** Drains the two persistence messages emitted by one applied move: the snapshot save and the history append. */
@@ -93,7 +109,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         snapshotState,
         persistProbe.ref,
         dummyGameManager,
-        NoOpGameEventPublisher
+        NoOpAnalyticsPublisher
       )
       val actor = spawn(behavior)
 
@@ -131,7 +147,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
-          NoOpGameEventPublisher
+          NoOpAnalyticsPublisher
         )
       )
 
@@ -156,7 +172,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         dummyGame,
         persistProbe.ref,
         dummyGameManager,
-        NoOpGameEventPublisher
+        NoOpAnalyticsPublisher
       )
       val actor = spawn(behavior)
 
@@ -442,6 +458,31 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.PlayerLeft(eve, replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
+    }
+
+    "emit a GameCompleted analytics event with outcome Draw when the game ends in a draw" in {
+      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameAnalyticsEvent]()
+      val capturing = new AnalyticsPublisher {
+        def publish(event: GameAnalyticsEvent): Unit = { published.add(event); () }
+      }
+      val gameId: GameId = UUID.randomUUID()
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, dummyGameManager, capturing)
+      val actor = spawn(behavior)
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      drawMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage() shouldBe a[Right[_, _]]
+      }
+
+      // the final, non-forfeit transition resolves to the Draw outcome (the `case Draw` branch of applyTransition)
+      createTestProbe[Any]().awaitAssert {
+        val completed = published.iterator().asScala.collect { case c: GameAnalyticsEvent.GameCompleted => c }.toList
+        completed.map(_.outcome) shouldBe List(GameAnalyticsEvent.Outcome.Draw)
+        completed.head.gameId shouldBe gameId
+        completed.head.moveCount shouldBe 9
+      }
     }
   }
 }

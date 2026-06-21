@@ -6,13 +6,10 @@ import io.circe.{Decoder, Encoder, Json}
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 
-/** Structured domain events describing the lifecycle of a game, emitted from the actor layer and consumed by the
-  * analytics pipeline.
-  *
-  * These are deliberately distinct from [[com.andy327.server.actors.core.PlayerEvent]]: PlayerEvents are
-  * transport-facing (they carry rendered board state for WebSocket delivery), whereas these carry only the lightweight
-  * dimensions analytics needs (game type, outcome, counts). They are published on the dedicated `game-analytics`
-  * channel and decoded by [[AnalyticsConsumer]], so the codec must round-trip.
+/** Structured domain events describing a game's lifecycle, emitted from the actor layer for analytics. Unlike
+  * [[com.andy327.server.actors.core.PlayerEvent]] (which carries rendered board state for WebSocket delivery), these
+  * carry only the dimensions analytics needs. Published on the `game-analytics` channel and decoded by
+  * [[AnalyticsConsumer]], so the codec must round-trip.
   */
 sealed trait GameAnalyticsEvent {
 
