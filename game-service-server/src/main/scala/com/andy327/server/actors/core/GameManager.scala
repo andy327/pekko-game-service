@@ -15,11 +15,11 @@ import org.apache.pekko.util.Timeout
 import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
 import com.andy327.server.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.json.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
-import com.andy327.server.pubsub.{GameEventPublisher, GameEventSubscriber, NoOpGameEventPublisher}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
   *
@@ -100,7 +100,7 @@ object GameManager {
       extends Command
 
   /** Post a chat message to a match: fans it out to the match's subscribers (the game actor's while in progress, the
-    * lobby's otherwise) and publishes it so other instances relay it to their watchers.
+    * lobby's otherwise) and emits a `ChatSent` analytics event.
     */
   final case class SendChat(gameId: GameId, sender: Player, text: String) extends Command
 
@@ -275,8 +275,8 @@ object GameManager {
     * @param lobbyRepo the repository used to restore lobbies at startup and persist lobby changes
     * @param moveRepo the repository read to serve move-history queries; defaults to no-op (empty history)
     * @param chatRepo the repository written on each chat message and read to serve backscroll; defaults to no-op
-    * @param publisher publishes game events to Redis so remote instances can relay them; defaults to no-op
-    * @param subscriber routes incoming Redis events to locally connected players watching remote games; `None` disables
+    * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent); defaults to
+    *                  no-op
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
     */
   @annotation.nowarn("msg=match may not be exhaustive")
@@ -286,8 +286,7 @@ object GameManager {
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository = NoOpMoveHistoryRepository,
       chatRepo: ChatRepository = NoOpChatRepository,
-      publisher: GameEventPublisher = NoOpGameEventPublisher,
-      subscriber: Option[GameEventSubscriber] = None,
+      publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
       onReady: Option[ActorRef[Ready.type]] = None
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
@@ -318,7 +317,6 @@ object GameManager {
           chatRepo,
           stash,
           publisher,
-          subscriber,
           onReady
         )
       }
@@ -337,8 +335,7 @@ object GameManager {
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository,
       stash: StashBuffer[Command],
-      publisher: GameEventPublisher,
-      subscriber: Option[GameEventSubscriber],
+      publisher: AnalyticsPublisher,
       onReady: Option[ActorRef[Ready.type]]
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
@@ -363,8 +360,7 @@ object GameManager {
             gameRepo,
             moveRepo,
             chatRepo,
-            publisher,
-            subscriber
+            publisher
           )(runtime)
         )
 
@@ -391,8 +387,7 @@ object GameManager {
       gameRepo: GameRepository,
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository,
-      publisher: GameEventPublisher,
-      subscriber: Option[GameEventSubscriber]
+      publisher: AnalyticsPublisher
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
@@ -481,13 +476,7 @@ object GameManager {
             case Some((gameType, gameActor)) =>
               gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef, playerId)
             case None =>
-              subscriber match {
-                case Some(sub) =>
-                  context.log.info(s"SubscribeToGame: game $gameId not local — registering with Redis subscriber")
-                  sub.registerPlayer(gameId, playerRef).unsafeRunAndForget()
-                case None =>
-                  context.log.warn(s"SubscribeToGame: no active game found for $gameId")
-              }
+              context.log.warn(s"SubscribeToGame: no active game found for $gameId")
           }
           Behaviors.same
 
@@ -500,8 +489,8 @@ object GameManager {
               // not in progress (or unknown): fan out via the lobby; a bogus gameId is a harmless no-op there
               lobbyManager ! LobbyManager.BroadcastChat(gameId, event)
           }
-          // relay to watchers on other instances; local watchers are reached by the fan-out above
-          publisher.publish(gameId, event)
+          // record the send for analytics (gameType is None for lobby chat, before the game starts)
+          publisher.publish(GameAnalyticsEvent.ChatSent(gameId, activeGames.get(gameId).map(_._1)))
           // record to the bounded chat history so late joiners can backscroll; best-effort, never blocks the send
           chatRepo.append(event).unsafeRunAsync {
             case Left(ex) => context.log.warn(s"Failed to persist chat message for $gameId", ex)
@@ -539,8 +528,6 @@ object GameManager {
 
         case PlayerDisconnected(playerId, playerRef) =>
           playerManager ! PlayerManager.PlayerDisconnected(playerId, playerRef)
-          // drop the player from the Redis subscriber registry so remote-game watch entries don't leak
-          subscriber.foreach(_.unregisterPlayer(playerRef).unsafeRunAndForget())
           Behaviors.same
 
         case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>
@@ -567,6 +554,7 @@ object GameManager {
             )
 
             context.log.info(s"Created and persisted new game with gameId: $gameId")
+            publisher.publish(GameAnalyticsEvent.GameStarted(gameId, gameType, n))
             replyTo ! GameStarted(gameId)
             running(
               activeGames + (gameId -> (gameType, actorRef)),
@@ -577,8 +565,7 @@ object GameManager {
               gameRepo,
               moveRepo,
               chatRepo,
-              publisher,
-              subscriber
+              publisher
             )
           }
 
@@ -587,7 +574,6 @@ object GameManager {
             case Some((gameType, _)) =>
               context.log.info(s"Game $gameId completed with result $result — actor self-terminating")
               lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
-              subscriber.foreach(_.unregisterGame(gameId).unsafeRunAndForget())
               running(
                 activeGames - gameId,
                 completedGameTypes + (gameId -> gameType),
@@ -597,8 +583,7 @@ object GameManager {
                 gameRepo,
                 moveRepo,
                 chatRepo,
-                publisher,
-                subscriber
+                publisher
               )
             case None =>
               context.log.warn(s"Received GameCompleted for unknown game: $gameId")

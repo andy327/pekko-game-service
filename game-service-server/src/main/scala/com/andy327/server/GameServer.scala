@@ -10,6 +10,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
+import io.prometheus.client.CollectorRegistry
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
@@ -21,16 +22,17 @@ import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepositor
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
-import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
-import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, WebSocketRoutes}
-import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
-import com.andy327.server.pubsub.{
-  GameEventPublisher,
-  GameEventSubscriber,
-  NoOpGameEventPublisher,
-  RedisGameEventPublisher,
-  RedisPubSubResource
+import com.andy327.server.analytics.{
+  AnalyticsConsumer,
+  AnalyticsPublisher,
+  GameMetrics,
+  NoOpAnalyticsPublisher,
+  RedisAnalyticsPublisher
 }
+import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
+import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, MetricsRoutes, WebSocketRoutes}
+import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
+import com.andy327.server.pubsub.RedisPubSubResource
 
 /** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
   */
@@ -60,14 +62,18 @@ object GameServer {
       val moveRepo = new PostgresMoveHistoryRepository(xa)
       val chatRepo = new RedisChatRepository(redis, config.getInt("pekko-game-service.chat.max-messages"))
 
+      // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
+      val registry = new CollectorRegistry()
+      val metrics = new GameMetrics(registry)
+      val publisher = new RedisAnalyticsPublisher(publishFn)
+      val consumer = new AnalyticsConsumer(subscribeStream, metrics)
+
       // Ensure the schema exists before starting the server
       for {
         _ <- gameRepo.initialize()
         _ <- moveRepo.initialize()
-        subscriber <- GameEventSubscriber.create(subscribeStream)
-        publisher = new RedisGameEventPublisher(publishFn)
-        // Run the subscriber as a background fiber; it stays alive for the lifetime of the server
-        _ <- subscriber.run.start
+        // Run the analytics consumer as a background fiber; it stays alive for the lifetime of the server
+        _ <- consumer.run.start
         result <- startServer(
           host,
           port,
@@ -76,7 +82,7 @@ object GameServer {
           moveRepo,
           chatRepo,
           publisher,
-          Some(subscriber)
+          registry
         ).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -92,12 +98,12 @@ object GameServer {
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository = NoOpChatRepository,
-      publisher: GameEventPublisher = NoOpGameEventPublisher,
-      subscriber: Option[GameEventSubscriber] = None
+      publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
+      metricsRegistry: CollectorRegistry = new CollectorRegistry()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo), "postgres-persistence")
-      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher, subscriber)
+      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher)
     }
 
     // Pekko actor system
@@ -111,7 +117,8 @@ object GameServer {
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,
       new GameRoutes(GameType.Battleship, system).routes,
-      new WebSocketRoutes(system).routes
+      new WebSocketRoutes(system).routes,
+      new MetricsRoutes(metricsRegistry).routes
     )
 
     // Start HTTP server

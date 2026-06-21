@@ -8,9 +8,9 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTypeTag, InProgress, PlayerId, Won}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.server.http.json.{GameState, GameStateView}
 import com.andy327.server.lobby.GameLifecycleStatus
-import com.andy327.server.pubsub.GameEventPublisher
 
 object TurnBasedGameActor {
 
@@ -108,7 +108,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: GameEventPublisher
+      publisher: AnalyticsPublisher
   ): (G, Behavior[Command]) = {
     val game = newGame(players)
     val behavior = Behaviors.setup[Command] { context =>
@@ -129,7 +129,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: GameEventPublisher
+      publisher: AnalyticsPublisher
   ): Behavior[Command] =
     Behaviors.setup { context =>
       snap match {
@@ -151,14 +151,17 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
   /** Persists, fans out, and completes a successful state transition — shared by `MakeMove` and `PlayerLeft`.
     *
-    * Saves a snapshot, replies to the acting player with their own view, fans a per-viewer view out to every
-    * subscriber, and publishes the public view for other instances. The resulting `gameStatus` then decides the next
-    * behavior: a terminal status emits `GameEnded`, notifies GameManager, and transitions to [[terminating]]; an
-    * `InProgress` status returns to [[active]] with the new state.
+    * Saves a snapshot, replies to the acting player with their own view, and fans a per-viewer view out to every
+    * subscriber. The resulting `gameStatus` then decides the next behavior: a terminal status emits `GameEnded` to
+    * subscribers, publishes a `GameCompleted` analytics event, notifies GameManager, and transitions to
+    * [[terminating]]; an `InProgress` status returns to [[active]] with the new state.
     *
     * @param viewerId the acting player (mover or leaver), used to render the reply sent back to them
-    * @param appendMove run immediately after the snapshot save — a move appends to the history log here, whereas a
-    *                   forfeit passes the default no-op (the winning result is derived, not a recorded move)
+    * @param forfeit true when the transition is a leave/forfeit rather than a normal move; selects the `Forfeit`
+    *                outcome for the completion analytics event
+    * @param appendMove run immediately after the snapshot save — a move appends to the history log and emits a
+    *                   `MoveMade` analytics event here, whereas a forfeit passes the default no-op (the winning result
+    *                   is derived, not a recorded move)
     */
   private def applyTransition(
       context: ActorContext[Command],
@@ -168,7 +171,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
-      publisher: GameEventPublisher,
+      publisher: AnalyticsPublisher,
+      forfeit: Boolean,
       replyTo: ActorRef[Either[GameError, GameState]]
   )(appendMove: => Unit = ()): Behavior[Command] = {
     context.log.info(s"Game $gameId updated:\n$nextState")
@@ -188,8 +192,6 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     subscribers.foreach { case (ref, subscriberId) =>
       ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(nextState, Some(subscriberId))))
     }
-    // publisher relays to other instances; carries the public view (per-viewer multi-instance is deferred)
-    publisher.publish(gameId, PlayerEvent.GameStateUpdated(view.fromGame(nextState, None)))
 
     nextState.gameStatus match {
       case Won(_) | Draw =>
@@ -197,7 +199,14 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
         // GameEnded carries no board, so it is identical for every viewer
         subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
-        publisher.publish(gameId, endEvent)
+        val outcome =
+          if (forfeit) GameAnalyticsEvent.Outcome.Forfeit
+          else
+            nextState.gameStatus match {
+              case Draw => GameAnalyticsEvent.Outcome.Draw
+              case _    => GameAnalyticsEvent.Outcome.Won
+            }
+        publisher.publish(GameAnalyticsEvent.GameCompleted(gameId, gameType, outcome, nextState.moveCount))
         gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
         terminating(gameId)
 
@@ -219,7 +228,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
-      publisher: GameEventPublisher
+      publisher: AnalyticsPublisher
   ): Behavior[Command] = Behaviors.receive[Command] { (context, msg) =>
     msg match {
       case MakeMove(playerId, move, replyTo) =>
@@ -237,10 +246,12 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   gameManager,
                   subscribers,
                   publisher,
+                  forfeit = false,
                   replyTo
                 ) {
                   // record the move in the append-only history log; seq is the pre-move count (0-based ordinal)
                   persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
+                  publisher.publish(GameAnalyticsEvent.MoveMade(gameId, gameType, playerId, game.moveCount))
                 }
 
               case Left(err) =>
@@ -269,6 +280,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
               gameManager,
               subscribers,
               publisher,
+              forfeit = true,
               replyTo
             )()
 

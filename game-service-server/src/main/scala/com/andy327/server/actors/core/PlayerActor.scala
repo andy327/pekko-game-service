@@ -25,9 +25,6 @@ object PlayerActor {
   /** Serialize `event` to JSON and forward it to the player's WebSocket sink. */
   final case class SendEvent(event: PlayerEvent) extends Command
 
-  /** Forward a pre-serialized JSON string directly to the WebSocket sink (used by the Redis Pub/Sub subscriber). */
-  final case class SendRawJson(json: String) extends Command
-
   /** Terminate this actor and close the associated WebSocket stream. */
   case object Disconnect extends Command
 
@@ -51,9 +48,6 @@ object PlayerActor {
       Behaviors.receiveMessage {
         case SendEvent(event) =>
           val json = event.asJson.deepDropNullValues.noSpaces
-          wsOut ! WsMessage(TextMessage(json))
-          Behaviors.same
-        case SendRawJson(json) =>
           wsOut ! WsMessage(TextMessage(json))
           Behaviors.same
         case Disconnect =>

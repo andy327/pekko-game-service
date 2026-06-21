@@ -15,9 +15,9 @@ import com.andy327.model.connectfour.{ConnectFour, Drop, InvalidColumn, Red, Yel
 import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.NoOpAnalyticsPublisher
 import com.andy327.server.http.json.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
-import com.andy327.server.pubsub.NoOpGameEventPublisher
 
 class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -35,7 +35,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   ): (ActorRef[ConnectFourActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
     val (_, behavior) =
-      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpGameEventPublisher)
+      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpAnalyticsPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -92,7 +92,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         snapshot,
         persistProbe.ref,
         dummyGameManager,
-        NoOpGameEventPublisher
+        NoOpAnalyticsPublisher
       )
       val actor = spawn(behavior)
 
@@ -118,7 +118,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
-          NoOpGameEventPublisher
+          NoOpAnalyticsPublisher
         )
       )
 
@@ -143,7 +143,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         dummyGame,
         persistProbe.ref,
         dummyGameManager,
-        NoOpGameEventPublisher
+        NoOpAnalyticsPublisher
       )
       val actor = spawn(behavior)
 

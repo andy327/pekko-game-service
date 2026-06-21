@@ -5,8 +5,8 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
+import com.andy327.server.analytics.AnalyticsPublisher
 import com.andy327.server.http.json.GameState
-import com.andy327.server.pubsub.GameEventPublisher
 
 object GameActor {
 
@@ -51,7 +51,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @param players the ordered list of players; game type determines how many are required
     * @param persist the shared persistence actor used to save snapshots
     * @param gameManager the parent GameManager actor, used to report game-end events
-    * @param publisher used to publish events to Redis so other instances can relay them to remote players
+    * @param publisher emit seam for analytics events (game started/move made/game completed)
     * @return the initial game model and a `Behavior` ready to receive commands
     */
   def create(
@@ -59,7 +59,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: GameEventPublisher
+      publisher: AnalyticsPublisher
   ): (G, Behavior[Command])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database.
@@ -68,7 +68,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @param snap the snapshot returned by the persistence layer; must be a valid `G`
     * @param persist the shared persistence actor used to save future snapshots
     * @param gameManager the parent GameManager actor
-    * @param publisher used to publish events to Redis so other instances can relay them to remote players
+    * @param publisher emit seam for analytics events (game started/move made/game completed)
     * @return a `Behavior` initialised from the snapshot state
     */
   def fromSnapshot(
@@ -76,7 +76,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: GameEventPublisher
+      publisher: AnalyticsPublisher
   ): Behavior[Command]
 
   /** Produce the game-specific Subscribe command that registers `playerRef` (the session for `playerId`) for push
