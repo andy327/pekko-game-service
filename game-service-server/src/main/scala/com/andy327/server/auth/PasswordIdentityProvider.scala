@@ -10,8 +10,15 @@ import com.andy327.persistence.db.{Account, UserRepository}
   * Registration hashes the password and inserts an account; authentication looks the account up by email and verifies
   * the password against the stored hash. On a successful login whose stored hash was produced with weaker parameters
   * than currently configured, the hash is transparently upgraded ([[PasswordHasher.needsRehash]]).
+  *
+  * When no account (or no usable password) is found, the password is still verified against a throwaway hash so the
+  * request spends comparable time to a real verification — otherwise the fast no-account path would leak, via response
+  * time, whether an email is registered.
   */
 class PasswordIdentityProvider(users: UserRepository, hasher: PasswordHasher) extends IdentityProvider {
+
+  /** A hash no real password verifies against, used only to equalize timing on the rejection paths. */
+  private val decoyHash: String = hasher.hash("password-identity-provider-decoy")
 
   override def register(username: String, email: String, password: String): IO[Either[RegisterError, Account]] =
     for {
@@ -29,11 +36,17 @@ class PasswordIdentityProvider(users: UserRepository, hasher: PasswordHasher) ex
               case false => IO.pure(Left(LoginError.InvalidCredentials))
             }
           // An account with no local password (e.g. a future federated identity) cannot be logged in with one.
-          case None => IO.pure(Left(LoginError.InvalidCredentials))
+          case None => rejectWithEqualizedTiming(password)
         }
       // Unknown email: same error as a bad password, so registration status is not revealed.
-      case None => IO.pure(Left(LoginError.InvalidCredentials))
+      case None => rejectWithEqualizedTiming(password)
     }
+
+  /** Rejects with [[LoginError.InvalidCredentials]] after a decoy verification, so the no-account and wrong-password
+    * paths take comparable time and don't reveal whether an email is registered.
+    */
+  private def rejectWithEqualizedTiming(password: String): IO[Either[LoginError, Account]] =
+    IO(hasher.verify(password, decoyHash)).as(Left(LoginError.InvalidCredentials))
 
   /** Rehashes and persists the password if its stored hash used weaker parameters than currently configured. */
   private def upgradeIfNeeded(account: Account, phc: String, password: String): IO[Unit] =
