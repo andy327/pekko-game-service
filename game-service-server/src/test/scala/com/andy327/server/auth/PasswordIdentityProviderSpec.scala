@@ -36,7 +36,9 @@ class PasswordIdentityProviderSpec extends AnyWordSpec with Matchers with Option
       val p = provider(users)
       p.register("alice", "alice@example.com", "pw1").unsafeRunSync()
 
-      p.register("alice2", "ALICE@example.com", "pw2").unsafeRunSync() shouldBe Left(AuthError.EmailAlreadyRegistered)
+      p.register("alice2", "ALICE@example.com", "pw2").unsafeRunSync() shouldBe Left(
+        RegisterError.EmailAlreadyRegistered
+      )
     }
   }
 
@@ -53,12 +55,12 @@ class PasswordIdentityProviderSpec extends AnyWordSpec with Matchers with Option
       val p = provider()
       p.register("alice", "alice@example.com", "s3cret").unsafeRunSync()
 
-      p.authenticate("alice@example.com", "wrong").unsafeRunSync() shouldBe Left(AuthError.InvalidCredentials)
+      p.authenticate("alice@example.com", "wrong").unsafeRunSync() shouldBe Left(LoginError.InvalidCredentials)
     }
 
     "fail with InvalidCredentials for an unknown email" in {
       provider().authenticate("nobody@example.com", "whatever").unsafeRunSync() shouldBe
-        Left(AuthError.InvalidCredentials)
+        Left(LoginError.InvalidCredentials)
     }
 
     "fail with InvalidCredentials for an account that has no password" in {
@@ -66,7 +68,7 @@ class PasswordIdentityProviderSpec extends AnyWordSpec with Matchers with Option
       users.create("federated", "fed@example.com", None).unsafeRunSync()
 
       provider(users).authenticate("fed@example.com", "anything").unsafeRunSync() shouldBe
-        Left(AuthError.InvalidCredentials)
+        Left(LoginError.InvalidCredentials)
     }
 
     "transparently upgrade the stored hash on login when parameters have been raised" in {

@@ -17,9 +17,14 @@ import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.model.core.GameType
-import com.andy327.persistence.db.postgres.{PostgresGameRepository, PostgresMoveHistoryRepository, PostgresTransactor}
+import com.andy327.persistence.db.postgres.{
+  PostgresGameRepository,
+  PostgresMoveHistoryRepository,
+  PostgresTransactor,
+  PostgresUserRepository
+}
 import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepository}
-import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository}
+import com.andy327.persistence.db.{GameRepository, InMemoryUserRepository, MoveHistoryRepository}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.analytics.{
@@ -29,6 +34,7 @@ import com.andy327.server.analytics.{
   NoOpAnalyticsPublisher,
   RedisAnalyticsPublisher
 }
+import com.andy327.server.auth.{IdentityProvider, PasswordHasher, PasswordIdentityProvider}
 import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
 import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, MetricsRoutes, WebSocketRoutes}
 import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
@@ -61,6 +67,8 @@ object GameServer {
       val lobbyRepo = new RedisLobbyRepository(redis)
       val moveRepo = new PostgresMoveHistoryRepository(xa)
       val chatRepo = new RedisChatRepository(redis, config.getInt("pekko-game-service.chat.max-messages"))
+      val userRepo = new PostgresUserRepository(xa)
+      val identityProvider = new PasswordIdentityProvider(userRepo, PasswordHasher.fromConfig())
 
       // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
       val registry = new CollectorRegistry()
@@ -72,6 +80,7 @@ object GameServer {
       for {
         _ <- gameRepo.initialize()
         _ <- moveRepo.initialize()
+        _ <- userRepo.initialize()
         // Run the analytics consumer as a background fiber; it stays alive for the lifetime of the server
         _ <- consumer.run.start
         result <- startServer(
@@ -80,6 +89,7 @@ object GameServer {
           gameRepo,
           lobbyRepo,
           moveRepo,
+          identityProvider,
           chatRepo,
           publisher,
           registry
@@ -97,6 +107,8 @@ object GameServer {
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository,
+      identityProvider: IdentityProvider =
+        new PasswordIdentityProvider(new InMemoryUserRepository, PasswordHasher.fromConfig()),
       chatRepo: ChatRepository = NoOpChatRepository,
       publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
       metricsRegistry: CollectorRegistry = new CollectorRegistry()
@@ -112,7 +124,7 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes().routes,
+      new AuthRoutes(identityProvider).routes,
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,

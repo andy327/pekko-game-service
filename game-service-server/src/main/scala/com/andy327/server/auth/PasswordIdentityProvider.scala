@@ -13,26 +13,26 @@ import com.andy327.persistence.db.{Account, UserRepository}
   */
 class PasswordIdentityProvider(users: UserRepository, hasher: PasswordHasher) extends IdentityProvider {
 
-  override def register(username: String, email: String, password: String): IO[Either[AuthError, Account]] =
+  override def register(username: String, email: String, password: String): IO[Either[RegisterError, Account]] =
     for {
       hash <- IO(hasher.hash(password))
       created <- users.create(username, email, Some(hash))
-    } yield created.left.map { case CreateError.EmailAlreadyExists => AuthError.EmailAlreadyRegistered }
+    } yield created.left.map { case CreateError.EmailAlreadyExists => RegisterError.EmailAlreadyRegistered }
 
-  override def authenticate(email: String, password: String): IO[Either[AuthError, Account]] =
+  override def authenticate(email: String, password: String): IO[Either[LoginError, Account]] =
     users.findByEmail(email).flatMap {
       case Some(account) =>
         account.passwordHash match {
           case Some(phc) =>
             IO(hasher.verify(password, phc)).flatMap {
               case true  => upgradeIfNeeded(account, phc, password).as(Right(account))
-              case false => IO.pure(Left(AuthError.InvalidCredentials))
+              case false => IO.pure(Left(LoginError.InvalidCredentials))
             }
           // An account with no local password (e.g. a future federated identity) cannot be logged in with one.
-          case None => IO.pure(Left(AuthError.InvalidCredentials))
+          case None => IO.pure(Left(LoginError.InvalidCredentials))
         }
       // Unknown email: same error as a bad password, so registration status is not revealed.
-      case None => IO.pure(Left(AuthError.InvalidCredentials))
+      case None => IO.pure(Left(LoginError.InvalidCredentials))
     }
 
   /** Rehashes and persists the password if its stored hash used weaker parameters than currently configured. */

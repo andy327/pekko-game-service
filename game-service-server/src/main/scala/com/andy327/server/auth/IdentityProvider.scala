@@ -4,17 +4,22 @@ import cats.effect.IO
 
 import com.andy327.persistence.db.Account
 
-/** Why authentication can fail. */
-sealed trait AuthError
-object AuthError {
+/** Why registration can fail. */
+sealed trait RegisterError
+object RegisterError {
 
   /** The email is already in use. */
-  case object EmailAlreadyRegistered extends AuthError
+  case object EmailAlreadyRegistered extends RegisterError
+}
+
+/** Why login can fail. */
+sealed trait LoginError
+object LoginError {
 
   /** Unknown account, wrong password, or an account with no usable password — deliberately not distinguished, so login
     * can't reveal whether an email is registered.
     */
-  case object InvalidCredentials extends AuthError
+  case object InvalidCredentials extends LoginError
 }
 
 /** Establishes a real, server-verified identity before a token is issued.
@@ -26,8 +31,8 @@ object AuthError {
 trait IdentityProvider {
 
   /** Registers a new account from the given credentials, or fails if the email is already registered. */
-  def register(username: String, email: String, password: String): IO[Either[AuthError, Account]]
+  def register(username: String, email: String, password: String): IO[Either[RegisterError, Account]]
 
-  /** Verifies credentials and returns the authenticated account, or [[AuthError.InvalidCredentials]]. */
-  def authenticate(email: String, password: String): IO[Either[AuthError, Account]]
+  /** Verifies credentials and returns the authenticated account, or [[LoginError.InvalidCredentials]]. */
+  def authenticate(email: String, password: String): IO[Either[LoginError, Account]]
 }
