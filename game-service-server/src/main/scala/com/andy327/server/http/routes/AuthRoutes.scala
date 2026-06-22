@@ -4,14 +4,11 @@ import java.util.UUID
 
 import scala.util.{Failure, Success, Try}
 
-import io.circe.syntax._
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
-import pdi.jwt.{JwtAlgorithm, JwtCirce}
 
-import com.andy327.server.auth.UserContext
-import com.andy327.server.config.JwtConfig
+import com.andy327.server.auth.{JwtIssuer, UserContext}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.auth.PlayerRequest
 import com.andy327.server.http.json.JsonProtocol._
@@ -27,6 +24,8 @@ import com.andy327.server.lobby.Player
   *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
   */
 class AuthRoutes {
+  private val jwtIssuer = JwtIssuer.fromConfig()
+
   val routes: Route = pathPrefix("auth") {
 
     /** Registers or authenticates a player and returns a signed JWT for use in subsequent requests.
@@ -56,9 +55,7 @@ class AuthRoutes {
           maybePlayer match {
             case Right(player) =>
               val user = UserContext(player.id.toString, player.name)
-              // TODO(#29): no iat/exp claims — tokens never expire. Add a JwtClaim with expiration when real
-              // authentication lands; JwtPlayerDirectives already rejects expired tokens once the claim exists.
-              val token = JwtCirce.encode(user.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
+              val token = jwtIssuer.issue(user)
               complete(Map("token" -> token))
 
             case Left(errorMessage) =>
