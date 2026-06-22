@@ -34,7 +34,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   "AuthRoutes POST /auth/register" should {
     "create an account and return a JWT with 201" in {
       val routes = newRoutes
-      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cret"))) ~> routes ~>
+      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cretpw"))) ~> routes ~>
       check {
         status shouldBe StatusCodes.Created
         fieldsOf(responseAs[String])("token").length should be > 10
@@ -43,10 +43,12 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
     "reject a duplicate email with 409" in {
       val routes = newRoutes
-      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "pw1"))) ~> routes ~> check {
+      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "passw0rd1"))) ~> routes ~>
+      check {
         status shouldBe StatusCodes.Created
       }
-      Post("/auth/register", registerEntity(RegisterRequest("alice2", "alice@example.com", "pw2"))) ~> routes ~> check {
+      Post("/auth/register", registerEntity(RegisterRequest("alice2", "alice@example.com", "passw0rd2"))) ~> routes ~>
+      check {
         status shouldBe StatusCodes.Conflict
         fieldsOf(responseAs[String])("error") should include("already registered")
       }
@@ -58,15 +60,32 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         status shouldBe StatusCodes.BadRequest
       }
     }
+
+    "reject invalid field values with 400 and a message" in
+      Post("/auth/register", registerEntity(RegisterRequest("alice", "not-an-email", "s3cret77"))) ~> newRoutes ~>
+      check {
+        status shouldBe StatusCodes.BadRequest
+        fieldsOf(responseAs[String])("error") should include("valid address")
+      }
+
+    "trim surrounding whitespace so the account logs in by its trimmed email" in {
+      val routes = newRoutes
+      Post("/auth/register", registerEntity(RegisterRequest(" alice ", " alice@example.com ", "s3cret77"))) ~>
+      routes ~> check(status shouldBe StatusCodes.Created)
+
+      Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "s3cret77"))) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+    }
   }
 
   "AuthRoutes POST /auth/token" should {
     "return a JWT for correct credentials" in {
       val routes = newRoutes
-      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cret"))) ~> routes ~>
+      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cretpw"))) ~> routes ~>
       check(status shouldBe StatusCodes.Created)
 
-      Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "s3cret"))) ~> routes ~> check {
+      Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "s3cretpw"))) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         fieldsOf(responseAs[String])("token").length should be > 10
       }
@@ -74,7 +93,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
     "reject a wrong password with 401" in {
       val routes = newRoutes
-      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cret"))) ~> routes ~>
+      Post("/auth/register", registerEntity(RegisterRequest("alice", "alice@example.com", "s3cretpw"))) ~> routes ~>
       check(status shouldBe StatusCodes.Created)
 
       Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "wrong"))) ~> routes ~> check {
@@ -87,13 +106,22 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       Post("/auth/token", loginEntity(LoginRequest("nobody@example.com", "whatever"))) ~> newRoutes ~> check {
         status shouldBe StatusCodes.Unauthorized
       }
+
+    "reject a blank login field with 400" in
+      Post("/auth/token", loginEntity(LoginRequest("", "whatever"))) ~> newRoutes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        fieldsOf(responseAs[String])("error") should include("must not be blank")
+      }
   }
 
   "AuthRoutes GET /auth/whoami" should {
     "return the authenticated player's identity for a valid token" in {
       val routes = newRoutes
       val token =
-        Post("/auth/register", registerEntity(RegisterRequest("bob", "bob@example.com", "s3cret"))) ~> routes ~> check {
+        Post(
+          "/auth/register",
+          registerEntity(RegisterRequest("bob", "bob@example.com", "s3cretpw"))
+        ) ~> routes ~> check {
           status shouldBe StatusCodes.Created
           fieldsOf(responseAs[String])("token")
         }

@@ -9,7 +9,7 @@ import org.apache.pekko.http.scaladsl.server.Route
 import com.andy327.persistence.db.Account
 import com.andy327.server.auth.{IdentityProvider, JwtIssuer, RegisterError, UserContext}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{AuthValidation, LoginRequest, RegisterRequest}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for registration, authentication, and token issuance.
@@ -35,16 +35,22 @@ class AuthRoutes(identityProvider: IdentityProvider)(implicit runtime: IORuntime
       *
       * - Body: `RegisterRequest` — `username`, `email`, `password`
       * - 201: `{ "token": "<jwt>" }` — signed JWT for the new account
+      * - 400: a field is blank, malformed, or out of range
       * - 409: the email is already registered
       */
     path("register") {
       post {
         entity(as[RegisterRequest]) { req =>
-          onSuccess(identityProvider.register(req.username, req.email, req.password).unsafeToFuture()) {
-            case Right(account) =>
-              complete(StatusCodes.Created -> Map("token" -> tokenFor(account)))
-            case Left(RegisterError.EmailAlreadyRegistered) =>
-              complete(StatusCodes.Conflict -> Map("error" -> "Email already registered"))
+          AuthValidation.validateRegister(req) match {
+            case Left(error) =>
+              complete(StatusCodes.BadRequest -> Map("error" -> error))
+            case Right(valid) =>
+              onSuccess(identityProvider.register(valid.username, valid.email, valid.password).unsafeToFuture()) {
+                case Right(account) =>
+                  complete(StatusCodes.Created -> Map("token" -> tokenFor(account)))
+                case Left(RegisterError.EmailAlreadyRegistered) =>
+                  complete(StatusCodes.Conflict -> Map("error" -> "Email already registered"))
+              }
           }
         }
       }
@@ -53,14 +59,20 @@ class AuthRoutes(identityProvider: IdentityProvider)(implicit runtime: IORuntime
       *
       * - Body: `LoginRequest` — `email`, `password`
       * - 200: `{ "token": "<jwt>" }` — signed JWT for the authenticated account
+      * - 400: email or password is blank
       * - 401: unknown email or wrong password (not distinguished)
       */
     path("token") {
       post {
         entity(as[LoginRequest]) { req =>
-          onSuccess(identityProvider.authenticate(req.email, req.password).unsafeToFuture()) {
-            case Right(account) => complete(Map("token" -> tokenFor(account)))
-            case Left(_)        => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid email or password"))
+          AuthValidation.validateLogin(req) match {
+            case Left(error) =>
+              complete(StatusCodes.BadRequest -> Map("error" -> error))
+            case Right(valid) =>
+              onSuccess(identityProvider.authenticate(valid.email, valid.password).unsafeToFuture()) {
+                case Right(account) => complete(Map("token" -> tokenFor(account)))
+                case Left(_)        => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid email or password"))
+              }
           }
         }
       }
