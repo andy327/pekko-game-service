@@ -15,10 +15,8 @@ import com.andy327.persistence.db.{Account, UserRepository}
 
 /** [[UserRepository]] backed by PostgreSQL via Doobie.
   *
-  * Each account is one row in `accounts`, keyed by a server-generated UUID. Email uniqueness is enforced
-  * case-insensitively by a functional unique index on `lower(email)`; a duplicate insert surfaces as
-  * [[com.andy327.persistence.db.UserRepository.CreateError.EmailAlreadyExists]] rather than an exception, via the
-  * unique-violation SQL state.
+  * Each account is one row in `accounts`, keyed by a server-generated UUID, with case-insensitive email uniqueness
+  * enforced by a unique index on `lower(email)`.
   */
 class PostgresUserRepository(xa: Transactor[IO]) extends UserRepository {
 

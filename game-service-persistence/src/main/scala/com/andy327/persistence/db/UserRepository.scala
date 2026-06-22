@@ -12,7 +12,7 @@ import cats.effect.IO
   * authenticate without a local password (e.g. a future federated/OAuth identity), keeping the schema additive.
   *
   * @param id server-assigned unique identifier; the authenticated player's id
-  * @param username display name surfaced to other players
+  * @param username display name
   * @param email login identifier; unique case-insensitively across accounts
   * @param passwordHash opaque password hash, or `None` for passwordless accounts
   * @param createdAt server timestamp when the account was created
