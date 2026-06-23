@@ -21,6 +21,7 @@ import com.andy327.server.http.json.JsonProtocol._
   * Route Summary:
   *   - POST /auth/register - Create an account and receive a signed JWT
   *   - POST /auth/token - Authenticate with credentials and receive a signed JWT
+  *   - POST /auth/password - Change the authenticated account's password
   *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
   */
 class AuthRoutes(identityProvider: IdentityProvider)(implicit runtime: IORuntime) {
