@@ -29,9 +29,7 @@ object AuthValidation {
     else if (email.isEmpty) Left("Email must not be blank")
     else if (email.length > MaxEmailLength) Left(s"Email must be at most $MaxEmailLength characters")
     else if (!EmailPattern.matches(email)) Left("Email is not a valid address")
-    else if (req.password.length < MinPasswordLength) Left(s"Password must be at least $MinPasswordLength characters")
-    else if (req.password.length > MaxPasswordLength) Left(s"Password must be at most $MaxPasswordLength characters")
-    else Right(RegisterRequest(username, email, req.password))
+    else passwordError(req.password).toLeft(RegisterRequest(username, email, req.password))
   }
 
   /** Validates and normalizes a login request: only blankness is checked, so it can never reject a credential that
@@ -45,4 +43,17 @@ object AuthValidation {
     else if (req.password.isEmpty) Left("Password must not be blank")
     else Right(LoginRequest(email, req.password))
   }
+
+  /** Validates a password-change request: the current password must be present, and the new password must satisfy the
+    * same length rules as registration.
+    */
+  def validatePasswordChange(req: ChangePasswordRequest): Either[String, Unit] =
+    if (req.currentPassword.isEmpty) Left("Current password must not be blank")
+    else passwordError(req.newPassword).toLeft(())
+
+  /** The length-rule violation for a candidate password, if any — shared by registration and password change. */
+  private def passwordError(password: String): Option[String] =
+    if (password.length < MinPasswordLength) Some(s"Password must be at least $MinPasswordLength characters")
+    else if (password.length > MaxPasswordLength) Some(s"Password must be at most $MaxPasswordLength characters")
+    else None
 }

@@ -69,4 +69,24 @@ class AuthValidationSpec extends AnyWordSpec with Matchers {
       AuthValidation.validateLogin(LoginRequest("alice@example.com", "")) shouldBe Left("Password must not be blank")
     }
   }
+
+  "AuthValidation.validatePasswordChange" should {
+    "accept a present current password and a valid new password" in {
+      AuthValidation.validatePasswordChange(ChangePasswordRequest("oldpw123", "newpw456")) shouldBe Right(())
+    }
+
+    "reject a blank current password" in {
+      AuthValidation.validatePasswordChange(ChangePasswordRequest("", "newpw456")) shouldBe
+        Left("Current password must not be blank")
+    }
+
+    "reject a too-short new password (same rule as registration)" in {
+      AuthValidation.validatePasswordChange(ChangePasswordRequest("oldpw123", "short")) shouldBe
+        Left("Password must be at least 8 characters")
+    }
+
+    "reject a too-long new password" in {
+      AuthValidation.validatePasswordChange(ChangePasswordRequest("oldpw123", "a" * 129)).isLeft shouldBe true
+    }
+  }
 }

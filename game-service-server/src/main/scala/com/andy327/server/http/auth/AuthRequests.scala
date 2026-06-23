@@ -15,3 +15,11 @@ case class RegisterRequest(username: String, email: String, password: String)
   * @param password plaintext password, verified against the stored hash
   */
 case class LoginRequest(email: String, password: String)
+
+/** Body of `POST /auth/password` — change the authenticated account's password. The account is identified by the
+  * bearer token, not the body.
+  *
+  * @param currentPassword the existing password, verified before the change is allowed
+  * @param newPassword the replacement password, hashed server-side before storage
+  */
+case class ChangePasswordRequest(currentPassword: String, newPassword: String)

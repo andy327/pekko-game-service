@@ -9,7 +9,7 @@ import org.apache.pekko.http.scaladsl.server.Route
 import com.andy327.persistence.db.Account
 import com.andy327.server.auth.{IdentityProvider, JwtIssuer, RegisterError, UserContext}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{AuthValidation, LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{AuthValidation, ChangePasswordRequest, LoginRequest, RegisterRequest}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for registration, authentication, and token issuance.
@@ -73,6 +73,36 @@ class AuthRoutes(identityProvider: IdentityProvider)(implicit runtime: IORuntime
                 case Right(account) => complete(Map("token" -> tokenFor(account)))
                 case Left(_)        => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid email or password"))
               }
+          }
+        }
+      }
+    } ~
+    /** Changes the authenticated account's password.
+      *
+      * - Auth: Bearer token required (identifies the account)
+      * - Body: `ChangePasswordRequest` — `currentPassword`, `newPassword`
+      * - 204: password changed
+      * - 400: the current password is blank or the new password is out of range
+      * - 401: missing, invalid, or expired token
+      * - 403: the current password is incorrect
+      *
+      * Existing tokens are not revoked by a change — they remain valid until they expire.
+      */
+    path("password") {
+      post {
+        authenticatePlayer { player =>
+          entity(as[ChangePasswordRequest]) { req =>
+            AuthValidation.validatePasswordChange(req) match {
+              case Left(error) =>
+                complete(StatusCodes.BadRequest -> Map("error" -> error))
+              case Right(_) =>
+                onSuccess(
+                  identityProvider.changePassword(player.id, req.currentPassword, req.newPassword).unsafeToFuture()
+                ) {
+                  case Right(_) => complete(StatusCodes.NoContent)
+                  case Left(_)  => complete(StatusCodes.Forbidden -> Map("error" -> "Current password is incorrect"))
+                }
+            }
           }
         }
       }

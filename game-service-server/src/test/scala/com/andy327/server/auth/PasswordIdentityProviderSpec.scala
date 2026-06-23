@@ -86,4 +86,40 @@ class PasswordIdentityProviderSpec extends AnyWordSpec with Matchers with Option
       upgraded should include("m=512")
     }
   }
+
+  "PasswordIdentityProvider.changePassword" should {
+    "change the password so the new one logs in and the old one no longer does" in {
+      val users = new InMemoryUserRepository
+      val p = provider(users)
+      val account = p.register("alice", "alice@example.com", "oldpw123").unsafeRunSync().toOption.get
+
+      p.changePassword(account.id, "oldpw123", "newpw456").unsafeRunSync() shouldBe Right(())
+
+      p.authenticate("alice@example.com", "newpw456").unsafeRunSync() shouldBe a[Right[_, _]]
+      p.authenticate("alice@example.com", "oldpw123").unsafeRunSync() shouldBe Left(LoginError.InvalidCredentials)
+    }
+
+    "reject a wrong current password and leave the password unchanged" in {
+      val users = new InMemoryUserRepository
+      val p = provider(users)
+      val account = p.register("alice", "alice@example.com", "oldpw123").unsafeRunSync().toOption.get
+
+      p.changePassword(account.id, "wrongpw1", "newpw456").unsafeRunSync() shouldBe
+        Left(ChangePasswordError.InvalidCurrentPassword)
+      p.authenticate("alice@example.com", "oldpw123").unsafeRunSync() shouldBe a[Right[_, _]]
+    }
+
+    "reject a change for an unknown account id" in {
+      provider().changePassword(java.util.UUID.randomUUID(), "oldpw123", "newpw456").unsafeRunSync() shouldBe
+        Left(ChangePasswordError.InvalidCurrentPassword)
+    }
+
+    "reject a change for an account with no password (federated)" in {
+      val users = new InMemoryUserRepository
+      val account = users.create("federated", "fed@example.com", None).unsafeRunSync().toOption.get
+
+      provider(users).changePassword(account.id, "anything1", "newpw456").unsafeRunSync() shouldBe
+        Left(ChangePasswordError.InvalidCurrentPassword)
+    }
+  }
 }

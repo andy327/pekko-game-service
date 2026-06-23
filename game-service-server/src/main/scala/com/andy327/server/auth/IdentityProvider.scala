@@ -1,5 +1,7 @@
 package com.andy327.server.auth
 
+import java.util.UUID
+
 import cats.effect.IO
 
 import com.andy327.persistence.db.Account
@@ -22,6 +24,14 @@ object LoginError {
   case object InvalidCredentials extends LoginError
 }
 
+/** Why a password change can fail. */
+sealed trait ChangePasswordError
+object ChangePasswordError {
+
+  /** The supplied current password did not match (or the account has no usable password). */
+  case object InvalidCurrentPassword extends ChangePasswordError
+}
+
 /** Establishes a real, server-verified identity before a token is issued.
   *
   * This is the seam that replaces self-asserted identity: a client no longer claims who it is, it proves it. The
@@ -35,4 +45,13 @@ trait IdentityProvider {
 
   /** Verifies credentials and returns the authenticated account, or [[LoginError.InvalidCredentials]]. */
   def authenticate(email: String, password: String): IO[Either[LoginError, Account]]
+
+  /** Changes the password of an already-authenticated account, after verifying its current password. Fails with
+    * [[ChangePasswordError.InvalidCurrentPassword]] if that check doesn't pass.
+    */
+  def changePassword(
+      accountId: UUID,
+      currentPassword: String,
+      newPassword: String
+  ): IO[Either[ChangePasswordError, Unit]]
 }

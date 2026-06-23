@@ -16,7 +16,7 @@ The architecture is built around the actor model: each game is an isolated actor
 
 **Built**
 
-- 🔐 Credentialed accounts — register/login with Argon2-hashed passwords, issuing expiring JWTs for player actions
+- 🔐 Credentialed accounts — register, log in, and change password (Argon2-hashed), issuing expiring JWTs for player actions
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
 - 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, and Battleship
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
@@ -125,6 +125,8 @@ Planned work, in rough priority order:
 
 - **Metrics & analytics** — an event-driven analytics consumer that subscribes to a `game-analytics:*` stream of domain events and exposes aggregate metrics (games played, move counts, durations, win/draw rates by game type) to Prometheus. The game actors already sit at the right emit points; this gives that event stream a first-class consumer.
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would replace the current Redis event relay for cross-instance fan-out, while the analytics stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
+- **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. Considered and deliberately deferred: **token revocation** — JWTs are stateless, so a password change or "log out" doesn't invalidate already-issued tokens before they expire; closing that needs a per-account token version baked into the claim (or a `jti` denylist in Redis) checked at validation time. **Password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration. **Rate limiting / lockout** on the auth endpoints to slow credential stuffing, and **email-address verification** at registration, are likewise out of scope for now. The short token TTL keeps the revocation gap small in the meantime.
+- **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
 - **More game types** — additional turn-based games beyond the current three (e.g. Pig, Liar's Dice, Mastermind, Texas Hold 'Em).
 - **AI opponent** — a bot player for single-player matches and testing.
 - **Load testing** — throughput/latency benchmarking, plus retention policies for snapshots and move logs.

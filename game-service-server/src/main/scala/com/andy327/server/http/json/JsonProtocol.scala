@@ -19,7 +19,7 @@ import com.andy327.server.actors.core.GameManager.{
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.chat.ChatCodecs
-import com.andy327.server.http.auth.{LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
@@ -41,6 +41,8 @@ object JsonProtocol extends CirceSupport {
   implicit val registerRequestCodec: Codec[RegisterRequest] = deriveCodec[RegisterRequest]
 
   implicit val loginRequestCodec: Codec[LoginRequest] = deriveCodec[LoginRequest]
+
+  implicit val changePasswordRequestCodec: Codec[ChangePasswordRequest] = deriveCodec[ChangePasswordRequest]
 
   implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
 
@@ -85,6 +87,8 @@ object JsonProtocol extends CirceSupport {
   implicit val registerRequestUnmarshaller: FromEntityUnmarshaller[RegisterRequest] =
     circeUnmarshaller[RegisterRequest]
   implicit val loginRequestUnmarshaller: FromEntityUnmarshaller[LoginRequest] = circeUnmarshaller[LoginRequest]
+  implicit val changePasswordRequestUnmarshaller: FromEntityUnmarshaller[ChangePasswordRequest] =
+    circeUnmarshaller[ChangePasswordRequest]
   implicit val lobbyMetadataUnmarshaller: FromEntityUnmarshaller[LobbyMetadata] = circeUnmarshaller[LobbyMetadata]
   implicit val lobbyCreatedUnmarshaller: FromEntityUnmarshaller[LobbyCreated] = circeUnmarshaller[LobbyCreated]
   implicit val lobbyJoinedUnmarshaller: FromEntityUnmarshaller[LobbyJoined] = circeUnmarshaller[LobbyJoined]

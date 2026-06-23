@@ -13,7 +13,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.persistence.db.InMemoryUserRepository
 import com.andy327.server.auth.{PasswordHasher, PasswordIdentityProvider}
-import com.andy327.server.http.auth.{LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest}
 import com.andy327.server.http.json.JsonProtocol._
 
 class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -30,6 +30,15 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
     HttpEntity(ContentTypes.`application/json`, req.asJson.noSpaces)
   private def loginEntity(req: LoginRequest): HttpEntity.Strict =
     HttpEntity(ContentTypes.`application/json`, req.asJson.noSpaces)
+  private def changePasswordEntity(req: ChangePasswordRequest): HttpEntity.Strict =
+    HttpEntity(ContentTypes.`application/json`, req.asJson.noSpaces)
+
+  /** Registers an account and returns its bearer token. */
+  private def registerAndToken(routes: Route, req: RegisterRequest): String =
+    Post("/auth/register", registerEntity(req)) ~> routes ~> check {
+      status shouldBe StatusCodes.Created
+      fieldsOf(responseAs[String])("token")
+    }
 
   "AuthRoutes POST /auth/register" should {
     "create an account and return a JWT with 201" in {
@@ -111,6 +120,51 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       Post("/auth/token", loginEntity(LoginRequest("", "whatever"))) ~> newRoutes ~> check {
         status shouldBe StatusCodes.BadRequest
         fieldsOf(responseAs[String])("error") should include("must not be blank")
+      }
+  }
+
+  "AuthRoutes POST /auth/password" should {
+    "change the password (204) so the new one logs in and the old one no longer does" in {
+      val routes = newRoutes
+      val token = registerAndToken(routes, RegisterRequest("alice", "alice@example.com", "oldpw123"))
+
+      Post("/auth/password", changePasswordEntity(ChangePasswordRequest("oldpw123", "newpw456")))
+        .withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+        status shouldBe StatusCodes.NoContent
+      }
+
+      Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "newpw456"))) ~> routes ~>
+      check(status shouldBe StatusCodes.OK)
+      Post("/auth/token", loginEntity(LoginRequest("alice@example.com", "oldpw123"))) ~> routes ~>
+      check(status shouldBe StatusCodes.Unauthorized)
+    }
+
+    "reject a wrong current password with 403" in {
+      val routes = newRoutes
+      val token = registerAndToken(routes, RegisterRequest("alice", "alice@example.com", "oldpw123"))
+
+      Post("/auth/password", changePasswordEntity(ChangePasswordRequest("wrongpw1", "newpw456")))
+        .withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+        status shouldBe StatusCodes.Forbidden
+        fieldsOf(responseAs[String])("error") should include("incorrect")
+      }
+    }
+
+    "reject an out-of-range new password with 400" in {
+      val routes = newRoutes
+      val token = registerAndToken(routes, RegisterRequest("alice", "alice@example.com", "oldpw123"))
+
+      Post("/auth/password", changePasswordEntity(ChangePasswordRequest("oldpw123", "short")))
+        .withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        fieldsOf(responseAs[String])("error") should include("at least 8")
+      }
+    }
+
+    "reject an unauthenticated change with 401" in
+      Post("/auth/password", changePasswordEntity(ChangePasswordRequest("oldpw123", "newpw456"))) ~> newRoutes ~>
+      check {
+        status shouldBe StatusCodes.Unauthorized
       }
   }
 

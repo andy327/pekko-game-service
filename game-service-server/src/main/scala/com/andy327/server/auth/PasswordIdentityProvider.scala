@@ -1,5 +1,7 @@
 package com.andy327.server.auth
 
+import java.util.UUID
+
 import cats.effect.IO
 
 import com.andy327.persistence.db.UserRepository.CreateError
@@ -40,6 +42,25 @@ class PasswordIdentityProvider(users: UserRepository, hasher: PasswordHasher) ex
         }
       // Unknown email: same error as a bad password, so registration status is not revealed.
       case None => rejectWithEqualizedTiming(password)
+    }
+
+  override def changePassword(
+      accountId: UUID,
+      currentPassword: String,
+      newPassword: String
+  ): IO[Either[ChangePasswordError, Unit]] =
+    users.findById(accountId).flatMap {
+      case Some(account) =>
+        account.passwordHash match {
+          case Some(phc) =>
+            IO(hasher.verify(currentPassword, phc)).flatMap {
+              case true  => IO(hasher.hash(newPassword)).flatMap(users.updatePasswordHash(accountId, _)).as(Right(()))
+              case false => IO.pure(Left(ChangePasswordError.InvalidCurrentPassword))
+            }
+          case None => IO.pure(Left(ChangePasswordError.InvalidCurrentPassword))
+        }
+      // The token referenced an account that no longer exists; treat as a failed current-password check.
+      case None => IO.pure(Left(ChangePasswordError.InvalidCurrentPassword))
     }
 
   /** Rejects with [[LoginError.InvalidCredentials]] after a decoy verification, so the no-account and wrong-password
