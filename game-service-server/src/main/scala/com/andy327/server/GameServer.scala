@@ -20,11 +20,18 @@ import com.andy327.model.core.GameType
 import com.andy327.persistence.db.postgres.{
   PostgresGameRepository,
   PostgresMoveHistoryRepository,
+  PostgresPlayerHistoryRepository,
   PostgresTransactor,
   PostgresUserRepository
 }
 import com.andy327.persistence.db.redis.{RedisClientResource, RedisGameRepository}
-import com.andy327.persistence.db.{GameRepository, InMemoryUserRepository, MoveHistoryRepository}
+import com.andy327.persistence.db.{
+  GameRepository,
+  InMemoryPlayerHistoryRepository,
+  InMemoryUserRepository,
+  MoveHistoryRepository,
+  PlayerHistoryRepository
+}
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.persistence.PostgresActor
 import com.andy327.server.analytics.{
@@ -62,10 +69,10 @@ object GameServer {
     } yield (xa, redis, pubSub)
 
     resources.use { case (xa, redis, (publishFn, subscribeStream)) =>
-      val postgresRepo = new PostgresGameRepository(xa)
-      val gameRepo = new RedisGameRepository(postgresRepo, redis)
+      val gameRepo = new RedisGameRepository(new PostgresGameRepository(xa), redis)
       val lobbyRepo = new RedisLobbyRepository(redis)
       val moveRepo = new PostgresMoveHistoryRepository(xa)
+      val playerHistoryRepo = new PostgresPlayerHistoryRepository(xa)
       val chatRepo = new RedisChatRepository(redis, config.getInt("pekko-game-service.chat.max-messages"))
       val userRepo = new PostgresUserRepository(xa)
       val identityProvider = new PasswordIdentityProvider(userRepo, PasswordHasher.fromConfig())
@@ -80,6 +87,7 @@ object GameServer {
       for {
         _ <- gameRepo.initialize()
         _ <- moveRepo.initialize()
+        _ <- playerHistoryRepo.initialize()
         _ <- userRepo.initialize()
         // Run the analytics consumer as a background fiber; it stays alive for the lifetime of the server
         _ <- consumer.run.start
@@ -89,8 +97,9 @@ object GameServer {
           gameRepo,
           lobbyRepo,
           moveRepo,
-          identityProvider,
           chatRepo,
+          playerHistoryRepo,
+          identityProvider,
           publisher,
           registry
         ).flatMap { case (system, _) =>
@@ -107,14 +116,15 @@ object GameServer {
       gameRepo: GameRepository,
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository,
+      chatRepo: ChatRepository = NoOpChatRepository,
+      playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository,
       identityProvider: IdentityProvider =
         new PasswordIdentityProvider(new InMemoryUserRepository, PasswordHasher.fromConfig()),
-      chatRepo: ChatRepository = NoOpChatRepository,
       publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
       metricsRegistry: CollectorRegistry = new CollectorRegistry()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
-      val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo), "postgres-persistence")
+      val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
       GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher)
     }
 
