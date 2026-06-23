@@ -328,6 +328,46 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
     }
 
+    "list only the joinable lobbies a player has joined via ListLobbiesForPlayer" in {
+      val f = newLobby()
+      val carol = Player("carol")
+      val playerLobbiesProbe = TestProbe[LobbyManager.PlayerLobbies]()
+
+      // alice hosts a lobby bob joins (both are participants)
+      val (joinedGameId, _) = createReadyLobby(f)
+
+      // a separate lobby hosted by carol that alice is not part of
+      f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, carol, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      f.lm ! LobbyManager.ListLobbiesForPlayer(alice.id, playerLobbiesProbe.ref)
+      val aliceLobbies = playerLobbiesProbe.expectMessageType[LobbyManager.PlayerLobbies].lobbies
+      aliceLobbies.map(_.gameId) should contain only joinedGameId
+
+      f.lm ! LobbyManager.ListLobbiesForPlayer(bob.id, playerLobbiesProbe.ref)
+      playerLobbiesProbe.expectMessageType[LobbyManager.PlayerLobbies].lobbies.map(_.gameId) should contain only
+        joinedGameId
+    }
+
+    "exclude in-progress lobbies from ListLobbiesForPlayer" in {
+      val f = newLobby()
+      val playerLobbiesProbe = TestProbe[LobbyManager.PlayerLobbies]()
+      val (gameId, _) = startGame(f) // alice + bob, now InProgress
+
+      // the InProgress lobby still lives in the map, but is not a pre-game lobby and must not be reported here
+      f.lm ! LobbyManager.ListLobbiesForPlayer(alice.id, playerLobbiesProbe.ref)
+      playerLobbiesProbe.expectMessageType[LobbyManager.PlayerLobbies].lobbies.map(_.gameId) should not contain gameId
+    }
+
+    "return an empty list from ListLobbiesForPlayer for a player in no lobbies" in {
+      val f = newLobby()
+      val playerLobbiesProbe = TestProbe[LobbyManager.PlayerLobbies]()
+      createReadyLobby(f) // alice + bob, but we query a stranger
+
+      f.lm ! LobbyManager.ListLobbiesForPlayer(Player("stranger").id, playerLobbiesProbe.ref)
+      playerLobbiesProbe.expectMessageType[LobbyManager.PlayerLobbies].lobbies shouldBe empty
+    }
+
     "return NotHostError when a non-host tries to start the game" in {
       val f = newLobby()
       val (gameId, _) = createReadyLobby(f)

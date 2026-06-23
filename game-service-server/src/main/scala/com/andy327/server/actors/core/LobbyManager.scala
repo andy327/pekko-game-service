@@ -73,6 +73,13 @@ object LobbyManager {
       replyTo: ActorRef[LobbyManager.LobbiesListed]
   ) extends Command
 
+  /** Return the active, pre-game lobbies (WaitingForPlayers or ReadyToStart) that `playerId` has joined; replies with
+    * [[PlayerLobbies]]. In-progress games are intentionally excluded — they are reported from
+    * [[GameManager]]'s live-game index instead, so this never reports an InProgress lobby with no live game actor.
+    */
+  final case class ListLobbiesForPlayer(playerId: PlayerId, replyTo: ActorRef[LobbyManager.PlayerLobbies])
+      extends Command
+
   /** Return full metadata for one lobby (active or recently ended); replies with [[GameManager.LobbyInfo]]. */
   final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
 
@@ -104,6 +111,14 @@ object LobbyManager {
 
   /** Paginated lobby-list result; adapted into [[GameManager.LobbiesListed]] by a GameManager message adapter. */
   final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
+
+  /** A player's joined pre-game lobbies, replied to a [[ListLobbiesForPlayer]] query; consumed by [[GameManager]] while
+    * assembling its combined player-sessions (`GameManager.PlayerSessions`) response.
+    *
+    * TODO: turn the `GameManager.PlayerSessions` mention above into a scaladoc wiki-link once that response type lands
+    * in the sessions-aggregation commit.
+    */
+  final case class PlayerLobbies(lobbies: List[LobbyMetadata])
 
   val recentlyEndedTtl: FiniteDuration = 1.hour
 
@@ -278,6 +293,11 @@ object LobbyManager {
         val total = filtered.size
         val paged = filtered.drop((page - 1) * limit).take(limit)
         replyTo ! LobbyManager.LobbiesListed(paged, page, limit, total)
+        Behaviors.same
+
+      case ListLobbiesForPlayer(playerId, replyTo) =>
+        val mine = lobbies.values.filter(m => m.status.isJoinable && m.players.contains(playerId)).toList
+        replyTo ! LobbyManager.PlayerLobbies(mine)
         Behaviors.same
 
       case GetLobbyInfo(gameId, replyTo) =>
