@@ -69,7 +69,7 @@ The system runs as a single service instance, fronted by a reverse proxy, backed
 
 - **Reverse Proxy / TLS** — terminates HTTPS, proxies HTTP + WebSocket traffic to the service, and serves as the public endpoint. (Becomes a true load balancer once the service scales horizontally.)
 - **Game Service (Pekko ActorSystem)** — the application. A `GameManager` supervises a `LobbyManager`, a `PlayerManager` (one `PlayerActor` per connected client), one game actor per active match, and a persistence actor. The Pekko HTTP route layer handles REST + WebSocket endpoints and JWT validation.
-- **PostgreSQL** — durable system of record: game snapshots and an append-only move log.
+- **PostgreSQL** — durable system of record: game snapshots, an append-only move log, user accounts, and per-player game history.
 - **Redis** — write-through game-state cache, lobby store, and chat ring buffer.
 - **Analytics** — game actors publish domain events (game started, move made, game completed, chat sent) to a `game-analytics` Redis pub/sub channel; a decoupled consumer folds them into Prometheus metrics exposed at `GET /metrics`.
 
