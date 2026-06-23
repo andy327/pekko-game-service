@@ -113,10 +113,7 @@ object LobbyManager {
   final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
 
   /** A player's joined pre-game lobbies, replied to a [[ListLobbiesForPlayer]] query; consumed by [[GameManager]] while
-    * assembling its combined player-sessions (`GameManager.PlayerSessions`) response.
-    *
-    * TODO: turn the `GameManager.PlayerSessions` mention above into a scaladoc wiki-link once that response type lands
-    * in the sessions-aggregation commit.
+    * assembling its combined [[GameManager.PlayerSessions]] response.
     */
   final case class PlayerLobbies(lobbies: List[LobbyMetadata])
 

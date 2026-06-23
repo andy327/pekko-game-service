@@ -77,6 +77,12 @@ object GameManager {
   final case class SubscribePlayerToLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
       extends Command
 
+  /** Return the caller's current participation — joined pre-game lobbies and live games they are seated in; replies
+    * with [[PlayerSessions]]. Lobbies are fetched from [[LobbyManager]] via an internal ask; games are read from
+    * GameManager's own live-game index. Strictly current state: completed games belong to the player-history endpoint.
+    */
+  final case class GetPlayerSessions(playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
   // --- Game operation commands (routed to a specific game actor via GameRegistry) ---
 
   /** Forward `op` to the game actor for `gameId`; replies with [[GameStatus]], [[GameNotFound]], [[MoveRejected]],
@@ -174,6 +180,15 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  /** Carries [[LobbyManager]]'s reply to the lobby half of a [[GetPlayerSessions]] request, alongside the games already
+    * resolved from the live-game index, so the two can be combined into a single [[PlayerSessions]] reply.
+    */
+  final private case class PlayerSessionsReady(
+      lobbies: List[LobbyMetadata],
+      games: List[(GameId, GameType)],
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   /** Carries the result of a [[PlayerManager.LookupPlayer]] ask for a [[SubscribePlayerToLobby]] request. */
   final private case class PlayerRefForLobbySpectate(
       playerRef: Option[ActorRef[PlayerActor.Command]],
@@ -234,6 +249,11 @@ object GameManager {
 
   /** Paginated list of joinable lobbies. */
   final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
+
+  /** The caller's current participation: joined pre-game `lobbies` and the live `games` (as `(gameId, gameType)`) they
+    * are seated in. Either list may be empty. The route maps this onto the wire response.
+    */
+  final case class PlayerSessions(lobbies: List[LobbyMetadata], games: List[(GameId, GameType)]) extends GameResponse
 
   // Game responses
   final case class GameStarted(gameId: GameId) extends GameResponse
@@ -347,6 +367,12 @@ object GameManager {
           gameId -> (gameType, actorRef)
         }
 
+        // Rebuild the player -> live-games index from each restored game's roster, so a reconnecting player can
+        // rediscover in-flight matches that survived a restart.
+        val restoredPlayerGames = games.foldLeft(Map.empty[PlayerId, Set[GameId]]) { case (acc, (gameId, (_, game))) =>
+          game.players.foldLeft(acc)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + gameId))
+        }
+
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
         lobbyManager ! LobbyManager.RestoreLobbies(lobbies)
         onReady.foreach(_ ! Ready)
@@ -354,6 +380,7 @@ object GameManager {
           running(
             restoredActors,
             Map.empty,
+            restoredPlayerGames,
             lobbyManager,
             playerManager,
             persistActor,
@@ -377,10 +404,14 @@ object GameManager {
     *
     * @param activeGames map from GameId to (GameType, game actor ref) for all currently running games
     * @param completedGameTypes retains the GameType of finished games so GetState queries can fall back to the DB
+    * @param playerGames reverse index from PlayerId to the set of live games they are seated in, used to answer
+    *                    "which games am I in?" without scanning every game; populated at spawn/restore, pruned on
+    *                    completion
     */
   private def running(
       activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
       completedGameTypes: Map[GameId, GameType],
+      playerGames: Map[PlayerId, Set[GameId]],
       lobbyManager: ActorRef[LobbyManager.Command],
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
@@ -471,6 +502,23 @@ object GameManager {
           }
           Behaviors.same
 
+        case GetPlayerSessions(playerId, replyTo) =>
+          // resolve the player's live games from the reverse index, intersected with activeGames so a stale entry can
+          // never surface a game that is no longer running
+          val games = playerGames.getOrElse(playerId, Set.empty).toList.flatMap { gid =>
+            activeGames.get(gid).map { case (gameType, _) => gid -> gameType }
+          }
+          implicit val t: Timeout = subscribeAskTimeout
+          context.ask(lobbyManager, LobbyManager.ListLobbiesForPlayer(playerId, _)) {
+            case Success(LobbyManager.PlayerLobbies(lobbies)) => PlayerSessionsReady(lobbies, games, replyTo)
+            case Failure(_)                                   => PlayerSessionsReady(Nil, games, replyTo)
+          }
+          Behaviors.same
+
+        case PlayerSessionsReady(lobbies, games, replyTo) =>
+          replyTo ! PlayerSessions(lobbies, games)
+          Behaviors.same
+
         case SubscribeToGame(gameId, playerId, playerRef) =>
           activeGames.get(gameId) match {
             case Some((gameType, gameActor)) =>
@@ -556,9 +604,12 @@ object GameManager {
             context.log.info(s"Created and persisted new game with gameId: $gameId")
             publisher.publish(GameAnalyticsEvent.GameStarted(gameId, gameType, n))
             replyTo ! GameStarted(gameId)
+            val updatedPlayerGames =
+              players.foldLeft(playerGames)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + gameId))
             running(
               activeGames + (gameId -> (gameType, actorRef)),
               completedGameTypes,
+              updatedPlayerGames,
               lobbyManager,
               playerManager,
               persistActor,
@@ -574,9 +625,13 @@ object GameManager {
             case Some((gameType, _)) =>
               context.log.info(s"Game $gameId completed with result $result — actor self-terminating")
               lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
+              // drop the finished game from every player's index, removing players left with no live games
+              val prunedPlayerGames =
+                playerGames.view.mapValues(_ - gameId).filter(_._2.nonEmpty).toMap
               running(
                 activeGames - gameId,
                 completedGameTypes + (gameId -> gameType),
+                prunedPlayerGames,
                 lobbyManager,
                 playerManager,
                 persistActor,

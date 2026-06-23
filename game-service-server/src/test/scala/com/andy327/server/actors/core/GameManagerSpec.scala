@@ -394,6 +394,85 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       response.lobbies.map(_.gameId) should contain only (gameId2, gameId3)
     }
 
+    "report a player's joined lobbies and active games via GetPlayerSessions" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      // Lobby A: alice + bob, left in a pre-game (joinable) state
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(lobbyA, _) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(lobbyA, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      // Lobby B: alice + bob, started — now a live game
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameB, hostB) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameB, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameB, hostB.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
+      val sessions = responseProbe.expectMessageType[GameManager.PlayerSessions]
+      sessions.lobbies.map(_.gameId) should contain only lobbyA
+      sessions.games should contain only (gameB -> GameType.TicTacToe)
+    }
+
+    "drop a completed game from GetPlayerSessions" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.PlayerSessions].games.map(_._1) should contain(gameId)
+
+      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+
+      gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.PlayerSessions].games shouldBe empty
+    }
+
+    "rebuild the active-game index for restored games so GetPlayerSessions survives a restart" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val game = TicTacToe.empty(alice, bob)
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.GetPlayerSessions(alice, responseProbe.ref)
+      val sessions = responseProbe.expectMessageType[GameManager.PlayerSessions]
+      sessions.games should contain only (gameId -> GameType.TicTacToe)
+    }
+
+    "return empty sessions for a player who is in nothing" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GetPlayerSessions(UUID.randomUUID(), responseProbe.ref)
+      val sessions = responseProbe.expectMessageType[GameManager.PlayerSessions]
+      sessions.lobbies shouldBe empty
+      sessions.games shouldBe empty
+    }
+
     "return the recorded move history for a game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameId: GameId = UUID.randomUUID()
