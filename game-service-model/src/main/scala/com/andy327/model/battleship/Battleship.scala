@@ -89,6 +89,9 @@ final case class Battleship(
     else if (playerId == player2Id) Some(Player2)
     else None
 
+  /** The roster in seat order: `Player1` then `Player2`. */
+  def players: List[PlayerId] = List(player1Id, player2Id)
+
   /** The number of shots fired so far across both boards — one per move. */
   def moveCount: Int = board1.shots.size + board2.shots.size
 

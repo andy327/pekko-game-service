@@ -133,6 +133,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         override def currentPlayer: Any = "dummy"
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
+        override def players: List[PlayerId] = Nil
         override def moveCount: Int = 0
         override def playerLeft(playerId: PlayerId): Either[GameError, Any] = Left(GameError.Unknown("not implemented"))
       }

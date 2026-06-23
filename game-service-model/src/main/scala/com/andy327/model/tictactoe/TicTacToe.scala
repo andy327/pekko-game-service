@@ -68,6 +68,9 @@ final case class TicTacToe(
     else if (playerId == playerO) Some(O)
     else None
 
+  /** The roster in seat order: `X` then `O`. */
+  def players: List[PlayerId] = List(playerX, playerO)
+
   /** The number of marks placed so far — one per move. */
   def moveCount: Int = board.flatten.count(_.isDefined)
 

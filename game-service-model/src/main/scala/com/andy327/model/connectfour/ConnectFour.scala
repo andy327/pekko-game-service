@@ -91,6 +91,9 @@ final case class ConnectFour(
     else if (playerId == playerYellow) Some(Yellow)
     else None
 
+  /** The roster in seat order: `Red` then `Yellow`. */
+  def players: List[PlayerId] = List(playerRed, playerYellow)
+
   /** The number of pieces dropped so far — one per move. */
   def moveCount: Int = board.flatten.count(_.isDefined)
 
