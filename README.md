@@ -24,6 +24,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
 - 💬 In-match chat with persisted backscroll history
 - 📜 Move history retrieval per game
+- 🏅 Per-player game history — win/loss/draw records across completed matches, retrievable by the authenticated player
 - 💾 Durable game state with write-through caching and restart recovery
 - 📊 Metrics & analytics — game-lifecycle events aggregated into Prometheus metrics at a /metrics endpoint
 
@@ -42,7 +43,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - **Real-time updates** — connected players and spectators receive game-state changes pushed over WebSockets.
 - **Hidden information** — players see only their own view of state; spectators receive a fog-of-war view (no leakage of hidden state).
 - **Chat** — post messages within a match and retrieve recent history (backscroll).
-- **History & status** — query a game's move history and current status.
+- **History & status** — query a game's move history and current status, and retrieve the authenticated player's own record of completed games.
 - **Persistence & recovery** — game state is durably stored; in-progress games are restored after a restart.
 
 ### Non-functional
