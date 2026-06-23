@@ -7,6 +7,7 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTypeTag, InProgress, PlayerId, Won}
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.server.http.json.{GameState, GameStateView}
@@ -199,13 +200,22 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
         // GameEnded carries no board, so it is identical for every viewer
         subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
-        val outcome =
-          if (forfeit) GameAnalyticsEvent.Outcome.Forfeit
-          else
-            nextState.gameStatus match {
-              case Draw => GameAnalyticsEvent.Outcome.Draw
-              case _    => GameAnalyticsEvent.Outcome.Won
+
+        // derive each participant's per-player result and the aggregate analytics outcome from the terminal status; a
+        // forfeit is itself a win for the remaining player, so the winner-vs-seat comparison already yields the right
+        // win/loss split — `forfeit` only flags how the win was reached
+        val (results, outcome) = nextState.gameStatus match {
+          case Won(winner) =>
+            val rs = nextState.players.map { pid =>
+              pid -> (if (nextState.playerFor(pid).contains(winner)) GameResult.Win else GameResult.Loss)
             }
+            (rs, if (forfeit) GameAnalyticsEvent.Outcome.Forfeit else GameAnalyticsEvent.Outcome.Won)
+          case _ =>
+            (nextState.players.map(_ -> GameResult.Draw), GameAnalyticsEvent.Outcome.Draw)
+        }
+        results.foreach { case (pid, result) =>
+          persist ! PersistenceProtocol.RecordGameResult(pid, gameId, gameType, result, forfeit)
+        }
         publisher.publish(GameAnalyticsEvent.GameCompleted(gameId, gameType, outcome, nextState.moveCount))
         gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
         terminating(gameId)

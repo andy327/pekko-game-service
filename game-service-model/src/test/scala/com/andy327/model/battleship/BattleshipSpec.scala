@@ -33,6 +33,10 @@ class BattleshipSpec extends AnyWordSpec with Matchers {
       game.playerFor(UUID.randomUUID()) shouldBe None
     }
 
+    "list its roster in seat order with players" in {
+      gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0)))).players shouldBe List(alice, bob)
+    }
+
     "record a miss, pass the turn, and leave the game in progress" in {
       val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))))
       val Right(next) = game.play(Player1, Fire(Coord(5, 5)))

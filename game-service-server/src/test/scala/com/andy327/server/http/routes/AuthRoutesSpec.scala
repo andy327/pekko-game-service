@@ -1,5 +1,7 @@
 package com.andy327.server.http.routes
 
+import java.util.UUID
+
 import cats.effect.unsafe.implicits.global
 
 import io.circe.parser.decode
@@ -11,9 +13,11 @@ import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.persistence.db.InMemoryUserRepository
+import com.andy327.model.core.GameType
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
+import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, InMemoryUserRepository}
 import com.andy327.server.auth.{PasswordHasher, PasswordIdentityProvider}
-import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, PlayerHistory, RegisterRequest}
 import com.andy327.server.http.json.JsonProtocol._
 
 class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -21,6 +25,13 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   // Fresh in-memory accounts per test; small Argon2 parameters keep hashing fast.
   private def newRoutes: Route =
     new AuthRoutes(new PasswordIdentityProvider(new InMemoryUserRepository, new PasswordHasher(256, 1, 1))).routes
+
+  /** Routes backed by a caller-supplied history repo, so a test can seed completed games and read them back. */
+  private def newRoutesWith(historyRepo: InMemoryPlayerHistoryRepository): Route =
+    new AuthRoutes(
+      new PasswordIdentityProvider(new InMemoryUserRepository, new PasswordHasher(256, 1, 1)),
+      historyRepo
+    ).routes
 
   /** Decodes a flat string-valued JSON object response, e.g. `{"token":"..."}` or `{"id":..,"name":..}`. */
   private def fieldsOf(body: String): Map[String, String] =
@@ -38,6 +49,19 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
     Post("/auth/register", registerEntity(req)) ~> routes ~> check {
       status shouldBe StatusCodes.Created
       fieldsOf(responseAs[String])("token")
+    }
+
+  /** The server-assigned player id behind a token, read from /auth/whoami. */
+  private def whoamiId(routes: Route, token: String): UUID =
+    Get("/auth/whoami").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+      UUID.fromString(fieldsOf(responseAs[String])("id"))
+    }
+
+  private def historyFor(routes: Route, token: String): PlayerHistory =
+    Get("/auth/me/history").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
+      status shouldBe StatusCodes.OK
+      decode[PlayerHistory](responseAs[String]).fold(err => fail(s"not a PlayerHistory: $err"), identity)
     }
 
   "AuthRoutes POST /auth/register" should {
@@ -190,6 +214,62 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
     "return 401 when the Authorization header is missing" in
       Get("/auth/whoami") ~> newRoutes ~> check {
+        status shouldBe StatusCodes.Unauthorized
+      }
+  }
+
+  "AuthRoutes GET /auth/me/history" should {
+    "return the authenticated player's completed games with their fields" in {
+      val historyRepo = new InMemoryPlayerHistoryRepository
+      val routes = newRoutesWith(historyRepo)
+      val token = registerAndToken(routes, RegisterRequest("alice", "alice@example.com", "s3cretpw"))
+      val playerId = whoamiId(routes, token)
+
+      val won = UUID.randomUUID()
+      val lost = UUID.randomUUID()
+      historyRepo.record(playerId, won, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
+      historyRepo.record(playerId, lost, GameType.ConnectFour, GameResult.Loss, forfeit = true).unsafeRunSync()
+
+      val games = historyFor(routes, token).games
+      games.map(_.gameId) should contain theSameElementsAs List(won, lost)
+
+      val winEntry = games.find(_.gameId == won).getOrElse(fail("missing win entry"))
+      winEntry.gameType shouldBe GameType.TicTacToe
+      winEntry.result shouldBe GameResult.Win
+      winEntry.forfeit shouldBe false
+
+      val lossEntry = games.find(_.gameId == lost).getOrElse(fail("missing loss entry"))
+      lossEntry.gameType shouldBe GameType.ConnectFour
+      lossEntry.result shouldBe GameResult.Loss
+      lossEntry.forfeit shouldBe true
+    }
+
+    "return an empty history for a player who has completed no games" in {
+      val routes = newRoutesWith(new InMemoryPlayerHistoryRepository)
+      val token = registerAndToken(routes, RegisterRequest("bob", "bob@example.com", "s3cretpw"))
+
+      historyFor(routes, token).games shouldBe empty
+    }
+
+    "return only the requesting player's games, not another player's" in {
+      val historyRepo = new InMemoryPlayerHistoryRepository
+      val routes = newRoutesWith(historyRepo)
+      val aliceToken = registerAndToken(routes, RegisterRequest("alice", "alice@example.com", "s3cretpw"))
+      val aliceId = whoamiId(routes, aliceToken)
+      historyRepo.record(
+        aliceId,
+        UUID.randomUUID(),
+        GameType.TicTacToe,
+        GameResult.Win,
+        forfeit = false
+      ).unsafeRunSync()
+
+      val bobToken = registerAndToken(routes, RegisterRequest("bob", "bob@example.com", "s3cretpw"))
+      historyFor(routes, bobToken).games shouldBe empty
+    }
+
+    "return 401 when the Authorization header is missing" in
+      Get("/auth/me/history") ~> newRoutes ~> check {
         status shouldBe StatusCodes.Unauthorized
       }
   }

@@ -15,8 +15,9 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
+import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
 import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
@@ -162,6 +163,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         override def currentPlayer: Any = "dummy"
         override def gameStatus: Any = "dummy"
         override def playerFor(playerId: PlayerId): Option[Any] = None
+        override def players: List[PlayerId] = Nil
         override def moveCount: Int = 0
         override def playerLeft(playerId: PlayerId): Either[GameError, Any] = Left(GameError.Unknown("not implemented"))
       }
@@ -425,7 +427,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
     }
 
-    "forfeit the game to the opponent when a player leaves, appending no move" in {
+    "forfeit the game to the opponent when a player leaves, appending no move but recording the result" in {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val gameId: GameId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
@@ -440,8 +442,15 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val Right(GridGameState(_, _, winner, _)) = replyProbe.receiveMessage()
       winner shouldBe Some("X")
 
-      // a forfeit saves a final snapshot but, unlike a move, appends nothing to the history log
+      // a forfeit saves a final snapshot and records each player's result with the forfeit flag, but — unlike a move —
+      // appends nothing to the history log
       persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Win, forfeit = true)
+      )
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = true)
+      )
       persistProbe.expectNoMessage()
 
       // the subscriber sees the finished state then the game-ended event; GameManager is notified
@@ -449,6 +458,45 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
         PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+    }
+
+    "record a Win for the winner and a Loss for the loser when the game completes" in {
+      val gameId: GameId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gameId = gameId)
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage() shouldBe a[Right[_, _]]
+        expectMovePersisted(persistProbe)
+      }
+
+      // the winning transition records each participant's outcome in seat order: X (alice) won, O (bob) lost
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Win, forfeit = false)
+      )
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = false)
+      )
+    }
+
+    "record a Draw for both players when the game ends in a draw" in {
+      val gameId: GameId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gameId = gameId)
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      drawMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage() shouldBe a[Right[_, _]]
+        expectMovePersisted(persistProbe)
+      }
+
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
+      )
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
+      )
     }
 
     "reject a leave from a player not in the game" in {

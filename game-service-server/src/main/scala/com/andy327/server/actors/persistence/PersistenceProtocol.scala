@@ -4,12 +4,13 @@ import io.circe.Json
 import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 /** Commands and reply types for the persistence actor (e.g. [[PostgresActor]]).
   *
   * Senders fire a `SaveSnapshot` command with a typed `replyTo` ref and receive a `SnapshotSaved` reply carrying an
-  * `Either` that distinguishes success from failure. `AppendMove` is fire-and-forget (no reply). Loads do not go
-  * through the actor: startup restore and completed-game reads call the repository directly.
+  * `Either` that distinguishes success from failure. `AppendMove` and `RecordGameResult` are fire-and-forget (no
+  * reply). Loads do not go through the actor: startup restore and completed-game reads call the repository directly.
   */
 object PersistenceProtocol {
 
@@ -34,6 +35,19 @@ object PersistenceProtocol {
     * acknowledged, retried append (TODO: ack-and-retry; deferred while history is non-critical).
     */
   final case class AppendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json) extends Command
+
+  /** Record one participant's outcome for a completed game in their durable history.
+    *
+    * Fire-and-forget like [[AppendMove]]: emitted once per participant when a game reaches a terminal state, with no
+    * reply and no retry. A dropped record leaves a gap in that player's history while the game itself stays correct.
+    */
+  final case class RecordGameResult(
+      playerId: PlayerId,
+      gameId: GameId,
+      gameType: GameType,
+      result: GameResult,
+      forfeit: Boolean
+  ) extends Command
 
   // --- Replies (sent back to the requester) ---
 

@@ -19,6 +19,10 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
       game.playerFor(UUID.randomUUID()) shouldBe None
     }
 
+    "list its roster in seat order with players" in {
+      TicTacToe.empty(alice, bob).players shouldBe List(alice, bob)
+    }
+
     "start with an empty board" in {
       val game = TicTacToe.empty(alice, bob)
       game.board.flatten.flatten shouldBe empty

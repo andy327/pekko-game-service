@@ -20,7 +20,8 @@ sealed trait GameAnalyticsEvent {
 object GameAnalyticsEvent {
 
   /** How a game ended. `Won`/`Draw` are reached through normal play; `Forfeit` when a player leaves an in-progress
-    * game. Winner identity is intentionally omitted — there is no durable player identity to key on yet (#37).
+    * game. Winner identity is intentionally omitted here — per-player win/loss/draw results are recorded against
+    * durable identity in the `player_games` history table instead, keeping these analytics events aggregate.
     */
   sealed trait Outcome {
 

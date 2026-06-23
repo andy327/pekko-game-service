@@ -38,6 +38,14 @@ trait Game[Move, State, Player, Status, Error] {
     */
   def playerFor(playerId: PlayerId): Option[Player]
 
+  /** The participating players, in seat order.
+    *
+    * Where [[playerFor]] maps a platform [[PlayerId]] to this game's internal player token, this exposes the roster
+    * itself, letting game-agnostic code enumerate participants — e.g. to record a per-player result on completion —
+    * without knowing how a given game seats them.
+    */
+  def players: List[PlayerId]
+
   /** Attempts to apply a move made by a player.
     *
     * This method should:

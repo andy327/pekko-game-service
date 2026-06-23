@@ -24,6 +24,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
 - 💬 In-match chat with persisted backscroll history
 - 📜 Move history retrieval per game
+- 🏅 Per-player game history — win/loss/draw records across completed matches, retrievable by the authenticated player
 - 💾 Durable game state with write-through caching and restart recovery
 - 📊 Metrics & analytics — game-lifecycle events aggregated into Prometheus metrics at a /metrics endpoint
 
@@ -42,7 +43,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - **Real-time updates** — connected players and spectators receive game-state changes pushed over WebSockets.
 - **Hidden information** — players see only their own view of state; spectators receive a fog-of-war view (no leakage of hidden state).
 - **Chat** — post messages within a match and retrieve recent history (backscroll).
-- **History & status** — query a game's move history and current status.
+- **History & status** — query a game's move history and current status, and retrieve the authenticated player's own record of completed games.
 - **Persistence & recovery** — game state is durably stored; in-progress games are restored after a restart.
 
 ### Non-functional
@@ -68,7 +69,7 @@ The system runs as a single service instance, fronted by a reverse proxy, backed
 
 - **Reverse Proxy / TLS** — terminates HTTPS, proxies HTTP + WebSocket traffic to the service, and serves as the public endpoint. (Becomes a true load balancer once the service scales horizontally.)
 - **Game Service (Pekko ActorSystem)** — the application. A `GameManager` supervises a `LobbyManager`, a `PlayerManager` (one `PlayerActor` per connected client), one game actor per active match, and a persistence actor. The Pekko HTTP route layer handles REST + WebSocket endpoints and JWT validation.
-- **PostgreSQL** — durable system of record: game snapshots and an append-only move log.
+- **PostgreSQL** — durable system of record: game snapshots, an append-only move log, user accounts, and per-player game history.
 - **Redis** — write-through game-state cache, lobby store, and chat ring buffer.
 - **Analytics** — game actors publish domain events (game started, move made, game completed, chat sent) to a `game-analytics` Redis pub/sub channel; a decoupled consumer folds them into Prometheus metrics exposed at `GET /metrics`.
 
