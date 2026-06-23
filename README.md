@@ -25,10 +25,10 @@ The architecture is built around the actor model: each game is an isolated actor
 - 💬 In-match chat with persisted backscroll history
 - 📜 Move history retrieval per game
 - 💾 Durable game state with write-through caching and restart recovery
+- 📊 Metrics & analytics — game-lifecycle events aggregated into Prometheus metrics at a /metrics endpoint
 
 **Planned** (see [Roadmap](#roadmap))
 
-- 📊 Metrics & analytics pipeline (event-driven, Prometheus)
 - 📈 Horizontal scaling via Pekko Cluster Sharding
 - 🕹️ Additional game types and an AI opponent
 
@@ -54,7 +54,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - **Security** — authenticated actions, and no hidden-state information leakage via per-viewer projection.
 - **Extensibility** — new game types are added through the `Game` trait and a module registry, without touching the actor/HTTP plumbing.
 - **Testability** — pure game logic is isolated from I/O; integration tests run against real Postgres and Redis.
-- **Observability** — operational metrics/analytics (planned).
+- **Observability** — game-lifecycle events are aggregated into Prometheus metrics, scrapable at `GET /metrics`.
 - **Scalability** — single-instance today; designed to scale horizontally via cluster sharding (see [Roadmap](#roadmap)).
 
 ## Architecture
@@ -70,7 +70,7 @@ The system runs as a single service instance, fronted by a reverse proxy, backed
 - **Game Service (Pekko ActorSystem)** — the application. A `GameManager` supervises a `LobbyManager`, a `PlayerManager` (one `PlayerActor` per connected client), one game actor per active match, and a persistence actor. The Pekko HTTP route layer handles REST + WebSocket endpoints and JWT validation.
 - **PostgreSQL** — durable system of record: game snapshots and an append-only move log.
 - **Redis** — write-through game-state cache, lobby store, and chat ring buffer.
-- **Analytics (planned)** — game actors publish domain events to a `game-analytics:*` Redis pub/sub channel, consumed out-of-band by an analytics service exposing metrics to Prometheus.
+- **Analytics** — game actors publish domain events (game started, move made, game completed, chat sent) to a `game-analytics` Redis pub/sub channel; a decoupled consumer folds them into Prometheus metrics exposed at `GET /metrics`.
 
 For the actor supervision tree, the move-flow sequence, and design rationale, see the [Design deep-dive](#design-deep-dive).
 
@@ -123,8 +123,7 @@ _Coming soon._
 
 Planned work, in rough priority order:
 
-- **Metrics & analytics** — an event-driven analytics consumer that subscribes to a `game-analytics:*` stream of domain events and exposes aggregate metrics (games played, move counts, durations, win/draw rates by game type) to Prometheus. The game actors already sit at the right emit points; this gives that event stream a first-class consumer.
-- **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would replace the current Redis event relay for cross-instance fan-out, while the analytics stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
+- **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would carry cross-instance delivery between game actors and player sessions directly, while the analytics event stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
 - **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. Considered and deliberately deferred: **token revocation** — JWTs are stateless, so a password change or "log out" doesn't invalidate already-issued tokens before they expire; closing that needs a per-account token version baked into the claim (or a `jti` denylist in Redis) checked at validation time. **Password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration. **Rate limiting / lockout** on the auth endpoints to slow credential stuffing, and **email-address verification** at registration, are likewise out of scope for now. The short token TTL keeps the revocation gap small in the meantime.
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
 - **More game types** — additional turn-based games beyond the current three (e.g. Pig, Liar's Dice, Mastermind, Texas Hold 'Em).
