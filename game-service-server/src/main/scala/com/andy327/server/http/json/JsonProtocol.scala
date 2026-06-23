@@ -2,10 +2,12 @@ package com.andy327.server.http.json
 
 import io.circe.generic.semiauto.deriveCodec
 import io.circe.syntax._
-import io.circe.{Codec, Encoder, Json}
+import io.circe.{Codec, Decoder, Encoder, Json}
 import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 
 import com.andy327.persistence.db.MoveRecord
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
+import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 import com.andy327.server.actors.core.GameManager.{
   ChatHistory,
   ErrorResponse,
@@ -19,7 +21,13 @@ import com.andy327.server.actors.core.GameManager.{
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.chat.ChatCodecs
-import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{
+  ChangePasswordRequest,
+  LoginRequest,
+  PlayerGameSummary,
+  PlayerHistory,
+  RegisterRequest
+}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
@@ -68,6 +76,17 @@ object JsonProtocol extends CirceSupport {
 
   implicit val chatHistoryCodec: Codec[ChatHistory] = deriveCodec[ChatHistory]
 
+  // Player history: a GameResult travels as its stable lower-case label ("win"/"loss"/"draw"); the GameType field
+  // reuses the canonical wire format from GameTypeCodecs so it matches the rest of the API.
+  implicit val gameResultCodec: Codec[GameResult] = Codec.from(
+    Decoder.decodeString.emap(s => GameResult.fromLabel(s).toRight(s"Unknown GameResult: $s")),
+    Encoder.encodeString.contramap[GameResult](_.label)
+  )
+
+  implicit val playerGameSummaryCodec: Codec[PlayerGameSummary] = deriveCodec[PlayerGameSummary]
+
+  implicit val playerHistoryCodec: Codec[PlayerHistory] = deriveCodec[PlayerHistory]
+
   // Game state views
 
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
@@ -99,6 +118,7 @@ object JsonProtocol extends CirceSupport {
     circeUnmarshaller[SubscribeAcknowledged]
   implicit val moveHistoryUnmarshaller: FromEntityUnmarshaller[MoveHistory] = circeUnmarshaller[MoveHistory]
   implicit val chatHistoryUnmarshaller: FromEntityUnmarshaller[ChatHistory] = circeUnmarshaller[ChatHistory]
+  implicit val playerHistoryUnmarshaller: FromEntityUnmarshaller[PlayerHistory] = circeUnmarshaller[PlayerHistory]
 
   /** Write-only encoder for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *
