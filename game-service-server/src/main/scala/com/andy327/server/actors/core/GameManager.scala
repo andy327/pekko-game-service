@@ -8,7 +8,7 @@ import scala.util.{Failure, Success}
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
-import org.apache.pekko.actor.typed.scaladsl.{Behaviors, StashBuffer}
+import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, StashBuffer}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
@@ -57,6 +57,11 @@ object GameManager {
     */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
 
+  /** Cancel a pre-game lobby on behalf of its host; replies with [[LobbyLeft]] on success or a [[LobbyErrorResponse]]
+    * (not host, lobby not found). Rejected once the game has started — at that point leaving is a forfeit.
+    */
+  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
   /** Start a game in a lobby the caller hosts; replies with [[GameStarted]] or a [[LobbyErrorResponse]]. */
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
 
@@ -75,6 +80,12 @@ object GameManager {
     * [[ErrorResponse]].
     */
   final case class SubscribePlayerToLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
+
+  /** Stop spectating a lobby: deregister the authenticated player from [[LobbyManager]]'s push events. Idempotent —
+    * replies with [[UnsubscribeAcknowledged]] even if the player was not subscribed.
+    */
+  final case class UnsubscribePlayerFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
       extends Command
 
   /** Return the caller's current participation — joined pre-game lobbies and live games they are seated in; replies
@@ -117,17 +128,6 @@ object GameManager {
     */
   final case class UnsubscribePlayerFromGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
       extends Command
-
-  /** Stop spectating a lobby: deregister the authenticated player from [[LobbyManager]]'s push events. Idempotent —
-    * replies with [[UnsubscribeAcknowledged]] even if the player was not subscribed.
-    */
-  final case class UnsubscribePlayerFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
-      extends Command
-
-  /** Cancel a pre-game lobby on behalf of its host; replies with [[LobbyLeft]] on success or a [[LobbyErrorResponse]]
-    * (not host, lobby not found). Rejected once the game has started — at that point leaving is a forfeit.
-    */
-  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
 
   // --- Player session commands (forwarded to PlayerManager) ---
 
@@ -316,6 +316,22 @@ object GameManager {
   /** Timeout for internal `context.ask` calls used to look up player refs during subscribe flows. */
   private val subscribeAskTimeout: Timeout = Timeout(3.seconds)
 
+  /** Look up the live PlayerActor for `playerId` and hand the result (`None` if not connected) to `onResolved`, which
+    * builds the follow-up command sent back to self. Centralizes the spectate/auto-subscribe lookups so the ask wiring
+    * — and its single ask-timeout fallback (mapped, like a miss, to `None`) — lives in one place.
+    */
+  private def askPlayerRef(
+      context: ActorContext[Command],
+      playerManager: ActorRef[PlayerManager.Command],
+      playerId: PlayerId
+  )(onResolved: Option[ActorRef[PlayerActor.Command]] => Command): Unit = {
+    implicit val t: Timeout = subscribeAskTimeout
+    context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
+      case Success(ref) => onResolved(ref)
+      case Failure(_)   => onResolved(None)
+    }
+  }
+
   /** Create the GameManager, kick off an async DB restore, and stash messages until restoration completes.
     *
     * @param persistActor shared actor for all persistence I/O
@@ -503,10 +519,8 @@ object GameManager {
           }
           maybeGameId match {
             case Some(gameId) =>
-              implicit val t: Timeout = subscribeAskTimeout
-              context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
-                case Success(ref) => PlayerRefForSubscribe(ref, gameId, playerId, response, replyTo)
-                case Failure(_)   => PlayerRefForSubscribe(None, gameId, playerId, response, replyTo)
+              askPlayerRef(context, playerManager, playerId) { ref =>
+                PlayerRefForSubscribe(ref, gameId, playerId, response, replyTo)
               }
             case None =>
               replyTo ! response
@@ -521,10 +535,8 @@ object GameManager {
           Behaviors.same
 
         case SubscribePlayerToLobby(gameId, playerId, replyTo) =>
-          implicit val t: Timeout = subscribeAskTimeout
-          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
-            case Success(ref) => PlayerRefForLobbySpectate(ref, gameId, playerId, replyTo)
-            case Failure(_)   => PlayerRefForLobbySpectate(None, gameId, playerId, replyTo)
+          askPlayerRef(context, playerManager, playerId) { ref =>
+            PlayerRefForLobbySpectate(ref, gameId, playerId, replyTo)
           }
           Behaviors.same
 
@@ -536,6 +548,11 @@ object GameManager {
               context.log.warn(s"SubscribePlayerToLobby: player $playerId is not connected")
               replyTo ! ErrorResponse("Player is not connected via WebSocket")
           }
+          Behaviors.same
+
+        case UnsubscribePlayerFromLobby(gameId, playerId, replyTo) =>
+          // LobbyManager keys subscribers by playerId, so no PlayerActor lookup is needed; it acks directly.
+          lobbyManager ! LobbyManager.UnsubscribeFromLobby(gameId, playerId, replyTo)
           Behaviors.same
 
         case GetPlayerSessions(playerId, replyTo) =>
@@ -574,10 +591,8 @@ object GameManager {
           Behaviors.same
 
         case SubscribePlayerToGame(gameId, playerId, replyTo) =>
-          implicit val t: Timeout = subscribeAskTimeout
-          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
-            case Success(ref) => PlayerRefForGameSpectate(ref, gameId, playerId, replyTo)
-            case Failure(_)   => PlayerRefForGameSpectate(None, gameId, playerId, replyTo)
+          askPlayerRef(context, playerManager, playerId) { ref =>
+            PlayerRefForGameSpectate(ref, gameId, playerId, replyTo)
           }
           Behaviors.same
 
@@ -598,10 +613,8 @@ object GameManager {
           Behaviors.same
 
         case UnsubscribePlayerFromGame(gameId, playerId, replyTo) =>
-          implicit val t: Timeout = subscribeAskTimeout
-          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
-            case Success(ref) => PlayerRefForGameUnsubscribe(ref, gameId, replyTo)
-            case Failure(_)   => PlayerRefForGameUnsubscribe(None, gameId, replyTo)
+          askPlayerRef(context, playerManager, playerId) { ref =>
+            PlayerRefForGameUnsubscribe(ref, gameId, replyTo)
           }
           Behaviors.same
 
@@ -616,11 +629,6 @@ object GameManager {
               ()
           }
           replyTo ! UnsubscribeAcknowledged(gameId)
-          Behaviors.same
-
-        case UnsubscribePlayerFromLobby(gameId, playerId, replyTo) =>
-          // LobbyManager keys subscribers by playerId, so no PlayerActor lookup is needed; it acks directly.
-          lobbyManager ! LobbyManager.UnsubscribeFromLobby(gameId, playerId, replyTo)
           Behaviors.same
 
         case RegisterPlayer(player, wsOut, replyTo) =>

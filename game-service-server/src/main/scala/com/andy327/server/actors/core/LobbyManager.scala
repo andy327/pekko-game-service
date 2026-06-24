@@ -61,6 +61,13 @@ object LobbyManager {
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
+  /** Cancel a pre-game lobby on behalf of its host, moving it to the recently-ended cache and notifying subscribers.
+    * Replies with [[GameManager.LobbyLeft]] on success, [[GameManager.LobbyErrorResponse]] if the caller is not the
+    * host or the lobby is unknown.
+    */
+  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+      extends Command
+
   /** Validate the start request and, if valid, ask GameManager to spawn the game actor via a `SpawnGame` message. */
   final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
@@ -100,13 +107,6 @@ object LobbyManager {
     * [[GameManager.UnsubscribeAcknowledged]] even if the player was not subscribed or the lobby is unknown.
     */
   final case class UnsubscribeFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
-      extends Command
-
-  /** Cancel a pre-game lobby on behalf of its host, moving it to the recently-ended cache and notifying subscribers.
-    * Replies with [[GameManager.LobbyLeft]] on success, [[GameManager.LobbyErrorResponse]] if the caller is not the
-    * host or the lobby is unknown.
-    */
-  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   // --- Internal commands (sent by GameManager, not reachable from HTTP) ---
@@ -267,6 +267,24 @@ object LobbyManager {
             Behaviors.same
         }
 
+      case CancelLobby(gameId, playerId, replyTo) =>
+        lobbies.get(gameId) match {
+          case Some(metadata) if metadata.hostId == playerId =>
+            context.log.info(s"Host cancelled lobby $gameId")
+            val cancelled = metadata.copy(status = GameLifecycleStatus.Cancelled)
+            recentlyEnded.put(gameId, cancelled)
+            fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+            replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId cancelled by host")
+            persist(lobbyRepo.deleteLobby(gameId))
+            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
+          case Some(_) =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
+            Behaviors.same
+          case None =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            Behaviors.same
+        }
+
       case StartGame(gameId, playerId, replyTo) =>
         lobbies.get(gameId) match {
           case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
@@ -342,24 +360,6 @@ object LobbyManager {
         val updated = subscribers.updatedWith(gameId)(_.map(_ - playerId).filter(_.nonEmpty))
         replyTo ! GameManager.UnsubscribeAcknowledged(gameId)
         running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo)
-
-      case CancelLobby(gameId, playerId, replyTo) =>
-        lobbies.get(gameId) match {
-          case Some(metadata) if metadata.hostId == playerId =>
-            context.log.info(s"Host cancelled lobby $gameId")
-            val cancelled = metadata.copy(status = GameLifecycleStatus.Cancelled)
-            recentlyEnded.put(gameId, cancelled)
-            fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
-            replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId cancelled by host")
-            persist(lobbyRepo.deleteLobby(gameId))
-            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
-          case Some(_) =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
-            Behaviors.same
-          case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
-            Behaviors.same
-        }
 
       case MarkCompleted(gameId, result) =>
         lobbies.get(gameId) match {
