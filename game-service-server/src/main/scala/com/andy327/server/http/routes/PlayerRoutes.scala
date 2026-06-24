@@ -15,7 +15,7 @@ import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, PlayerHistor
 import com.andy327.server.actors.core.GameManager
 import com.andy327.server.actors.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{ActiveGameSummary, PlayerGameSummary, PlayerHistory, PlayerSessionsResponse}
+import com.andy327.server.http.auth.{PlayerGameSummary, PlayerHistory}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for a player's own data: their current participation and their completed-game history.
@@ -46,7 +46,7 @@ class PlayerRoutes(
       * strictly live state; completed games are served by `GET /players/me/history` instead.
       *
       * - Auth: Bearer token required (identifies the player)
-      * - 200: `PlayerSessionsResponse` — `lobbies` and `games` (either may be empty)
+      * - 200: `PlayerSessions` — `lobbies` and `games` (either may be empty)
       * - 401: missing, invalid, or expired token
       * - 500: unexpected error
       */
@@ -54,16 +54,8 @@ class PlayerRoutes(
       get {
         authenticatePlayer { player =>
           onSuccess(system.ask[GameResponse](GameManager.GetPlayerSessions(player.id, _))) {
-            case PlayerSessions(lobbies, games) =>
-              complete(
-                PlayerSessionsResponse(
-                  lobbies,
-                  games.map { case (id, gameType) =>
-                    ActiveGameSummary(id, gameType)
-                  }
-                )
-              )
-            case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+            case sessions: PlayerSessions => complete(sessions)
+            case other                    => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
           }
         }
       }

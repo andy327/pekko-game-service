@@ -419,7 +419,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
       val sessions = responseProbe.expectMessageType[GameManager.PlayerSessions]
       sessions.lobbies.map(_.gameId) should contain only lobbyA
-      sessions.games should contain only (gameB -> GameType.TicTacToe)
+      sessions.games should contain only GameManager.ActiveGameSummary(gameB, GameType.TicTacToe)
     }
 
     "drop a completed game from GetPlayerSessions" in {
@@ -438,7 +438,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.PlayerSessions].games.map(_._1) should contain(gameId)
+      responseProbe.expectMessageType[GameManager.PlayerSessions].games.map(_.gameId) should contain(gameId)
 
       gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
 
@@ -459,7 +459,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val responseProbe = TestProbe[GameManager.GameResponse]()
       gm ! GameManager.GetPlayerSessions(alice, responseProbe.ref)
       val sessions = responseProbe.expectMessageType[GameManager.PlayerSessions]
-      sessions.games should contain only (gameId -> GameType.TicTacToe)
+      sessions.games should contain only GameManager.ActiveGameSummary(gameId, GameType.TicTacToe)
     }
 
     "return empty sessions for a player who is in nothing" in {

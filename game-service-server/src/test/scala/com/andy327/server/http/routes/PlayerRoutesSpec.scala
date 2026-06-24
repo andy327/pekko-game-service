@@ -24,7 +24,7 @@ import com.andy327.persistence.db.InMemoryPlayerHistoryRepository
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.actors.core.{GameManager, InMemRepo}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.auth.{PlayerHistory, PlayerSessionsResponse}
+import com.andy327.server.http.auth.PlayerHistory
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
@@ -60,11 +60,11 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
   ): GameManager.GameResponse =
     Await.result(typedSystem.ask[GameManager.GameResponse](make), 3.seconds)
 
-  "PlayerRoutes" should {
+  "PlayerRoutes GET /players/me/sessions" should {
     "return empty sessions for a player who is in nothing" in
       Get("/players/me/sessions").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        val sessions = responseAs[PlayerSessionsResponse]
+        val sessions = responseAs[GameManager.PlayerSessions]
         sessions.lobbies shouldBe empty
         sessions.games shouldBe empty
       }
@@ -86,7 +86,7 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
 
       Get("/players/me/sessions").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        val sessions = responseAs[PlayerSessionsResponse]
+        val sessions = responseAs[GameManager.PlayerSessions]
         sessions.lobbies.map(_.gameId) should contain(lobbyA)
         sessions.lobbies.map(_.gameId) should not contain gameB
         sessions.games.map(_.gameId) should contain(gameB)

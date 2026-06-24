@@ -185,7 +185,7 @@ object GameManager {
     */
   final private case class PlayerSessionsReady(
       lobbies: List[LobbyMetadata],
-      games: List[(GameId, GameType)],
+      games: List[ActiveGameSummary],
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
@@ -250,10 +250,15 @@ object GameManager {
   /** Paginated list of joinable lobbies. */
   final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
 
-  /** The caller's current participation: joined pre-game `lobbies` and the live `games` (as `(gameId, gameType)`) they
-    * are seated in. Either list may be empty. The route maps this onto the wire response.
+  /** A single live game the requesting player is seated in, carried by [[PlayerSessions]]. Deliberately minimal — just
+    * the id and kind, enough to re-discover and reconnect to the match; full state is fetched via the game endpoint.
     */
-  final case class PlayerSessions(lobbies: List[LobbyMetadata], games: List[(GameId, GameType)]) extends GameResponse
+  final case class ActiveGameSummary(gameId: GameId, gameType: GameType)
+
+  /** The caller's current participation: joined pre-game `lobbies` and the live `games` they are seated in. Either list
+    * may be empty. Serialized directly to the wire (no separate response DTO), like [[LobbiesListed]].
+    */
+  final case class PlayerSessions(lobbies: List[LobbyMetadata], games: List[ActiveGameSummary]) extends GameResponse
 
   // Game responses
   final case class GameStarted(gameId: GameId) extends GameResponse
@@ -506,7 +511,7 @@ object GameManager {
           // resolve the player's live games from the reverse index, intersected with activeGames so a stale entry can
           // never surface a game that is no longer running
           val games = playerGames.getOrElse(playerId, Set.empty).toList.flatMap { gid =>
-            activeGames.get(gid).map { case (gameType, _) => gid -> gameType }
+            activeGames.get(gid).map { case (gameType, _) => ActiveGameSummary(gid, gameType) }
           }
           implicit val t: Timeout = subscribeAskTimeout
           context.ask(lobbyManager, LobbyManager.ListLobbiesForPlayer(playerId, _)) {
