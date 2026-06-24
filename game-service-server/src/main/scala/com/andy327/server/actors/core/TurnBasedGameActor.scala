@@ -89,6 +89,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand =
     Subscribe(playerRef, playerId)
 
+  override def unsubscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand =
+    Unsubscribe(playerRef)
+
   override def broadcastCommand(event: PlayerEvent): GameActor.GameCommand =
     Broadcast(event)
 

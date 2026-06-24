@@ -85,6 +85,12 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     */
   def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand
 
+  /** Produce the game-specific command that deregisters `playerRef` from this game's push events. Lets GameManager
+    * unsubscribe a spectator without knowing the game's concrete command type. A no-op for a ref that is not
+    * subscribed.
+    */
+  def unsubscribeCommand(playerRef: ActorRef[PlayerActor.Command]): GameActor.GameCommand
+
   /** Produce the game-specific command that fans `event` out to all of the game's subscribers (e.g. a chat message). */
   def broadcastCommand(event: PlayerEvent): GameActor.GameCommand
 

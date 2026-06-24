@@ -23,7 +23,8 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyJoined,
   LobbyLeft,
   MoveRejected,
-  SubscribeAcknowledged
+  SubscribeAcknowledged,
+  UnsubscribeAcknowledged
 }
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
@@ -37,9 +38,14 @@ import com.andy327.server.lobby.LobbyError
   *
   * Route Summary:
   *   - POST /lobby/create/{gameType} - Create a new lobby for a specific game type
-  *   - POST /lobby/{gameId}/join - Join an existing lobby
-  *   - POST /lobby/{gameId}/start - Start a game from a lobby (host only)
   *   - GET /lobby/list - List all available open lobbies
+  *   - GET /lobby/{gameId} - Fetch metadata for a specific lobby
+  *   - POST /lobby/{gameId}/join - Join an existing lobby
+  *   - POST /lobby/{gameId}/leave - Leave a lobby (or forfeit an in-progress game)
+  *   - POST /lobby/{gameId}/start - Start a game from a lobby (host only)
+  *   - DELETE /lobby/{gameId} - Cancel a pre-game lobby (host only)
+  *   - POST /lobby/{gameId}/subscribe - Start spectating a lobby (push events over the player's WebSocket)
+  *   - DELETE /lobby/{gameId}/subscribe - Stop spectating a lobby
   */
 class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
@@ -121,6 +127,28 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
               case LobbyInfo(metadata)       => complete(metadata)
               case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
               case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+            }
+          } ~
+          /** Cancels a pre-game lobby. Only the host may call this; it ends the lobby for everyone (subscribers
+            * receive a `GameEnded(Cancelled)` push). This is the explicit counterpart to a host leaving via `/leave`.
+            *
+            * - Auth: Bearer token required
+            * - Path: `gameId` — the UUID of the lobby to cancel
+            * - 200: `LobbyLeft` with the game ID and a status message
+            * - 400: invalid UUID format
+            * - 401: missing or invalid token
+            * - 403: requester is not the host
+            * - 404: lobby not found
+            * - 409: the game has already started (leaving is a forfeit, use `/leave`)
+            * - 500: unexpected error
+            */
+          delete {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.CancelLobby(gameId, player.id, replyTo))) {
+                case left @ LobbyLeft(_, _)    => complete(left)
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              }
             }
           }
         } ~
@@ -216,6 +244,27 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
                 case LobbyErrorResponse(error)  => complete(statusFor(error) -> error.message)
+                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              }
+            }
+          } ~
+          /** Stops spectating the specified lobby for the authenticated player.
+            *
+            * Idempotent — succeeds whether or not the player was subscribed.
+            *
+            * - Auth: Bearer token required
+            * - Path: `gameId` — the UUID of the lobby to stop observing
+            * - 200: `UnsubscribeAcknowledged` confirming the subscription was removed
+            * - 400: invalid UUID format
+            * - 401: missing or invalid token
+            * - 500: unexpected error
+            */
+          delete {
+            authenticatePlayer { player =>
+              onSuccess(
+                system.ask[GameResponse](replyTo => GameManager.UnsubscribePlayerFromLobby(gameId, player.id, replyTo))
+              ) {
+                case ack: UnsubscribeAcknowledged => complete(ack)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
               }
             }

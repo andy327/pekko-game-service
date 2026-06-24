@@ -112,6 +112,23 @@ object GameManager {
   final case class SubscribePlayerToGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
       extends Command
 
+  /** Stop spectating a game: deregister the authenticated player from the game actor's push events. Idempotent —
+    * replies with [[UnsubscribeAcknowledged]] even if the player was not subscribed or the game is no longer active.
+    */
+  final case class UnsubscribePlayerFromGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
+
+  /** Stop spectating a lobby: deregister the authenticated player from [[LobbyManager]]'s push events. Idempotent —
+    * replies with [[UnsubscribeAcknowledged]] even if the player was not subscribed.
+    */
+  final case class UnsubscribePlayerFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
+
+  /** Cancel a pre-game lobby on behalf of its host; replies with [[LobbyLeft]] on success or a [[LobbyErrorResponse]]
+    * (not host, lobby not found). Rejected once the game has started — at that point leaving is a forfeit.
+    */
+  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
   // --- Player session commands (forwarded to PlayerManager) ---
 
   /** Register (or reconnect) a player; replies with the spawned [[PlayerActor]] ref. */
@@ -201,6 +218,13 @@ object GameManager {
       replyTo: ActorRef[GameResponse]
   ) extends Command
 
+  /** Carries the result of a [[PlayerManager.LookupPlayer]] ask for an [[UnsubscribePlayerFromGame]] request. */
+  final private case class PlayerRefForGameUnsubscribe(
+      playerRef: Option[ActorRef[PlayerActor.Command]],
+      gameId: GameId,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
   /** Carries the result of a [[PlayerManager.LookupPlayer]] ask initiated during auto-subscribe on lobby create/join.
     */
   final private case class PlayerRefForSubscribe(
@@ -282,6 +306,9 @@ object GameManager {
 
   /** Sent in response to a successful [[SubscribePlayerToLobby]] or [[SubscribePlayerToGame]] request. */
   final case class SubscribeAcknowledged(gameId: GameId) extends GameResponse
+
+  /** Sent in response to a successful [[UnsubscribePlayerFromGame]] or [[UnsubscribePlayerFromLobby]] request. */
+  final case class UnsubscribeAcknowledged(gameId: GameId) extends GameResponse
 
   /** Emitted once when the DB restore is complete; used in tests to await the running state. */
   case object Ready extends GameResponse
@@ -447,6 +474,14 @@ object GameManager {
           }
           Behaviors.same
 
+        case CancelLobby(gameId, playerId, replyTo) =>
+          // an in-progress game cannot be cancelled — at that point a host leaving is a forfeit, not a lobby cancel
+          if (activeGames.contains(gameId))
+            replyTo ! LobbyErrorResponse(LobbyError.GameInProgress(gameId))
+          else
+            lobbyManager ! LobbyManager.CancelLobby(gameId, playerId, replyTo)
+          Behaviors.same
+
         case StartGame(gameId, playerId, replyTo) =>
           lobbyManager ! LobbyManager.StartGame(gameId, playerId, replyTo)
           Behaviors.same
@@ -560,6 +595,32 @@ object GameManager {
               context.log.warn(s"SubscribePlayerToGame: player is not connected for game $gameId")
               replyTo ! ErrorResponse("Player is not connected via WebSocket")
           }
+          Behaviors.same
+
+        case UnsubscribePlayerFromGame(gameId, playerId, replyTo) =>
+          implicit val t: Timeout = subscribeAskTimeout
+          context.ask(playerManager, PlayerManager.LookupPlayer(playerId, _)) {
+            case Success(ref) => PlayerRefForGameUnsubscribe(ref, gameId, replyTo)
+            case Failure(_)   => PlayerRefForGameUnsubscribe(None, gameId, replyTo)
+          }
+          Behaviors.same
+
+        case PlayerRefForGameUnsubscribe(playerRefOpt, gameId, replyTo) =>
+          // Unsubscribe is best-effort and idempotent: if the player is still connected and the game is still active,
+          // drop their session from the game actor's subscriber set; otherwise there is nothing to remove. Either way
+          // the DELETE succeeds, so a client can safely call it without first checking its own subscription state.
+          (playerRefOpt, activeGames.get(gameId)) match {
+            case (Some(ref), Some((gameType, gameActor))) =>
+              gameActor ! GameRegistry.forType(gameType).actor.unsubscribeCommand(ref)
+            case _ =>
+              ()
+          }
+          replyTo ! UnsubscribeAcknowledged(gameId)
+          Behaviors.same
+
+        case UnsubscribePlayerFromLobby(gameId, playerId, replyTo) =>
+          // LobbyManager keys subscribers by playerId, so no PlayerActor lookup is needed; it acks directly.
+          lobbyManager ! LobbyManager.UnsubscribeFromLobby(gameId, playerId, replyTo)
           Behaviors.same
 
         case RegisterPlayer(player, wsOut, replyTo) =>

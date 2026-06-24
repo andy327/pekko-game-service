@@ -19,7 +19,8 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyLeft,
   MoveHistory,
   PlayerSessions,
-  SubscribeAcknowledged
+  SubscribeAcknowledged,
+  UnsubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.chat.ChatCodecs
@@ -67,6 +68,8 @@ object JsonProtocol extends CirceSupport {
   implicit val errorResponseCodec: Codec[ErrorResponse] = deriveCodec[ErrorResponse]
 
   implicit val subscribeAcknowledgedCodec: Codec[SubscribeAcknowledged] = deriveCodec[SubscribeAcknowledged]
+
+  implicit val unsubscribeAcknowledgedCodec: Codec[UnsubscribeAcknowledged] = deriveCodec[UnsubscribeAcknowledged]
 
   implicit val moveRecordCodec: Codec[MoveRecord] = deriveCodec[MoveRecord]
 
@@ -124,6 +127,8 @@ object JsonProtocol extends CirceSupport {
   implicit val lobbiesListedUnmarshaller: FromEntityUnmarshaller[LobbiesListed] = circeUnmarshaller[LobbiesListed]
   implicit val subscribeAcknowledgedUnmarshaller: FromEntityUnmarshaller[SubscribeAcknowledged] =
     circeUnmarshaller[SubscribeAcknowledged]
+  implicit val unsubscribeAcknowledgedUnmarshaller: FromEntityUnmarshaller[UnsubscribeAcknowledged] =
+    circeUnmarshaller[UnsubscribeAcknowledged]
   implicit val moveHistoryUnmarshaller: FromEntityUnmarshaller[MoveHistory] = circeUnmarshaller[MoveHistory]
   implicit val chatHistoryUnmarshaller: FromEntityUnmarshaller[ChatHistory] = circeUnmarshaller[ChatHistory]
   implicit val playerHistoryUnmarshaller: FromEntityUnmarshaller[PlayerHistory] = circeUnmarshaller[PlayerHistory]

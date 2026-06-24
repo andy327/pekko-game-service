@@ -8,6 +8,7 @@ import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.apache.pekko.actor.typed.ActorRef
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -262,6 +263,90 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       val error = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
       error.error shouldBe a[LobbyError.LobbyNotFound]
       subscriberProbe.expectNoMessage()
+    }
+
+    "stop pushing events to a subscriber after UnsubscribeFromLobby" in {
+      val f = newLobby()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+
+      f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, f.responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = f.responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, subscriberProbe.ref, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial lobby state
+
+      f.lm ! LobbyManager.UnsubscribeFromLobby(gameId, alice.id, f.responseProbe.ref)
+      f.responseProbe.expectMessage(GameManager.UnsubscribeAcknowledged(gameId))
+
+      // a later state change is no longer pushed to the unsubscribed player
+      f.lm ! LobbyManager.JoinLobby(gameId, bob, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+      subscriberProbe.expectNoMessage()
+    }
+
+    "acknowledge UnsubscribeFromLobby idempotently for an unknown lobby" in {
+      val f = newLobby()
+      val gameId = UUID.randomUUID()
+
+      f.lm ! LobbyManager.UnsubscribeFromLobby(gameId, alice.id, f.responseProbe.ref)
+      f.responseProbe.expectMessage(GameManager.UnsubscribeAcknowledged(gameId))
+    }
+
+    "cancel a lobby on the host's request and push GameEnded(Cancelled) to subscribers" in {
+      val f = newLobby()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val (gameId, host) = createReadyLobby(f)
+
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, bob.id, subscriberProbe.ref, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
+
+      f.lm ! LobbyManager.CancelLobby(gameId, host.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
+        PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled)
+
+      // the lobby is gone from the joinable list
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
+      f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies shouldBe empty
+    }
+
+    "reject CancelLobby from a non-host with NotHostError" in {
+      val f = newLobby()
+      val (gameId, _) = createReadyLobby(f)
+
+      f.lm ! LobbyManager.CancelLobby(gameId, bob.id, f.responseProbe.ref)
+      val error = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe a[LobbyError.NotHostError]
+    }
+
+    "reject CancelLobby for an unknown lobby with LobbyNotFound" in {
+      val f = newLobby()
+
+      f.lm ! LobbyManager.CancelLobby(UUID.randomUUID(), alice.id, f.responseProbe.ref)
+      val error = f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
+      error.error shouldBe a[LobbyError.LobbyNotFound]
+    }
+
+    "drop a subscriber whose session terminates without crashing on the death-watch" in {
+      val f = newLobby()
+      // a real actor we can stop to trigger a Terminated signal in the watching LobbyManager
+      val dyingSubscriber = spawn(Behaviors.empty[PlayerActor.Command])
+
+      f.lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, f.responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, _) = f.responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, alice.id, dyingSubscriber, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+
+      testKit.stop(dyingSubscriber)
+
+      // without a Terminated handler the watching LobbyManager would crash with a DeathPactException; instead it stays
+      // responsive and serves a subsequent command
+      f.lm ! LobbyManager.JoinLobby(gameId, bob, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
     }
 
     "restore lobbies from a RestoreLobbies message" in {

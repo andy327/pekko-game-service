@@ -371,6 +371,14 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
           replyTo ! GameManager.Ready // triggers /subscribe fallback
           Behaviors.same
 
+        case GameManager.UnsubscribePlayerFromLobby(_, _, replyTo) =>
+          replyTo ! GameManager.Ready // triggers DELETE /subscribe fallback
+          Behaviors.same
+
+        case GameManager.CancelLobby(_, _, replyTo) =>
+          replyTo ! GameManager.Ready // triggers DELETE /lobby fallback
+          Behaviors.same
+
         case _ => Behaviors.same
       }
 
@@ -384,6 +392,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         ("POST /lobby/leave", Post(s"/lobby/$fakeId/leave").withHeaders(aliceHeader)),
         ("POST /lobby/start", Post(s"/lobby/$fakeId/start").withHeaders(aliceHeader)),
         ("POST /lobby/subscribe", Post(s"/lobby/$fakeId/subscribe").withHeaders(aliceHeader)),
+        ("DELETE /lobby/subscribe", Delete(s"/lobby/$fakeId/subscribe").withHeaders(aliceHeader)),
+        ("DELETE /lobby", Delete(s"/lobby/$fakeId").withHeaders(aliceHeader)),
         ("GET /lobby", Get(s"/lobby/$fakeId").withHeaders(aliceHeader)),
         ("GET /lobby/list", Get("/lobby/list"))
       )
@@ -460,6 +470,73 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
 
       Post(s"/lobby/$gameId/subscribe") ~> routes ~> check {
+        status shouldBe StatusCodes.Unauthorized
+      }
+    }
+
+    "return 200 (idempotent) when unsubscribing from a lobby" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      // DELETE is idempotent — it succeeds even with no prior subscription
+      Delete(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.UnsubscribeAcknowledged].gameId shouldBe gameId
+      }
+    }
+
+    "let the host cancel a pre-game lobby" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Delete(s"/lobby/$gameId").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbyLeft].gameId shouldBe gameId
+      }
+
+      // the cancelled lobby is no longer joinable
+      Get("/lobby/list") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbiesListed].lobbies.map(_.gameId) should not contain gameId
+      }
+    }
+
+    "return 403 when a non-host tries to cancel a lobby" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Delete(s"/lobby/$gameId").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Forbidden
+      }
+    }
+
+    "return 409 when cancelling a lobby whose game has already started" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Delete(s"/lobby/$gameId").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Conflict
+      }
+    }
+
+    "return 401 when cancelling a lobby without authentication" in {
+      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].gameId
+      }
+
+      Delete(s"/lobby/$gameId") ~> routes ~> check {
         status shouldBe StatusCodes.Unauthorized
       }
     }

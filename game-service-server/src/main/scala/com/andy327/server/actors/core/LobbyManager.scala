@@ -9,7 +9,7 @@ import cats.effect.unsafe.IORuntime
 
 import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
@@ -96,6 +96,19 @@ object LobbyManager {
       replyTo: ActorRef[GameManager.GameResponse]
   ) extends Command
 
+  /** Deregister `playerId` from `gameId`'s push events. Idempotent: replies with
+    * [[GameManager.UnsubscribeAcknowledged]] even if the player was not subscribed or the lobby is unknown.
+    */
+  final case class UnsubscribeFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+      extends Command
+
+  /** Cancel a pre-game lobby on behalf of its host, moving it to the recently-ended cache and notifying subscribers.
+    * Replies with [[GameManager.LobbyLeft]] on success, [[GameManager.LobbyErrorResponse]] if the caller is not the
+    * host or the lobby is unknown.
+    */
+  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+      extends Command
+
   // --- Internal commands (sent by GameManager, not reachable from HTTP) ---
 
   /** Move the lobby to the recently-ended cache and fan-out a [[PlayerEvent.GameEnded]] to subscribers. */
@@ -164,7 +177,7 @@ object LobbyManager {
       subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
       gameManager: ActorRef[GameManager.Command],
       lobbyRepo: LobbyRepository
-  )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
+  )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive[Command] { (context, message) =>
     message match {
       case RestoreLobbies(restored) =>
         val restoredMap = restored.map(m => m.gameId -> m).toMap
@@ -311,10 +324,38 @@ object LobbyManager {
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameAlreadyStarted(gameId))
             Behaviors.same
           case Some(metadata) =>
+            // watch the subscriber so a disconnect (its PlayerActor stopping) drops it from the map automatically,
+            // mirroring TurnBasedGameActor; without this a dead ref would linger and receive dead-letter fan-out
+            context.watch(playerRef)
             val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
             playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(metadata))
             replyTo ! GameManager.SubscribeAcknowledged(gameId)
             running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager, lobbyRepo)
+          case None =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            Behaviors.same
+        }
+
+      case UnsubscribeFromLobby(gameId, playerId, replyTo) =>
+        // idempotent: unwatch and drop the player's ref if present, otherwise a harmless no-op; either way ack
+        subscribers.getOrElse(gameId, Map.empty).get(playerId).foreach(context.unwatch)
+        val updated = subscribers.updatedWith(gameId)(_.map(_ - playerId).filter(_.nonEmpty))
+        replyTo ! GameManager.UnsubscribeAcknowledged(gameId)
+        running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo)
+
+      case CancelLobby(gameId, playerId, replyTo) =>
+        lobbies.get(gameId) match {
+          case Some(metadata) if metadata.hostId == playerId =>
+            context.log.info(s"Host cancelled lobby $gameId")
+            val cancelled = metadata.copy(status = GameLifecycleStatus.Cancelled)
+            recentlyEnded.put(gameId, cancelled)
+            fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+            replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId cancelled by host")
+            persist(lobbyRepo.deleteLobby(gameId))
+            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
+          case Some(_) =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
+            Behaviors.same
           case None =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
             Behaviors.same
@@ -334,5 +375,13 @@ object LobbyManager {
             Behaviors.same
         }
     }
+  }.receiveSignal { case (context, Terminated(ref)) =>
+    // a subscribed PlayerActor stopped (disconnect/reconnect); drop its now-dead ref from every lobby's subscriber set
+    context.log.debug(s"Lobby subscriber $ref terminated; removing from all lobby subscriber sets")
+    val cleaned = subscribers.view
+      .mapValues(_.filterNot { case (_, r) => r == ref })
+      .filter { case (_, refs) => refs.nonEmpty }
+      .toMap
+    running(lobbies, recentlyEnded, cleaned, gameManager, lobbyRepo)
   }
 }

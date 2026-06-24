@@ -270,6 +270,10 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             replyTo ! GameManager.Ready // triggers /subscribe fallback
             Behaviors.same
 
+          case GameManager.UnsubscribePlayerFromGame(_, _, replyTo) =>
+            replyTo ! GameManager.Ready // triggers DELETE /subscribe fallback
+            Behaviors.same
+
           case GameManager.GetMoveHistory(_, replyTo) =>
             replyTo ! GameManager.Ready // triggers /history fallback
             Behaviors.same
@@ -291,6 +295,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           ("POST /move", Post(s"/tictactoe/$fakeId/move", moveEntity).withHeaders(aliceHeader)),
           ("GET /status", Get(s"/tictactoe/$fakeId/status")),
           ("POST /subscribe", Post(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader)),
+          ("DELETE /subscribe", Delete(s"/tictactoe/$fakeId/subscribe").withHeaders(aliceHeader)),
           ("GET /history", Get(s"/tictactoe/$fakeId/history")),
           ("GET /chat", Get(s"/tictactoe/$fakeId/chat"))
         )
@@ -381,6 +386,22 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
       }
+
+      "return 200 (idempotent) when unsubscribing from a game" in {
+        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].gameId
+        }
+        // DELETE is idempotent — it succeeds even with no prior subscription and no active game actor
+        Delete(s"/tictactoe/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+          status shouldBe StatusCodes.OK
+          responseAs[GameManager.UnsubscribeAcknowledged].gameId shouldBe gameId
+        }
+      }
+
+      "return 401 when unsubscribing from a game without authentication" in
+        Delete(s"/tictactoe/${UUID.randomUUID()}/subscribe") ~> routes ~> check {
+          status shouldBe StatusCodes.Unauthorized
+        }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {
         val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {

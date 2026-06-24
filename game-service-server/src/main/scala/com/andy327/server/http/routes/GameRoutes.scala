@@ -24,7 +24,8 @@ import com.andy327.server.actors.core.GameManager.{
   GameStatus,
   MoveHistory,
   MoveRejected,
-  SubscribeAcknowledged
+  SubscribeAcknowledged,
+  UnsubscribeAcknowledged
 }
 import com.andy327.server.game.{GameOperation, GameRegistry}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
@@ -45,6 +46,8 @@ import com.andy327.server.http.routes.RouteDirectives._
   *   - GET /{gameType}/{gameId}/status - Fetch the current state of a game
   *   - GET /{gameType}/{gameId}/history - Fetch the ordered move history for a game
   *   - GET /{gameType}/{gameId}/chat - Fetch the recent chat history (backscroll) for a game
+  *   - POST /{gameType}/{gameId}/subscribe - Start spectating a game (push events over the player's WebSocket)
+  *   - DELETE /{gameType}/{gameId}/subscribe - Stop spectating a game
   */
 class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
   implicit val scheduler: Scheduler = system.scheduler
@@ -191,6 +194,26 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
               onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(gameId, player.id, _))) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
+                case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              }
+            }
+          } ~
+          /** Stops spectating the specified game for the authenticated player.
+            *
+            * Idempotent — succeeds whether or not the player was subscribed (or the game is still active), so a client
+            * can call it without tracking its own subscription state.
+            *
+            * - Auth: Bearer token required
+            * - Path: `gameId` — the UUID of the game to stop observing
+            * - 200: `UnsubscribeAcknowledged` confirming the subscription was removed
+            * - 400: invalid UUID format
+            * - 401: missing or invalid token
+            * - 500: unexpected error
+            */
+          delete {
+            authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](GameManager.UnsubscribePlayerFromGame(gameId, player.id, _))) {
+                case ack: UnsubscribeAcknowledged => complete(ack)
                 case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
               }
             }

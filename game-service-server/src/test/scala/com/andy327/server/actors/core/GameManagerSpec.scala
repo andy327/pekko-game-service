@@ -1095,6 +1095,72 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       error.message should include("No active game found")
     }
 
+    "stop delivering game events to a spectator after UnsubscribePlayerFromGame" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val alice = Player("alice")
+      val bob = Player("bob")
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // alice connects and subscribes to the in-progress game
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(alice, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.SubscribePlayerToGame(gameId, alice.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // initial game state on subscribe
+
+      // a move while subscribed is delivered to alice's session
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.GameStatus]
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // GameStateUpdated
+
+      // after unsubscribing, a subsequent move is no longer delivered to alice
+      gm ! GameManager.UnsubscribePlayerFromGame(gameId, alice.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.UnsubscribeAcknowledged(gameId))
+
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(bob.id, MovePayload.TicTacToeMove(1, 1)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.GameStatus]
+      wsProbe.expectNoMessage()
+    }
+
+    "acknowledge UnsubscribePlayerFromGame idempotently when there is no active subscription" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+
+      // unknown game and a player that was never connected: still acknowledged, no crash
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      gm ! GameManager.UnsubscribePlayerFromGame(UUID.randomUUID(), UUID.randomUUID(), responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.UnsubscribeAcknowledged]
+
+      // GM is still responsive
+      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbiesListed]
+    }
+
     "push initial lobby state to WebSocket on SubscribePlayerToLobby" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
@@ -1283,6 +1349,30 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.RunGameOperation(nonexistentGameId, GameOperation.MakeMove(alice.id, move), responseProbe.ref)
 
       responseProbe.expectMessageType[GameManager.GameNotFound].gameId shouldBe nonexistentGameId
+    }
+
+    "return an ErrorResponse when the move payload does not match the game type" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStarted]
+
+      // a ConnectFour move sent to a TicTacToe game can't be converted by the module, so RunGameOperation replies
+      // with an ErrorResponse rather than forwarding anything to the game actor
+      gm ! GameManager.RunGameOperation(
+        gameId,
+        GameOperation.MakeMove(host.id, MovePayload.ConnectFourMove(0)),
+        responseProbe.ref
+      )
+      responseProbe.expectMessageType[GameManager.ErrorResponse].message should include("Unsupported move type")
     }
 
     "return an error when SpawnGame is sent with the wrong number of players" in {
