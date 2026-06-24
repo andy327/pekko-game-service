@@ -101,10 +101,6 @@ object GameManager {
     */
   final case class GetChatHistory(gameId: GameId, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Subscribe `playerRef` (the session for `playerId`) to game-state push events from the game actor for `gameId`. */
-  final case class SubscribeToGame(gameId: GameId, playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command])
-      extends Command
-
   /** Post a chat message to a match: fans it out to the match's subscribers (the game actor's while in progress, the
     * lobby's otherwise) and emits a `ChatSent` analytics event.
     */
@@ -522,15 +518,6 @@ object GameManager {
 
         case PlayerSessionsReady(lobbies, games, replyTo) =>
           replyTo ! PlayerSessions(lobbies, games)
-          Behaviors.same
-
-        case SubscribeToGame(gameId, playerId, playerRef) =>
-          activeGames.get(gameId) match {
-            case Some((gameType, gameActor)) =>
-              gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(playerRef, playerId)
-            case None =>
-              context.log.warn(s"SubscribeToGame: no active game found for $gameId")
-          }
           Behaviors.same
 
         case SendChat(gameId, sender, text) =>

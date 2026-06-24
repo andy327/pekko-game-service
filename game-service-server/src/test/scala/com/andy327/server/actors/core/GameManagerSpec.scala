@@ -1136,23 +1136,25 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameStarted]
 
-      val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(gameId, host.id, subscriberProbe.ref)
-      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial game state on subscribe
+      // connect the host and subscribe their session to the in-progress game as a spectator
+      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val playerRefProbe = TestProbe[ActorRef[PlayerActor.Command]]()
+      gm ! GameManager.RegisterPlayer(host, wsProbe.ref, playerRefProbe.ref)
+      playerRefProbe.expectMessageType[ActorRef[PlayerActor.Command]]
+
+      gm ! GameManager.SubscribePlayerToGame(gameId, host.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.SubscribeAcknowledged(gameId))
+      wsProbe.expectMessageType[PlayerActor.WsMessage] // initial game state on subscribe
 
       gm ! GameManager.SendChat(gameId, host, "gg")
 
-      val Some(chat) = subscriberProbe.expectMessageType[PlayerActor.SendEvent].event match {
-        case c: PlayerEvent.ChatMessage => Some(c)
-        case _                          => None
-      }
-      chat.gameId shouldBe gameId
-      chat.senderId shouldBe host.id
-      chat.senderName shouldBe "alice"
-      chat.text shouldBe "gg"
+      val frame = wsProbe.expectMessageType[PlayerActor.WsMessage].message.asInstanceOf[TextMessage.Strict].text
+      frame should include("ChatMessage")
+      frame should include(host.id.toString)
+      frame should include("gg")
 
       // the send is also recorded for analytics, tagged with the in-progress game's type
-      subscriberProbe.awaitAssert {
+      wsProbe.awaitAssert {
         val chatEvents = published.iterator().asScala.collect { case c: GameAnalyticsEvent.ChatSent => c }.toList
         chatEvents.map(_.gameId) shouldBe List(gameId)
         chatEvents.head.gameType shouldBe Some(GameType.TicTacToe)
@@ -1226,38 +1228,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessageType[GameManager.ErrorResponse]
     }
 
-    "forward SubscribeToGame so the subscriber receives events after a move" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val alice = Player("alice")
-      val bob = Player("bob")
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
-
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val GameManager.LobbyCreated(gameId, host) = responseProbe.receiveMessage()
-
-      gm ! GameManager.JoinLobby(gameId, bob, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbyJoined]
-
-      gm ! GameManager.StartGame(gameId, host.id, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.GameStarted]
-
-      val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(gameId, alice.id, subscriberProbe.ref)
-
-      gm ! GameManager.RunGameOperation(
-        gameId,
-        GameOperation.MakeMove(alice.id, MovePayload.TicTacToeMove(0, 0)),
-        responseProbe.ref
-      )
-      responseProbe.expectMessageType[GameManager.GameStatus]
-
-      val event = subscriberProbe.expectMessageType[PlayerActor.SendEvent]
-      event.event shouldBe a[PlayerEvent.GameStateUpdated]
-    }
-
     "deliver GameStateUpdated to a lobby subscriber via WebSocket after the game starts" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
@@ -1297,22 +1267,6 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessageType[GameManager.GameStatus]
 
       wsProbe.expectMessageType[PlayerActor.WsMessage] // GameStateUpdated
-    }
-
-    "handle SubscribeToGame for an unknown game without crashing" in {
-      val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameRepo = new InMemRepo
-      val nonexistentId: GameId = java.util.UUID.randomUUID()
-
-      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
-
-      val subscriberProbe = TestProbe[PlayerActor.Command]()
-      gm ! GameManager.SubscribeToGame(nonexistentId, UUID.randomUUID(), subscriberProbe.ref)
-
-      // GM is still responsive
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbiesListed]
     }
 
     "return an error when forwarding to a nonexistent game" in {
