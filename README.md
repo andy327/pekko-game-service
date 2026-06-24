@@ -25,6 +25,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - 💬 In-match chat with persisted backscroll history
 - 📜 Move history retrieval per game
 - 🏅 Per-player game history — win/loss/draw records across completed matches, retrievable by the authenticated player
+- 🧭 Live participation lookup — a player can ask "what am I in right now?" to re-discover their joined lobbies and active games after reconnecting
 - 💾 Durable game state with write-through caching and restart recovery
 - 📊 Metrics & analytics — game-lifecycle events aggregated into Prometheus metrics at a /metrics endpoint
 
@@ -44,6 +45,7 @@ The architecture is built around the actor model: each game is an isolated actor
 - **Hidden information** — players see only their own view of state; spectators receive a fog-of-war view (no leakage of hidden state).
 - **Chat** — post messages within a match and retrieve recent history (backscroll).
 - **History & status** — query a game's move history and current status, and retrieve the authenticated player's own record of completed games.
+- **Live participation** — the authenticated player can list their current sessions: pre-game lobbies they've joined and in-progress games they're seated in (derived from live actor state, so it survives a reconnect or restart).
 - **Persistence & recovery** — game state is durably stored; in-progress games are restored after a restart.
 
 ### Non-functional
