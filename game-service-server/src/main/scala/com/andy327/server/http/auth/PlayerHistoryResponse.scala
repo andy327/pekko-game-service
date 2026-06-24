@@ -5,7 +5,7 @@ import java.time.Instant
 import com.andy327.model.core.{GameId, GameType}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
-/** One completed game in a player's history, as returned by `GET /auth/me/history`.
+/** One completed game in a player's history, as returned by `GET /players/me/history`.
   *
   * @param gameId the completed game
   * @param gameType the kind of game played
@@ -21,5 +21,5 @@ case class PlayerGameSummary(
     finishedAt: Instant
 )
 
-/** Body of `GET /auth/me/history` — the authenticated player's completed games, most recently finished first. */
+/** Body of `GET /players/me/history` — the authenticated player's completed games, most recently finished first. */
 case class PlayerHistory(games: List[PlayerGameSummary])

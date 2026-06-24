@@ -141,8 +141,8 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider, playerHistoryRepo).routes,
-      new PlayerRoutes(system).routes,
+      new AuthRoutes(identityProvider).routes,
+      new PlayerRoutes(system, playerHistoryRepo).routes,
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,
