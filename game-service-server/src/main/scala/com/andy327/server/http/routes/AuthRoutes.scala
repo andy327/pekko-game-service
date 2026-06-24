@@ -6,17 +6,10 @@ import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 
-import com.andy327.persistence.db.{Account, InMemoryPlayerHistoryRepository, PlayerHistoryRepository}
+import com.andy327.persistence.db.Account
 import com.andy327.server.auth.{IdentityProvider, JwtIssuer, RegisterError, UserContext}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{
-  AuthValidation,
-  ChangePasswordRequest,
-  LoginRequest,
-  PlayerGameSummary,
-  PlayerHistory,
-  RegisterRequest
-}
+import com.andy327.server.http.auth.{AuthValidation, ChangePasswordRequest, LoginRequest, RegisterRequest}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for registration, authentication, and token issuance.
@@ -30,12 +23,8 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - POST /auth/token - Authenticate with credentials and receive a signed JWT
   *   - POST /auth/password - Change the authenticated account's password
   *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
-  *   - GET /auth/me/history - Return the authenticated player's completed-game history
   */
-class AuthRoutes(
-    identityProvider: IdentityProvider,
-    playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository
-)(implicit runtime: IORuntime) {
+class AuthRoutes(identityProvider: IdentityProvider)(implicit runtime: IORuntime) {
   private val jwtIssuer = JwtIssuer.fromConfig()
 
   private def tokenFor(account: Account): String =
@@ -131,24 +120,6 @@ class AuthRoutes(
       authenticatePlayer { player =>
         get {
           complete(player)
-        }
-      }
-    } ~
-    /** Returns the authenticated player's completed-game history, most recently finished first.
-      *
-      * The history is read for the account the token identifies, so a caller only ever sees their own games.
-      *
-      * - Auth: Bearer token required (identifies the player)
-      * - 200: `PlayerHistory` — the player's completed games (empty `games` if none)
-      * - 401: missing, invalid, or expired token
-      */
-    path("me" / "history") {
-      get {
-        authenticatePlayer { player =>
-          onSuccess(playerHistoryRepo.findByPlayer(player.id).unsafeToFuture()) { records =>
-            val games = records.map(r => PlayerGameSummary(r.gameId, r.gameType, r.result, r.forfeit, r.finishedAt))
-            complete(PlayerHistory(games))
-          }
         }
       }
     }

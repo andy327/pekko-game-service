@@ -9,6 +9,7 @@ import com.andy327.persistence.db.MoveRecord
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 import com.andy327.server.actors.core.GameManager.{
+  ActiveGameSummary,
   ChatHistory,
   ErrorResponse,
   GameStarted,
@@ -17,6 +18,7 @@ import com.andy327.server.actors.core.GameManager.{
   LobbyJoined,
   LobbyLeft,
   MoveHistory,
+  PlayerSessions,
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
@@ -87,6 +89,12 @@ object JsonProtocol extends CirceSupport {
 
   implicit val playerHistoryCodec: Codec[PlayerHistory] = deriveCodec[PlayerHistory]
 
+  // Player sessions: the live "what am I in?" view, completed directly like LobbiesListed. ActiveGameSummary reuses the
+  // canonical GameType wire format; the lobbies field reuses the shared LobbyMetadata codec, matching the /lobby shape.
+  implicit val activeGameSummaryCodec: Codec[ActiveGameSummary] = deriveCodec[ActiveGameSummary]
+
+  implicit val playerSessionsCodec: Codec[PlayerSessions] = deriveCodec[PlayerSessions]
+
   // Game state views
 
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
@@ -119,6 +127,8 @@ object JsonProtocol extends CirceSupport {
   implicit val moveHistoryUnmarshaller: FromEntityUnmarshaller[MoveHistory] = circeUnmarshaller[MoveHistory]
   implicit val chatHistoryUnmarshaller: FromEntityUnmarshaller[ChatHistory] = circeUnmarshaller[ChatHistory]
   implicit val playerHistoryUnmarshaller: FromEntityUnmarshaller[PlayerHistory] = circeUnmarshaller[PlayerHistory]
+  implicit val playerSessionsUnmarshaller: FromEntityUnmarshaller[PlayerSessions] =
+    circeUnmarshaller[PlayerSessions]
 
   /** Write-only encoder for PlayerEvent — serialises server-push events to JSON for delivery over WebSocket.
     *

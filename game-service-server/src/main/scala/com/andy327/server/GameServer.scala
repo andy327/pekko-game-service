@@ -43,7 +43,14 @@ import com.andy327.server.analytics.{
 }
 import com.andy327.server.auth.{IdentityProvider, PasswordHasher, PasswordIdentityProvider}
 import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
-import com.andy327.server.http.routes.{AuthRoutes, GameRoutes, LobbyRoutes, MetricsRoutes, WebSocketRoutes}
+import com.andy327.server.http.routes.{
+  AuthRoutes,
+  GameRoutes,
+  LobbyRoutes,
+  MetricsRoutes,
+  PlayerRoutes,
+  WebSocketRoutes
+}
 import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.server.pubsub.RedisPubSubResource
 
@@ -134,7 +141,8 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider, playerHistoryRepo).routes,
+      new AuthRoutes(identityProvider).routes,
+      new PlayerRoutes(system, playerHistoryRepo).routes,
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,
