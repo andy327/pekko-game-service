@@ -1,0 +1,122 @@
+:root {
+  --bg: #11151c;
+  --panel: #1b212b;
+  --line: #2c3543;
+  --text: #e6edf3;
+  --muted: #8b97a7;
+  --accent: #4f9cf9;
+  --accent-dim: #2f6dc0;
+  --error: #ff6b6b;
+  --x: #ff8c5a;
+  --o: #4f9cf9;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+header h1 { font-size: 1.2rem; margin: 0; }
+
+.whoami { color: var(--muted); font-size: 0.9rem; }
+
+.panel {
+  max-width: 640px;
+  margin: 1.5rem auto;
+  padding: 1.25rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.panel h2 { margin-top: 0; }
+
+.hidden { display: none !important; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+input[type="text"] {
+  padding: 0.5rem 0.7rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+button {
+  padding: 0.5rem 0.9rem;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:hover { background: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.status { color: var(--accent); font-weight: 600; min-height: 1.5em; }
+.error { color: var(--error); min-height: 1.2em; margin: 0.5rem 0 0; }
+
+#lobby-list { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+#lobby-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+}
+#lobby-list .meta { color: var(--muted); font-size: 0.9rem; }
+
+/* Board: a grid of square cells sized from the --cols custom property. */
+#board {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), 1fr);
+  gap: 4px;
+  max-width: 360px;
+  margin: 1rem 0;
+}
+
+.cell {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  font-weight: 700;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cell.clickable:hover { border-color: var(--accent); }
+.cell.disabled { cursor: default; }
+.cell.mark-X { color: var(--x); }
+.cell.mark-O { color: var(--o); }
+.cell.mark-R { color: var(--error); }
+.cell.mark-Y { color: #f5c451; }
