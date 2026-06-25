@@ -10,10 +10,10 @@ import org.apache.pekko.http.scaladsl.server.Directive1
 import org.apache.pekko.http.scaladsl.server.Directives._
 import pdi.jwt._
 
+import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.UserContext
 import com.andy327.server.config.JwtConfig.secretKey
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.Player
 
 /** Provides a custom Pekko HTTP directive that authenticates players using JWT tokens.
   *

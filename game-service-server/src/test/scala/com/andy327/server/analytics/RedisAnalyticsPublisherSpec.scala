@@ -9,6 +9,7 @@ import cats.effect.unsafe.IORuntime
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
+import com.andy327.actor.analytics.GameAnalyticsEvent
 import com.andy327.model.core.GameType
 
 class RedisAnalyticsPublisherSpec extends AnyWordSpecLike with Matchers {

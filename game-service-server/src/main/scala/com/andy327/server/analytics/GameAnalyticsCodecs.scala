@@ -3,15 +3,16 @@ package com.andy327.server.analytics
 import io.circe.syntax._
 import io.circe.{Decoder, Encoder, Json}
 
+import com.andy327.actor.analytics.GameAnalyticsEvent
+import com.andy327.actor.analytics.GameAnalyticsEvent._
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
-import com.andy327.server.analytics.GameAnalyticsEvent._
 
-/** Circe codecs for [[GameAnalyticsEvent]] and its [[GameAnalyticsEvent.Outcome]], used only at the edge: to put events
+/** Circe codecs for `GameAnalyticsEvent` and its `GameAnalyticsEvent.Outcome`, used only at the edge: to put events
   * on the Redis `game-analytics` channel ([[RedisAnalyticsPublisher]]) and to read them back ([[AnalyticsConsumer]]).
   * Kept off the domain ADT so the actor layer can emit analytics events without depending on any wire format — the
   * same separation [[com.andy327.server.http.json.JsonProtocol]] gives
-  * [[com.andy327.server.actors.core.PlayerEvent]].
+  * `PlayerEvent`.
   */
 object GameAnalyticsCodecs {
 

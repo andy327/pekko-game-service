@@ -19,14 +19,14 @@ import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.core.{GameManager, InMemRepo}
+import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameId, GameType}
 import com.andy327.persistence.db.InMemoryPlayerHistoryRepository
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
-import com.andy327.server.actors.core.{GameManager, InMemRepo}
-import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.auth.PlayerHistory
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {

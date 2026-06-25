@@ -10,9 +10,9 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import pdi.jwt.{JwtAlgorithm, JwtCirce}
 
+import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.UserContext
 import com.andy327.server.config.JwtConfig
-import com.andy327.server.lobby.Player
 
 class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 

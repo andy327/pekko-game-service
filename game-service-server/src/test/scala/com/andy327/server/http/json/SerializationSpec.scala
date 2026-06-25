@@ -10,12 +10,7 @@ import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.battleship.Battleship
-import com.andy327.model.connectfour.ConnectFour
-import com.andy327.model.core.GameType
-import com.andy327.model.tictactoe.TicTacToe
-import com.andy327.persistence.db.MoveRecord
-import com.andy327.server.actors.core.GameManager.{
+import com.andy327.actor.core.GameManager.{
   ErrorResponse,
   LobbyCreated,
   LobbyJoined,
@@ -23,9 +18,14 @@ import com.andy327.server.actors.core.GameManager.{
   MoveHistory,
   SubscribeAcknowledged
 }
-import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.game.{BattleshipState, GameState, GameStateConverters, GridGameState}
-import com.andy327.server.lobby._
+import com.andy327.actor.core.PlayerEvent
+import com.andy327.actor.game.{BattleshipState, GameState, GameStateConverters, GridGameState}
+import com.andy327.actor.lobby._
+import com.andy327.model.battleship.Battleship
+import com.andy327.model.connectfour.ConnectFour
+import com.andy327.model.core.GameType
+import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.persistence.db.MoveRecord
 
 /** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent
   * encoder. The reused value codecs (Player, GameType, GameLifecycleStatus, LobbyMetadata) are tested at their source

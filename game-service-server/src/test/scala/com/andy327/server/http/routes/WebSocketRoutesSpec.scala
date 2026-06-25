@@ -11,10 +11,10 @@ import org.apache.pekko.http.scaladsl.testkit.{ScalatestRouteTest, WSProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.core.{GameManager, InMemRepo}
+import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameId, GameType}
-import com.andy327.server.actors.core.{GameManager, InMemRepo}
-import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {

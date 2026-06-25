@@ -16,11 +16,11 @@ import org.apache.pekko.stream.typed.scaladsl.ActorSource
 import org.apache.pekko.stream.{Materializer, OverflowStrategy}
 import org.apache.pekko.util.Timeout
 
-import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent}
+import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent}
+import com.andy327.actor.lobby.Player
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.ClientMessage
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.Player
 
 /** HTTP route that upgrades connections to WebSocket sessions.
   *

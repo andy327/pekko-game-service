@@ -9,8 +9,9 @@ import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.analytics.GameAnalyticsEvent
 import com.andy327.model.core.GameType
-import com.andy327.server.analytics.{GameAnalyticsEvent, GameMetrics}
+import com.andy327.server.analytics.GameMetrics
 
 class MetricsRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 

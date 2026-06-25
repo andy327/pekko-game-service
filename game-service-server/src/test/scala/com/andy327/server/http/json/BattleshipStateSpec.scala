@@ -5,9 +5,9 @@ import java.util.UUID
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.game.BattleshipState
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
 import com.andy327.model.core.PlayerId
-import com.andy327.server.game.BattleshipState
 
 class BattleshipStateSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID()

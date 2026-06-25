@@ -11,9 +11,9 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
+import com.andy327.actor.core.GameManager
+import com.andy327.actor.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, PlayerHistoryRepository}
-import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.auth.{PlayerGameSummary, PlayerHistory}
 import com.andy327.server.http.json.JsonProtocol._
@@ -23,7 +23,7 @@ import com.andy327.server.http.json.JsonProtocol._
   * Where [[com.andy327.server.http.routes.AuthRoutes]] establishes identity (credentials and tokens), these routes
   * answer questions a player asks about themselves. `sessions` reports "what am I in right now?" — the pre-game lobbies
   * and in-progress games the player is currently part of, derived from the authoritative actor state
-  * ([[server.actors.core.GameManager]] and its [[com.andy327.server.actors.core.LobbyManager]] child) so it cannot
+  * (`GameManager` and its `LobbyManager` child) so it cannot
   * drift from live state. `history` reports the player's durable record of finished games, read from the
   * `PlayerHistoryRepository`.
   *

@@ -16,6 +16,11 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
+import com.andy327.actor.analytics.{AnalyticsPublisher, NoOpAnalyticsPublisher}
+import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
+import com.andy327.actor.core.GameManager
+import com.andy327.actor.lobby.{LobbyRepository, RedisLobbyRepository}
+import com.andy327.actor.persistence.PostgresActor
 import com.andy327.model.core.GameType
 import com.andy327.persistence.db.postgres.{
   PostgresGameRepository,
@@ -32,17 +37,8 @@ import com.andy327.persistence.db.{
   MoveHistoryRepository,
   PlayerHistoryRepository
 }
-import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.persistence.PostgresActor
-import com.andy327.server.analytics.{
-  AnalyticsConsumer,
-  AnalyticsPublisher,
-  GameMetrics,
-  NoOpAnalyticsPublisher,
-  RedisAnalyticsPublisher
-}
+import com.andy327.server.analytics.{AnalyticsConsumer, GameMetrics, RedisAnalyticsPublisher}
 import com.andy327.server.auth.{IdentityProvider, PasswordHasher, PasswordIdentityProvider}
-import com.andy327.server.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
 import com.andy327.server.http.routes.{
   AuthRoutes,
   GameRoutes,
@@ -51,7 +47,6 @@ import com.andy327.server.http.routes.{
   PlayerRoutes,
   WebSocketRoutes
 }
-import com.andy327.server.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.server.pubsub.RedisPubSubResource
 
 /** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.

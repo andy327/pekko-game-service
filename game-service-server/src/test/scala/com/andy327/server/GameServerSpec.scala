@@ -16,11 +16,11 @@ import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.core.GameManager
+import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
-import com.andy327.server.actors.core.GameManager
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class GameServerSpec extends AnyWordSpec with Matchers {

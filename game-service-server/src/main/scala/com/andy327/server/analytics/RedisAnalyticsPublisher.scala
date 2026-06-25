@@ -5,6 +5,7 @@ import cats.effect.unsafe.IORuntime
 
 import io.circe.syntax._
 
+import com.andy327.actor.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.server.analytics.GameAnalyticsCodecs.encoder
 
 object RedisAnalyticsPublisher {
