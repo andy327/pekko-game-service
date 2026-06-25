@@ -5,8 +5,8 @@ import cats.effect.unsafe.IORuntime
 
 import io.circe.syntax._
 
-import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent}
-import com.andy327.server.analytics.GameAnalyticsCodecs.encoder
+import com.andy327.actor.events.{EventPublisher, GameEvent}
+import com.andy327.server.analytics.GameEventCodecs.encoder
 
 object RedisAnalyticsPublisher {
 
@@ -22,9 +22,9 @@ object RedisAnalyticsPublisher {
   *                  parameter
   */
 class RedisAnalyticsPublisher(doPublish: (String, String) => IO[Unit])(implicit runtime: IORuntime)
-    extends AnalyticsPublisher {
+    extends EventPublisher {
 
-  override def publish(event: GameAnalyticsEvent): Unit = {
+  override def publish(event: GameEvent): Unit = {
     val json = event.asJson.deepDropNullValues.noSpaces
     doPublish(RedisAnalyticsPublisher.Channel, json).unsafeRunAndForget()
   }

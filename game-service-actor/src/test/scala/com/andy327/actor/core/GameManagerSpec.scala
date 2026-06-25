@@ -20,7 +20,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.chat.ChatRepository
 import com.andy327.actor.core.{PlayerActor, PlayerEvent}
-import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent}
+import com.andy327.actor.events.{EventPublisher, GameEvent}
 import com.andy327.actor.game.{GameOperation, GameStateConverters, GridGameState, MovePayload}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -1186,9 +1186,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val host = Player("alice")
       val guest = Player("bob")
-      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameAnalyticsEvent]()
-      val recordingPublisher = new AnalyticsPublisher {
-        def publish(event: GameAnalyticsEvent): Unit = { published.add(event); () }
+      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameEvent]()
+      val recordingPublisher = new EventPublisher {
+        def publish(event: GameEvent): Unit = { published.add(event); () }
       }
       val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, publisher = recordingPublisher))
       val responseProbe = TestProbe[GameManager.GameResponse]()
@@ -1218,7 +1218,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       // the send is also recorded for analytics, tagged with the in-progress game's type
       wsProbe.awaitAssert {
-        val chatEvents = published.iterator().asScala.collect { case c: GameAnalyticsEvent.ChatSent => c }.toList
+        val chatEvents = published.iterator().asScala.collect { case c: GameEvent.ChatSent => c }.toList
         chatEvents.map(_.gameId) shouldBe List(gameId)
         chatEvents.head.gameType shouldBe Some(GameType.TicTacToe)
       }

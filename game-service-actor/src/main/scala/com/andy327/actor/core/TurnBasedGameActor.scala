@@ -6,7 +6,7 @@ import io.circe.Encoder
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent}
+import com.andy327.actor.events.{EventPublisher, GameEvent}
 import com.andy327.actor.game.{GameState, GameStateView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -112,7 +112,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   ): (G, Behavior[Command]) = {
     val game = newGame(players)
     val behavior = Behaviors.setup[Command] { context =>
@@ -133,7 +133,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   ): Behavior[Command] =
     Behaviors.setup { context =>
       snap match {
@@ -175,7 +175,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
-      publisher: AnalyticsPublisher,
+      publisher: EventPublisher,
       forfeit: Boolean,
       replyTo: ActorRef[Either[GameError, GameState]]
   )(appendMove: => Unit = ()): Behavior[Command] = {
@@ -212,14 +212,14 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
             val rs = nextState.players.map { pid =>
               pid -> (if (nextState.playerFor(pid).contains(winner)) GameResult.Win else GameResult.Loss)
             }
-            (rs, if (forfeit) GameAnalyticsEvent.Outcome.Forfeit else GameAnalyticsEvent.Outcome.Won)
+            (rs, if (forfeit) GameEvent.Outcome.Forfeit else GameEvent.Outcome.Won)
           case _ =>
-            (nextState.players.map(_ -> GameResult.Draw), GameAnalyticsEvent.Outcome.Draw)
+            (nextState.players.map(_ -> GameResult.Draw), GameEvent.Outcome.Draw)
         }
         results.foreach { case (pid, result) =>
           persist ! PersistenceProtocol.RecordGameResult(pid, gameId, gameType, result, forfeit)
         }
-        publisher.publish(GameAnalyticsEvent.GameCompleted(gameId, gameType, outcome, nextState.moveCount))
+        publisher.publish(GameEvent.GameCompleted(gameId, gameType, outcome, nextState.moveCount))
         gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
         terminating(gameId)
 
@@ -241,7 +241,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   ): Behavior[Command] = Behaviors.receive[Command] { (context, msg) =>
     msg match {
       case MakeMove(playerId, move, replyTo) =>
@@ -264,7 +264,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                 ) {
                   // record the move in the append-only history log; seq is the pre-move count (0-based ordinal)
                   persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
-                  publisher.publish(GameAnalyticsEvent.MoveMade(gameId, gameType, playerId, game.moveCount))
+                  publisher.publish(GameEvent.MoveMade(gameId, gameType, playerId, game.moveCount))
                 }
 
               case Left(err) =>

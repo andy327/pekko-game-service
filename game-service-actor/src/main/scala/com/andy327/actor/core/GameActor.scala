@@ -3,7 +3,7 @@ package com.andy327.actor.core
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.actor.events.AnalyticsPublisher
+import com.andy327.actor.events.EventPublisher
 import com.andy327.actor.game.GameState
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}
@@ -59,7 +59,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   ): (G, Behavior[Command])
 
   /** Re-hydrate an actor from a snapshot already loaded from the database.
@@ -76,7 +76,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   ): Behavior[Command]
 
   /** Produce the game-specific Subscribe command that registers `playerRef` (the session for `playerId`) for push

@@ -2,12 +2,12 @@ package com.andy327.server.analytics
 
 import io.prometheus.client.{CollectorRegistry, Counter, Histogram}
 
-import com.andy327.actor.events.GameAnalyticsEvent
-import com.andy327.actor.events.GameAnalyticsEvent._
+import com.andy327.actor.events.GameEvent
+import com.andy327.actor.events.GameEvent._
 import com.andy327.model.core.GameType
 
 /** Prometheus metrics for game analytics. Registers a small, low-cardinality set of collectors on `registry` and
-  * folds each `GameAnalyticsEvent` into them via [[record]].
+  * folds each `GameEvent` into them via [[record]].
   *
   * Dimensions are kept coarse on purpose — `game_type` (one of three) and a game `outcome` (won/draw/forfeit). Nothing
   * here is keyed on player identity; per-player statistics need a durable identity that does not exist yet (#37).
@@ -53,7 +53,7 @@ class GameMetrics(registry: CollectorRegistry) {
     .register(registry)
 
   /** Fold a single analytics event into the metrics. */
-  def record(event: GameAnalyticsEvent): Unit = event match {
+  def record(event: GameEvent): Unit = event match {
     case GameStarted(_, gameType, _) =>
       gamesStarted.labels(label(gameType)).inc()
     case MoveMade(_, gameType, _, _) =>

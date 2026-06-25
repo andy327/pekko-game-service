@@ -12,7 +12,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
-import com.andy327.actor.events.NoOpAnalyticsPublisher
+import com.andy327.actor.events.NoOpEventPublisher
 import com.andy327.actor.game.{GameState, GridGameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -35,7 +35,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   ): (ActorRef[ConnectFourActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
     val (_, behavior) =
-      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpAnalyticsPublisher)
+      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -92,7 +92,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         snapshot,
         persistProbe.ref,
         dummyGameManager,
-        NoOpAnalyticsPublisher
+        NoOpEventPublisher
       )
       val actor = spawn(behavior)
 
@@ -118,7 +118,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
-          NoOpAnalyticsPublisher
+          NoOpEventPublisher
         )
       )
 
@@ -144,7 +144,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         dummyGame,
         persistProbe.ref,
         dummyGameManager,
-        NoOpAnalyticsPublisher
+        NoOpEventPublisher
       )
       val actor = spawn(behavior)
 

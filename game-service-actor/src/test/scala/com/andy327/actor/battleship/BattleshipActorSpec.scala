@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
-import com.andy327.actor.events.NoOpAnalyticsPublisher
+import com.andy327.actor.events.NoOpEventPublisher
 import com.andy327.actor.game.{BattleshipState, GameState}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.battleship.{Coord, Fire}
@@ -31,7 +31,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
         Seq(alice, bob),
         persistProbe.ref,
         dummyGameManager,
-        NoOpAnalyticsPublisher
+        NoOpEventPublisher
       )
     (spawn(behavior), persistProbe)
   }

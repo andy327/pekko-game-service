@@ -18,7 +18,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
 import com.andy327.actor.core.GameManager
-import com.andy327.actor.events.{AnalyticsPublisher, NoOpAnalyticsPublisher}
+import com.andy327.actor.events.{EventPublisher, NoOpEventPublisher}
 import com.andy327.actor.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.actor.persistence.PostgresActor
 import com.andy327.model.core.GameType
@@ -122,7 +122,7 @@ object GameServer {
       playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository,
       identityProvider: IdentityProvider =
         new PasswordIdentityProvider(new InMemoryUserRepository, PasswordHasher.fromConfig()),
-      publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
+      publisher: EventPublisher = NoOpEventPublisher,
       metricsRegistry: CollectorRegistry = new CollectorRegistry()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>

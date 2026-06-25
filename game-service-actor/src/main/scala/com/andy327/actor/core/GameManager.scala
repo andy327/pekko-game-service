@@ -13,7 +13,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
-import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
+import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -350,7 +350,7 @@ object GameManager {
       lobbyRepo: LobbyRepository,
       moveRepo: MoveHistoryRepository = NoOpMoveHistoryRepository,
       chatRepo: ChatRepository = NoOpChatRepository,
-      publisher: AnalyticsPublisher = NoOpAnalyticsPublisher,
+      publisher: EventPublisher = NoOpEventPublisher,
       onReady: Option[ActorRef[Ready.type]] = None
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
@@ -399,7 +399,7 @@ object GameManager {
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository,
       stash: StashBuffer[Command],
-      publisher: AnalyticsPublisher,
+      publisher: EventPublisher,
       onReady: Option[ActorRef[Ready.type]]
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
@@ -462,7 +462,7 @@ object GameManager {
       gameRepo: GameRepository,
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository,
-      publisher: AnalyticsPublisher
+      publisher: EventPublisher
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
@@ -582,7 +582,7 @@ object GameManager {
               lobbyManager ! LobbyManager.BroadcastChat(gameId, event)
           }
           // record the send for analytics (gameType is None for lobby chat, before the game starts)
-          publisher.publish(GameAnalyticsEvent.ChatSent(gameId, activeGames.get(gameId).map(_._1)))
+          publisher.publish(GameEvent.ChatSent(gameId, activeGames.get(gameId).map(_._1)))
           // record to the bounded chat history so late joiners can backscroll; best-effort, never blocks the send
           chatRepo.append(event).unsafeRunAsync {
             case Left(ex) => context.log.warn(s"Failed to persist chat message for $gameId", ex)
@@ -663,7 +663,7 @@ object GameManager {
             )
 
             context.log.info(s"Created and persisted new game with gameId: $gameId")
-            publisher.publish(GameAnalyticsEvent.GameStarted(gameId, gameType, n))
+            publisher.publish(GameEvent.GameStarted(gameId, gameType, n))
             replyTo ! GameStarted(gameId)
             val updatedPlayerGames =
               players.foldLeft(playerGames)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + gameId))

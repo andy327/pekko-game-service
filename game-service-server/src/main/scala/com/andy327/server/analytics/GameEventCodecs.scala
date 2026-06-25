@@ -3,18 +3,18 @@ package com.andy327.server.analytics
 import io.circe.syntax._
 import io.circe.{Decoder, Encoder, Json}
 
-import com.andy327.actor.events.GameAnalyticsEvent
-import com.andy327.actor.events.GameAnalyticsEvent._
+import com.andy327.actor.events.GameEvent
+import com.andy327.actor.events.GameEvent._
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 
-/** Circe codecs for `GameAnalyticsEvent` and its `GameAnalyticsEvent.Outcome`, used only at the edge: to put events
+/** Circe codecs for `GameEvent` and its `GameEvent.Outcome`, used only at the edge: to put events
   * on the Redis `game-analytics` channel ([[RedisAnalyticsPublisher]]) and to read them back ([[AnalyticsConsumer]]).
   * Kept off the domain ADT so the actor layer can emit analytics events without depending on any wire format — the
   * same separation [[com.andy327.server.http.json.JsonProtocol]] gives
   * `PlayerEvent`.
   */
-object GameAnalyticsCodecs {
+object GameEventCodecs {
 
   implicit val outcomeEncoder: Encoder[Outcome] = Encoder.encodeString.contramap(_.label)
   implicit val outcomeDecoder: Decoder[Outcome] =
@@ -23,7 +23,7 @@ object GameAnalyticsCodecs {
   /** Each variant is encoded as a JSON object with a `type` discriminator, mirroring the convention used by
     * [[com.andy327.server.http.json.JsonProtocol.playerEventEncoder]].
     */
-  implicit val encoder: Encoder[GameAnalyticsEvent] = Encoder.instance {
+  implicit val encoder: Encoder[GameEvent] = Encoder.instance {
     case GameStarted(gameId, gameType, playerCount) =>
       Json.obj(
         "type" -> "GameStarted".asJson,
@@ -55,7 +55,7 @@ object GameAnalyticsCodecs {
       )
   }
 
-  implicit val decoder: Decoder[GameAnalyticsEvent] = Decoder.instance { c =>
+  implicit val decoder: Decoder[GameEvent] = Decoder.instance { c =>
     c.get[String]("type").flatMap {
       case "GameStarted" =>
         for {
@@ -83,7 +83,7 @@ object GameAnalyticsCodecs {
           gameType <- c.get[Option[GameType]]("gameType")
         } yield ChatSent(gameId, gameType)
       case other =>
-        Left(io.circe.DecodingFailure(s"Unknown GameAnalyticsEvent type: $other", c.history))
+        Left(io.circe.DecodingFailure(s"Unknown GameEvent type: $other", c.history))
     }
   }
 }

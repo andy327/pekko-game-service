@@ -16,7 +16,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
-import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
+import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameState, GridGameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -41,7 +41,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       gameId: GameId = UUID.randomUUID()
   ): (ActorRef[TicTacToeActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
-    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpAnalyticsPublisher)
+    val (_, behavior) = TicTacToeActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -110,7 +110,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         snapshotState,
         persistProbe.ref,
         dummyGameManager,
-        NoOpAnalyticsPublisher
+        NoOpEventPublisher
       )
       val actor = spawn(behavior)
 
@@ -148,7 +148,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
-          NoOpAnalyticsPublisher
+          NoOpEventPublisher
         )
       )
 
@@ -174,7 +174,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         dummyGame,
         persistProbe.ref,
         dummyGameManager,
-        NoOpAnalyticsPublisher
+        NoOpEventPublisher
       )
       val actor = spawn(behavior)
 
@@ -509,9 +509,9 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     }
 
     "emit a GameCompleted analytics event with outcome Draw when the game ends in a draw" in {
-      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameAnalyticsEvent]()
-      val capturing = new AnalyticsPublisher {
-        def publish(event: GameAnalyticsEvent): Unit = { published.add(event); () }
+      val published = new java.util.concurrent.ConcurrentLinkedQueue[GameEvent]()
+      val capturing = new EventPublisher {
+        def publish(event: GameEvent): Unit = { published.add(event); () }
       }
       val gameId: GameId = UUID.randomUUID()
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
@@ -526,8 +526,8 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       // the final, non-forfeit transition resolves to the Draw outcome (the `case Draw` branch of applyTransition)
       createTestProbe[Any]().awaitAssert {
-        val completed = published.iterator().asScala.collect { case c: GameAnalyticsEvent.GameCompleted => c }.toList
-        completed.map(_.outcome) shouldBe List(GameAnalyticsEvent.Outcome.Draw)
+        val completed = published.iterator().asScala.collect { case c: GameEvent.GameCompleted => c }.toList
+        completed.map(_.outcome) shouldBe List(GameEvent.Outcome.Draw)
         completed.head.gameId shouldBe gameId
         completed.head.moveCount shouldBe 9
       }

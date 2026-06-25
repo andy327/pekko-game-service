@@ -7,17 +7,17 @@ import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.events.GameAnalyticsEvent
-import com.andy327.actor.events.GameAnalyticsEvent._
+import com.andy327.actor.events.GameEvent
+import com.andy327.actor.events.GameEvent._
 import com.andy327.model.core.GameType
-import com.andy327.server.analytics.GameAnalyticsCodecs._
+import com.andy327.server.analytics.GameEventCodecs._
 
-class GameAnalyticsEventSpec extends AnyWordSpec with Matchers {
+class GameEventSpec extends AnyWordSpec with Matchers {
 
-  private def roundTrip(event: GameAnalyticsEvent): Unit =
-    decode[GameAnalyticsEvent](event.asJson.noSpaces) shouldBe Right(event)
+  private def roundTrip(event: GameEvent): Unit =
+    decode[GameEvent](event.asJson.noSpaces) shouldBe Right(event)
 
-  "GameAnalyticsEvent codec" should {
+  "GameEvent codec" should {
     "round-trip GameStarted" in roundTrip(GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2))
 
     "round-trip MoveMade" in roundTrip(MoveMade(UUID.randomUUID(), GameType.ConnectFour, UUID.randomUUID(), 4))
@@ -31,12 +31,12 @@ class GameAnalyticsEventSpec extends AnyWordSpec with Matchers {
     }
 
     "emit a type discriminator" in {
-      val event: GameAnalyticsEvent = GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2)
+      val event: GameEvent = GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2)
       event.asJson.noSpaces should include(""""type":"GameStarted"""")
     }
 
     "reject an unknown type" in {
-      decode[GameAnalyticsEvent]("""{"type":"Nope"}""").isLeft shouldBe true
+      decode[GameEvent]("""{"type":"Nope"}""").isLeft shouldBe true
     }
   }
 }

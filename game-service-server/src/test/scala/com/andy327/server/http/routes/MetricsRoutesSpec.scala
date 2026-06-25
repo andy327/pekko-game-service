@@ -9,7 +9,7 @@ import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.events.GameAnalyticsEvent
+import com.andy327.actor.events.GameEvent
 import com.andy327.model.core.GameType
 import com.andy327.server.analytics.GameMetrics
 
@@ -19,7 +19,7 @@ class MetricsRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTes
     "expose recorded metrics in the Prometheus text format at GET /metrics" in {
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
-      metrics.record(GameAnalyticsEvent.GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2))
+      metrics.record(GameEvent.GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2))
 
       val routes: Route = new MetricsRoutes(registry).routes
 
