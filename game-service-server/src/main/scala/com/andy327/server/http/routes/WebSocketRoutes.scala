@@ -24,15 +24,17 @@ import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP route that upgrades connections to WebSocket sessions.
   *
-  * On connect the client must supply a valid Bearer token (obtained via POST /auth/token). The server materializes an
-  * ActorSource-backed stream, spawns a PlayerActor wired to it via GameManager.RegisterPlayer, and begins forwarding
-  * push events (lobby updates, game state, game-end notifications, chat) as JSON TextMessages. Inbound client frames
-  * are decoded as [[json.ClientMessage]] and routed to GameManager (e.g. a `ChatSend` becomes `GameManager.SendChat`);
-  * unparseable frames are logged and dropped. When the WebSocket closes, PlayerDisconnected is sent to GameManager so
-  * the associated PlayerActor is stopped; conversely, when the PlayerActor stops (explicit disconnect or replacement on
-  * reconnect), it completes the stream via `PlayerActor.SessionComplete`, closing the WebSocket from the server side.
+  * On connect the client must supply a valid JWT, either as a Bearer Authorization header or — for browser clients that
+  * cannot set handshake headers — as an `access_token` query parameter (obtained via POST /auth/token). The server
+  * materializes an ActorSource-backed stream, spawns a PlayerActor wired to it via GameManager.RegisterPlayer, and
+  * begins forwarding push events (lobby updates, game state, game-end notifications, chat) as JSON TextMessages.
+  * Inbound client frames are decoded as [[json.ClientMessage]] and routed to GameManager (e.g. a `ChatSend` becomes
+  * `GameManager.SendChat`); unparseable frames are logged and dropped. When the WebSocket closes, PlayerDisconnected is
+  * sent to GameManager so the associated PlayerActor is stopped; conversely, when the PlayerActor stops (explicit
+  * disconnect or replacement on reconnect), it completes the stream via `PlayerActor.SessionComplete`, closing the
+  * WebSocket from the server side.
   *
-  * Route: GET /ws (Auth: Bearer token required)
+  * Route: GET /ws (Auth: Bearer token, or `access_token` query parameter)
   *
   * Actor relationships:
   *   - Sends to: `GameManager` (`RegisterPlayer` on connect, `SendChat` on an inbound chat frame, `PlayerDisconnected`
@@ -46,7 +48,7 @@ class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   val routes: Route = path("ws") {
-    authenticatePlayer { player =>
+    authenticatePlayerAllowingQueryParam { player =>
       handleWebSocketMessages(buildFlow(player))
     }
   }

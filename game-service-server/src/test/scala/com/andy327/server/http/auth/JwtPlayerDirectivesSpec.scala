@@ -21,6 +21,18 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
       complete(s"Hello, ${player.name}!")
     }
 
+  val queryParamRoute: Route =
+    JwtPlayerDirectives.authenticatePlayerAllowingQueryParam { player =>
+      complete(s"Hello, ${player.name}!")
+    }
+
+  /** Encodes a valid JWT for a freshly-minted player and returns the token alongside the player. */
+  private def tokenForNewPlayer(name: String): (Player, String) = {
+    val player = Player(name)
+    val userContext = UserContext(player.id.toString, player.name)
+    (player, JwtCirce.encode(userContext.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256))
+  }
+
   "JwtPlayerDirectives.authenticatePlayer" should {
     "reject if Authorization header is missing" in
       Get("/") ~> testRoute ~> check {
@@ -70,5 +82,43 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
         responseAs[String] should include("alice")
       }
     }
+
+    "ignore an access_token query parameter (header-only)" in {
+      val (_, token) = tokenForNewPlayer("bob")
+      Get(s"/?access_token=$token") ~> testRoute ~> check {
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Missing Authorization header")
+      }
+    }
+  }
+
+  "JwtPlayerDirectives.authenticatePlayerAllowingQueryParam" should {
+    "accept a valid JWT from the access_token query parameter" in {
+      val (_, token) = tokenForNewPlayer("carol")
+      Get(s"/?access_token=$token") ~> queryParamRoute ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] should include("carol")
+      }
+    }
+
+    "still accept a valid JWT from the Authorization header" in {
+      val (_, token) = tokenForNewPlayer("dave")
+      Get("/").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> queryParamRoute ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] should include("dave")
+      }
+    }
+
+    "reject when neither header nor query parameter supplies a token" in
+      Get("/") ~> queryParamRoute ~> check {
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Missing access token")
+      }
+
+    "reject an invalid JWT supplied via the query parameter" in
+      Get("/?access_token=invalid.token") ~> queryParamRoute ~> check {
+        status shouldBe StatusCodes.Unauthorized
+        responseAs[String] should include("Token is invalid or expired")
+      }
   }
 }
