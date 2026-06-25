@@ -55,7 +55,6 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
     libraryDependencies ++= Seq(
       "org.tpolecat" %% "doobie-core" % versions("doobie"),
       "org.tpolecat" %% "doobie-postgres" % versions("doobie"),
-      "org.tpolecat" %% "doobie-postgres-circe" % versions("doobie"),
       "org.tpolecat" %% "doobie-hikari" % versions("doobie"),
       "io.circe" %% "circe-core" % versions("circe"),
       "io.circe" %% "circe-generic" % versions("circe"),
@@ -124,7 +123,6 @@ lazy val server = (project in file(s"$baseName-server"))
       "com.github.jwt-scala" %% "jwt-core" % versions("jwt-scala"),
       "com.github.jwt-scala" %% "jwt-circe" % versions("jwt-scala"),
       "com.password4j" % "password4j" % versions("password4j"),
-      "com.github.blemale" %% "scaffeine" % versions("scaffeine"),
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
       "io.prometheus" % "simpleclient" % versions("prometheus"),
       "io.prometheus" % "simpleclient_common" % versions("prometheus"),
