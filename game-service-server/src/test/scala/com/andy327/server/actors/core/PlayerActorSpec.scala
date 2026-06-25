@@ -4,7 +4,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.server.http.json.GridGameState
+import com.andy327.server.game.GridGameState
 import com.andy327.server.lobby.Player
 
 class PlayerActorSpec extends AnyWordSpecLike with Matchers {

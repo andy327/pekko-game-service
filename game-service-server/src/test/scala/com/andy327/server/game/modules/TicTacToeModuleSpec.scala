@@ -11,8 +11,7 @@ import com.andy327.model.core.GameError
 import com.andy327.model.tictactoe.{Location, TicTacToe}
 import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
 import com.andy327.server.actors.tictactoe.TicTacToeActor
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GridGameState}
+import com.andy327.server.game.{GameOperation, GameState, GridGameState, MovePayload}
 import com.andy327.server.lobby.Player
 
 class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {

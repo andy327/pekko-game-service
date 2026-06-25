@@ -6,7 +6,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.AnalyticsPublisher
-import com.andy327.server.http.json.GameState
+import com.andy327.server.game.GameState
 
 object GameActor {
 

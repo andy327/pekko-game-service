@@ -4,7 +4,7 @@ import io.circe.generic.semiauto.deriveEncoder
 
 import com.andy327.model.tictactoe.{Location, Mark, TicTacToe}
 import com.andy327.server.actors.core.TurnBasedGameActor
-import com.andy327.server.http.json.GridGameState
+import com.andy327.server.game.GridGameState
 
 /** [[com.andy327.server.actors.core.GameActor]] binding for TicTacToe.
   *

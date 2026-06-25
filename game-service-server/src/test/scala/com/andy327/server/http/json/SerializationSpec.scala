@@ -24,6 +24,7 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.server.actors.core.PlayerEvent
+import com.andy327.server.game.{BattleshipState, GameState, GameStateConverters, GridGameState}
 import com.andy327.server.lobby._
 
 /** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent

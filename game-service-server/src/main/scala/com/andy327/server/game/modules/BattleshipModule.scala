@@ -10,8 +10,7 @@ import com.andy327.model.battleship.{Battleship, Coord, Fire}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.server.actors.core.{GameActor, TurnBasedGameActor}
 import com.andy327.server.game.MovePayload.BattleshipMove
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GameStateConverters}
+import com.andy327.server.game.{GameOperation, GameState, GameStateConverters, MovePayload}
 
 /** [[GameModule]] implementation for Battleship.
   *

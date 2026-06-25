@@ -11,8 +11,7 @@ import com.andy327.model.connectfour.{ConnectFour, Drop}
 import com.andy327.model.core.GameError
 import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GridGameState}
+import com.andy327.server.game.{GameOperation, GameState, GridGameState, MovePayload}
 import com.andy327.server.lobby.Player
 
 class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {

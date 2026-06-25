@@ -4,7 +4,7 @@ import io.circe.generic.semiauto.deriveEncoder
 
 import com.andy327.model.connectfour.{ConnectFour, Drop, Mark}
 import com.andy327.server.actors.core.TurnBasedGameActor
-import com.andy327.server.http.json.GridGameState
+import com.andy327.server.game.GridGameState
 
 /** [[com.andy327.server.actors.core.GameActor]] binding for ConnectFour.
   *

@@ -1,4 +1,4 @@
-package com.andy327.server.http.json
+package com.andy327.server.game
 
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.connectfour.ConnectFour

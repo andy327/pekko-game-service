@@ -10,8 +10,7 @@ import com.andy327.model.connectfour.{ConnectFour, Drop}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.server.actors.core.{GameActor, TurnBasedGameActor}
 import com.andy327.server.game.MovePayload.ConnectFourMove
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameState, GameStateConverters}
+import com.andy327.server.game.{GameOperation, GameState, GameStateConverters, MovePayload}
 
 /** [[GameModule]] implementation for ConnectFour.
   *

@@ -16,7 +16,7 @@ import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.NoOpAnalyticsPublisher
-import com.andy327.server.http.json.{GameState, GridGameState}
+import com.andy327.server.game.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 
 class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {

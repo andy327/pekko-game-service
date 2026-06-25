@@ -21,7 +21,7 @@ import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.actors.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
-import com.andy327.server.http.json.{GameState, GridGameState}
+import com.andy327.server.game.{GameState, GridGameState}
 import com.andy327.server.lobby.GameLifecycleStatus
 
 class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {

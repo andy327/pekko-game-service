@@ -17,8 +17,7 @@ import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRe
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
 import com.andy327.server.chat.{ChatRepository, NoOpChatRepository}
-import com.andy327.server.game.{GameOperation, GameRegistry}
-import com.andy327.server.http.json.GameState
+import com.andy327.server.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.

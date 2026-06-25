@@ -51,7 +51,7 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
       }
     }
 
-    "reject if Player.fromJWT fails" in {
+    "reject if the player id is not a valid UUID" in {
       val userContext = UserContext(id = "not-a-uuid", name = "fake")
       val token = JwtCirce.encode(userContext.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256)
       Get("/").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> testRoute ~> check {

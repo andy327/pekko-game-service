@@ -28,7 +28,7 @@ import com.andy327.model.core.{GameId, GameType}
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.actors.core.{GameManager, InMemChatRepo, InMemMoveRepo, InMemRepo, PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
-import com.andy327.server.http.json.GridGameState
+import com.andy327.server.game.GridGameState
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken

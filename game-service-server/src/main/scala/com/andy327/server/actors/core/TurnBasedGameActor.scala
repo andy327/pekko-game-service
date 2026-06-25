@@ -10,7 +10,7 @@ import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTy
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
-import com.andy327.server.http.json.{GameState, GameStateView}
+import com.andy327.server.game.{GameState, GameStateView}
 import com.andy327.server.lobby.GameLifecycleStatus
 
 object TurnBasedGameActor {

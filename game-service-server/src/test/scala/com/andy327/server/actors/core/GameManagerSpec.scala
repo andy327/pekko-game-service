@@ -25,8 +25,7 @@ import com.andy327.server.actors.core.{PlayerActor, PlayerEvent}
 import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.server.chat.ChatRepository
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{GameStateConverters, GridGameState}
+import com.andy327.server.game.{GameOperation, GameStateConverters, GridGameState, MovePayload}
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 
 /** In-memory GameRepository for unit tests */

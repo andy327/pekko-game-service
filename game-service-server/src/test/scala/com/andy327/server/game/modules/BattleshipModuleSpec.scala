@@ -13,8 +13,7 @@ import com.andy327.model.battleship.{Battleship, Coord, Fire}
 import com.andy327.model.core.GameError
 import com.andy327.server.actors.battleship.BattleshipActor
 import com.andy327.server.actors.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.{BattleshipState, GameState}
+import com.andy327.server.game.{BattleshipState, GameOperation, GameState, MovePayload}
 import com.andy327.server.lobby.Player
 
 class BattleshipModuleSpec extends AnyWordSpecLike with Matchers {

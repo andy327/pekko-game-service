@@ -24,6 +24,7 @@ import com.andy327.server.actors.core.GameManager.{
 }
 import com.andy327.server.actors.core.PlayerEvent
 import com.andy327.server.chat.ChatCodecs
+import com.andy327.server.game.{BattleshipState, GameState, GridGameState}
 import com.andy327.server.http.auth.{
   ChangePasswordRequest,
   LoginRequest,
@@ -104,8 +105,8 @@ object JsonProtocol extends CirceSupport {
 
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
 
-  /** Encoder for the polymorphic `GameState` hierarchy (grid games share [[GridGameState]]; Battleship has its own
-    * per-viewer [[BattleshipState]]).
+  /** Encoder for the polymorphic `GameState` hierarchy (grid games share [[com.andy327.server.game.GridGameState]];
+    * Battleship has its own per-viewer [[com.andy327.server.game.BattleshipState]]).
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson

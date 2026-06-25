@@ -5,8 +5,7 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.model.core.{Game, GameError, PlayerId}
 import com.andy327.server.actors.core.GameActor
-import com.andy327.server.game.{GameOperation, MovePayload}
-import com.andy327.server.http.json.GameState
+import com.andy327.server.game.{GameOperation, GameState, MovePayload}
 
 /** Per-game-type plugin that bridges HTTP-layer concerns to the actor layer.
   *
@@ -42,7 +41,7 @@ import com.andy327.server.http.json.GameState
   *     }}}
   *
   *  3. `serialize` — convert the game model to its HTTP view for `viewer`. Given a
-  *     [[com.andy327.server.http.json.GameStateView]] instance in the `GameStateView` companion, this is always the
+  *     [[com.andy327.server.game.GameStateView]] instance in the `GameStateView` companion, this is always the
   *     same one-liner:
   *     {{{
   *       override def serialize(game: MyGame, viewer: Option[PlayerId]): GameState =

@@ -6,7 +6,6 @@ import com.andy327.server.actors.connectfour.ConnectFourActor
 import com.andy327.server.actors.core.GameActor
 import com.andy327.server.actors.tictactoe.TicTacToeActor
 import com.andy327.server.game.modules.{BattleshipModule, ConnectFourModule, GameModule, TicTacToeModule}
-import com.andy327.server.http.json.GameState
 
 /** Groups the [[com.andy327.server.game.modules.GameModule]] and [[com.andy327.server.actors.core.GameActor]] implementations for a single game type.
   *

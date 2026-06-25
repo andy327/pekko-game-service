@@ -5,7 +5,7 @@ import io.circe.generic.semiauto.deriveEncoder
 
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Seat}
 import com.andy327.server.actors.core.TurnBasedGameActor
-import com.andy327.server.http.json.BattleshipState
+import com.andy327.server.game.BattleshipState
 
 /** [[com.andy327.server.actors.core.GameActor]] binding for Battleship.
   *

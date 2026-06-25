@@ -1,6 +1,8 @@
 package com.andy327.server.http.auth
 
-import scala.util.{Failure, Success}
+import java.util.UUID
+
+import scala.util.{Failure, Success, Try}
 
 import io.circe.parser.decode
 import org.apache.pekko.http.scaladsl.model.StatusCodes
@@ -45,9 +47,9 @@ object JwtPlayerDirectives {
             decode[UserContext](json.noSpaces) match {
               case Right(userContext) =>
                 // Parse the player id string into a UUID, then build a Player
-                Player.fromJWT(userContext) match {
-                  case Right(player) => provide(player)
-                  case Left(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid player ID or name"))
+                playerFromContext(userContext) match {
+                  case Some(player) => provide(player)
+                  case None         => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid player ID or name"))
                 }
               case Left(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Token payload could not be parsed"))
             }
@@ -58,4 +60,8 @@ object JwtPlayerDirectives {
       // If no Authorization header is present or it doesn't start with Bearer
       case _ => complete(StatusCodes.Unauthorized -> Map("error" -> "Missing Authorization header"))
     }
+
+  /** Builds a [[Player]] from a decoded JWT payload, parsing the subject id as a UUID; `None` if it is malformed. */
+  private def playerFromContext(user: UserContext): Option[Player] =
+    Try(UUID.fromString(user.id)).toOption.map(uuid => Player(uuid, user.name))
 }

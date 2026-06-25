@@ -3,7 +3,7 @@ package com.andy327.server.actors.core
 import java.time.Instant
 
 import com.andy327.model.core.{GameId, PlayerId}
-import com.andy327.server.http.json.GameState
+import com.andy327.server.game.GameState
 import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata}
 
 /** Events pushed from the server to a connected player over WebSocket.
