@@ -3,7 +3,7 @@ package com.andy327.actor.core
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.actor.analytics.AnalyticsPublisher
+import com.andy327.actor.events.AnalyticsPublisher
 import com.andy327.actor.game.GameState
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}

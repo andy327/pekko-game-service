@@ -18,9 +18,9 @@ import org.scalatest.concurrent.Eventually
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.actor.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.actor.chat.ChatRepository
 import com.andy327.actor.core.{PlayerActor, PlayerEvent}
+import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.actor.game.{GameOperation, GameStateConverters, GridGameState, MovePayload}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol

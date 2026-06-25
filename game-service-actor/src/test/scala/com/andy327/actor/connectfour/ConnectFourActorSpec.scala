@@ -11,8 +11,8 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.actor.analytics.NoOpAnalyticsPublisher
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
+import com.andy327.actor.events.NoOpAnalyticsPublisher
 import com.andy327.actor.game.{GameState, GridGameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol

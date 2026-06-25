@@ -7,7 +7,7 @@ import cats.effect.IO
 import fs2.Stream
 import io.circe.parser.decode
 
-import com.andy327.actor.analytics.GameAnalyticsEvent
+import com.andy327.actor.events.GameAnalyticsEvent
 import com.andy327.server.analytics.GameAnalyticsCodecs.decoder
 
 /** Consumes analytics events off the `game-analytics` channel and folds each one into [[GameMetrics]].

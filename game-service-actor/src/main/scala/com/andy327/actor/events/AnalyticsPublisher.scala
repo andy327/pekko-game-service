@@ -1,4 +1,4 @@
-package com.andy327.actor.analytics
+package com.andy327.actor.events
 
 /** Emit seam for analytics events. The actor layer publishes [[GameAnalyticsEvent]]s through this without knowing how
   * (or whether) they are consumed; the consumer (`AnalyticsConsumer`) lives entirely on the other side of the seam.

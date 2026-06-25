@@ -10,8 +10,8 @@ import io.prometheus.client.CollectorRegistry
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.analytics.GameAnalyticsEvent
-import com.andy327.actor.analytics.GameAnalyticsEvent._
+import com.andy327.actor.events.GameAnalyticsEvent
+import com.andy327.actor.events.GameAnalyticsEvent._
 import com.andy327.model.core.GameType
 import com.andy327.server.analytics.GameAnalyticsCodecs._
 

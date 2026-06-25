@@ -16,9 +16,9 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 
-import com.andy327.actor.analytics.{AnalyticsPublisher, NoOpAnalyticsPublisher}
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository, RedisChatRepository}
 import com.andy327.actor.core.GameManager
+import com.andy327.actor.events.{AnalyticsPublisher, NoOpAnalyticsPublisher}
 import com.andy327.actor.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.actor.persistence.PostgresActor
 import com.andy327.model.core.GameType

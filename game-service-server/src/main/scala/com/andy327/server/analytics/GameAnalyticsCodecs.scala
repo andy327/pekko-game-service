@@ -3,8 +3,8 @@ package com.andy327.server.analytics
 import io.circe.syntax._
 import io.circe.{Decoder, Encoder, Json}
 
-import com.andy327.actor.analytics.GameAnalyticsEvent
-import com.andy327.actor.analytics.GameAnalyticsEvent._
+import com.andy327.actor.events.GameAnalyticsEvent
+import com.andy327.actor.events.GameAnalyticsEvent._
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 

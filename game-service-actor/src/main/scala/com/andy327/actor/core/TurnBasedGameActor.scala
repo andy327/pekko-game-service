@@ -6,7 +6,7 @@ import io.circe.Encoder
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.actor.analytics.{AnalyticsPublisher, GameAnalyticsEvent}
+import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent}
 import com.andy327.actor.game.{GameState, GameStateView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol

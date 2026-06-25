@@ -12,8 +12,8 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, StashBuff
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
-import com.andy327.actor.analytics.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
+import com.andy327.actor.events.{AnalyticsPublisher, GameAnalyticsEvent, NoOpAnalyticsPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol

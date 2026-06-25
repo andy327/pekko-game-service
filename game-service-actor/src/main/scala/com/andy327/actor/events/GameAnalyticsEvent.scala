@@ -1,4 +1,4 @@
-package com.andy327.actor.analytics
+package com.andy327.actor.events
 
 import com.andy327.model.core.{GameId, GameType, PlayerId}
 
