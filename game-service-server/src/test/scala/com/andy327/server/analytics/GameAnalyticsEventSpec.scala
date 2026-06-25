@@ -8,6 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.core.GameType
+import com.andy327.server.analytics.GameAnalyticsCodecs._
 import com.andy327.server.analytics.GameAnalyticsEvent._
 
 class GameAnalyticsEventSpec extends AnyWordSpec with Matchers {

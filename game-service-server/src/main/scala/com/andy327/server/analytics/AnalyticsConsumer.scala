@@ -7,6 +7,8 @@ import cats.effect.IO
 import fs2.Stream
 import io.circe.parser.decode
 
+import com.andy327.server.analytics.GameAnalyticsCodecs.decoder
+
 /** Consumes analytics events off the `game-analytics` channel and folds each one into [[GameMetrics]].
   *
   * This is the read side of the analytics emit seam. It is fully decoupled from the actor layer: events arrive as JSON
