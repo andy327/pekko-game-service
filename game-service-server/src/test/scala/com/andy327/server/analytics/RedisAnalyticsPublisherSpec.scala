@@ -9,6 +9,7 @@ import cats.effect.unsafe.IORuntime
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
+import com.andy327.actor.events.GameEvent
 import com.andy327.model.core.GameType
 
 class RedisAnalyticsPublisherSpec extends AnyWordSpecLike with Matchers {
@@ -20,7 +21,7 @@ class RedisAnalyticsPublisherSpec extends AnyWordSpecLike with Matchers {
       val doPublish: (String, String) => IO[Unit] = (ch, msg) => IO(captured.put((ch, msg)))
       val publisher = new RedisAnalyticsPublisher(doPublish)
 
-      publisher.publish(GameAnalyticsEvent.GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2))
+      publisher.publish(GameEvent.GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2))
 
       val (channel, _) = captured.poll(1, TimeUnit.SECONDS)
       channel shouldBe RedisAnalyticsPublisher.Channel
@@ -31,7 +32,7 @@ class RedisAnalyticsPublisherSpec extends AnyWordSpecLike with Matchers {
       val doPublish: (String, String) => IO[Unit] = (ch, msg) => IO(captured.put((ch, msg)))
       val publisher = new RedisAnalyticsPublisher(doPublish)
 
-      publisher.publish(GameAnalyticsEvent.GameStarted(UUID.randomUUID(), GameType.ConnectFour, 2))
+      publisher.publish(GameEvent.GameStarted(UUID.randomUUID(), GameType.ConnectFour, 2))
 
       val (_, json) = captured.poll(1, TimeUnit.SECONDS)
       json should include(""""type":"GameStarted"""")
@@ -44,7 +45,7 @@ class RedisAnalyticsPublisherSpec extends AnyWordSpecLike with Matchers {
       val publisher = new RedisAnalyticsPublisher(doPublish)
 
       publisher.publish(
-        GameAnalyticsEvent.GameCompleted(UUID.randomUUID(), GameType.TicTacToe, GameAnalyticsEvent.Outcome.Forfeit, 3)
+        GameEvent.GameCompleted(UUID.randomUUID(), GameType.TicTacToe, GameEvent.Outcome.Forfeit, 3)
       )
 
       val (_, json) = captured.poll(1, TimeUnit.SECONDS)

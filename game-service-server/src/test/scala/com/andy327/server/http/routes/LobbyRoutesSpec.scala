@@ -20,11 +20,11 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.core.{GameManager, InMemRepo, PlayerActor}
+import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameId, GameType}
-import com.andy327.server.actors.core.{GameManager, InMemRepo, PlayerActor}
-import com.andy327.server.actors.persistence.PersistenceProtocol
 import com.andy327.server.http.json.JsonProtocol._
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -413,7 +413,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val wsProbe = testKit.createTestProbe[PlayerActor.SessionOutput]()
       val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds
@@ -438,7 +438,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.OK
       }
 
-      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val wsProbe = testKit.createTestProbe[PlayerActor.SessionOutput]()
       val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds

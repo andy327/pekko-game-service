@@ -13,9 +13,8 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
-import com.andy327.model.core.GameType
-import com.andy327.server.actors.core.GameManager
-import com.andy327.server.actors.core.GameManager.{
+import com.andy327.actor.core.GameManager
+import com.andy327.actor.core.GameManager.{
   ChatHistory,
   Command,
   ErrorResponse,
@@ -27,7 +26,8 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged,
   UnsubscribeAcknowledged
 }
-import com.andy327.server.game.{GameOperation, GameRegistry}
+import com.andy327.actor.game.{GameOperation, GameRegistry}
+import com.andy327.model.core.GameType
 import com.andy327.server.http.auth.JwtPlayerDirectives._
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._

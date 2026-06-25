@@ -6,8 +6,8 @@ import io.prometheus.client.CollectorRegistry
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.events.GameEvent._
 import com.andy327.model.core.GameType
-import com.andy327.server.analytics.GameAnalyticsEvent._
 
 class GameMetricsSpec extends AnyWordSpec with Matchers {
 

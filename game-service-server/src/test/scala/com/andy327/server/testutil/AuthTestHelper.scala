@@ -1,7 +1,7 @@
 package com.andy327.server.testutil
 
+import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.{JwtIssuer, UserContext}
-import com.andy327.server.lobby.Player
 
 /** Utility object for creating JWT tokens in tests.
   *

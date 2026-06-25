@@ -6,7 +6,7 @@ import com.andy327.model.core.GameId
 
 /** A message a connected client sends to the server over the WebSocket.
   *
-  * Inbound counterpart to the server-push [[com.andy327.server.actors.core.PlayerEvent]]: decoded from JSON frames and
+  * Inbound counterpart to the server-push `PlayerEvent`: decoded from JSON frames and
   * dispatched on a `type` discriminator field, so new client-initiated actions slot in as additional variants.
   */
 sealed trait ClientMessage

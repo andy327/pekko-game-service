@@ -229,9 +229,10 @@ _Coming soon._
 
 <!-- TODO: expand with a short description of each module's responsibilities. -->
 
-- `game-service-model` — pure game logic (the `Game` trait and per-game implementations); no I/O.
-- `game-service-persistence` — Doobie/PostgreSQL and Redis repositories, plus Circe codecs.
-- `game-service-server` — Pekko actors, Pekko HTTP routes, JWT auth, and WebSocket delivery.
+- `game-service-model` — pure game logic: the `Game` trait and per-game implementations (no I/O).
+- `game-service-persistence` — the persistence layer: Doobie/PostgreSQL and Redis repositories, plus Circe codecs.
+- `game-service-actor` — the actor system and domain orchestration: `GameManager`, `LobbyManager`, `PlayerManager`, the per-game actors, the persistence actor, the game registry/modules, the lobby and chat domains, per-viewer state projection, and the game-event emit seam.
+- `game-service-server` — the transport edge: Pekko HTTP routes, JWT auth, the JSON protocol, WebSocket delivery, and the analytics consumer (Prometheus metrics).
 
 ## Testing
 

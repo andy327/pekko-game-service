@@ -55,7 +55,6 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
     libraryDependencies ++= Seq(
       "org.tpolecat" %% "doobie-core" % versions("doobie"),
       "org.tpolecat" %% "doobie-postgres" % versions("doobie"),
-      "org.tpolecat" %% "doobie-postgres-circe" % versions("doobie"),
       "org.tpolecat" %% "doobie-hikari" % versions("doobie"),
       "io.circe" %% "circe-core" % versions("circe"),
       "io.circe" %% "circe-generic" % versions("circe"),
@@ -71,8 +70,33 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
     )
   )
 
-lazy val server = (project in file(s"$baseName-server"))
+lazy val actor = (project in file(s"$baseName-actor"))
   .dependsOn(model, persistence)
+  .settings(
+    name := s"$baseName-actor",
+    // testcontainers' shaded docker-java falls back to API v1.32 when api.version is unset;
+    // Docker Engine 20.10+ requires API >= 1.40. Override with the shaded config's property key.
+    Test / fork := true,
+    Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
+    Test / javaOptions += "-Dapi.version=1.41",
+    libraryDependencies ++= Seq(
+      "org.apache.pekko" %% "pekko-actor-typed" % versions("pekko"),
+      "io.circe" %% "circe-core" % versions("circe"),
+      "io.circe" %% "circe-generic" % versions("circe"),
+      "io.circe" %% "circe-parser" % versions("circe"),
+      "com.github.blemale" %% "scaffeine" % versions("scaffeine"),
+      "org.slf4j" % "slf4j-simple" % versions("slf4j"),
+      "dev.profunktor" %% "redis4cats-effects" % versions("redis4cats"),
+      "org.scalatest" %% "scalatest" % versions("scalatest") % Test,
+      "org.apache.pekko" %% "pekko-actor-testkit-typed" % versions("pekko") % Test,
+      "com.dimafeng" %% "testcontainers-scala-scalatest" % versions("dimafeng") % Test,
+      "org.testcontainers" % "testcontainers" % versions("testcontainers") % Test
+    )
+  )
+
+lazy val server = (project in file(s"$baseName-server"))
+  // test->test: server route specs reuse the in-memory repository fakes defined in the actor module's tests
+  .dependsOn(model, persistence, actor % "compile->compile;test->test")
   .settings(
     name := s"$baseName-server",
     Compile / mainClass := Some("com.andy327.server.GameServer"),
@@ -99,7 +123,6 @@ lazy val server = (project in file(s"$baseName-server"))
       "com.github.jwt-scala" %% "jwt-core" % versions("jwt-scala"),
       "com.github.jwt-scala" %% "jwt-circe" % versions("jwt-scala"),
       "com.password4j" % "password4j" % versions("password4j"),
-      "com.github.blemale" %% "scaffeine" % versions("scaffeine"),
       "org.slf4j" % "slf4j-simple" % versions("slf4j"),
       "io.prometheus" % "simpleclient" % versions("prometheus"),
       "io.prometheus" % "simpleclient_common" % versions("prometheus"),
@@ -114,7 +137,7 @@ lazy val server = (project in file(s"$baseName-server"))
   )
 
 lazy val root = (project in file("."))
-  .aggregate(model, persistence, server)
+  .aggregate(model, persistence, actor, server)
   .dependsOn(server)
   .settings(
     name := baseName,

@@ -10,8 +10,10 @@ import io.prometheus.client.CollectorRegistry
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.events.GameEvent
+import com.andy327.actor.events.GameEvent._
 import com.andy327.model.core.GameType
-import com.andy327.server.analytics.GameAnalyticsEvent._
+import com.andy327.server.analytics.GameEventCodecs._
 
 class AnalyticsConsumerSpec extends AnyWordSpec with Matchers {
 
@@ -20,7 +22,7 @@ class AnalyticsConsumerSpec extends AnyWordSpec with Matchers {
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
 
-      val events: List[GameAnalyticsEvent] = List(
+      val events: List[GameEvent] = List(
         GameStarted(UUID.randomUUID(), GameType.TicTacToe, 2),
         MoveMade(UUID.randomUUID(), GameType.TicTacToe, UUID.randomUUID(), 0),
         GameCompleted(UUID.randomUUID(), GameType.TicTacToe, Outcome.Won, 5)
@@ -42,7 +44,7 @@ class AnalyticsConsumerSpec extends AnyWordSpec with Matchers {
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
 
-      val good: GameAnalyticsEvent = GameStarted(UUID.randomUUID(), GameType.ConnectFour, 2)
+      val good: GameEvent = GameStarted(UUID.randomUUID(), GameType.ConnectFour, 2)
       val stream = Stream("not json at all", """{"type":"Unknown"}""", good.asJson.noSpaces)
 
       new AnalyticsConsumer(stream, metrics).run.unsafeRunSync()

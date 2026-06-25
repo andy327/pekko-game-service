@@ -5,10 +5,8 @@ import io.circe.syntax._
 import io.circe.{Codec, Decoder, Encoder, Json}
 import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
 
-import com.andy327.persistence.db.MoveRecord
-import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
-import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
-import com.andy327.server.actors.core.GameManager.{
+import com.andy327.actor.chat.ChatCodecs
+import com.andy327.actor.core.GameManager.{
   ActiveGameSummary,
   ChatHistory,
   ErrorResponse,
@@ -22,8 +20,12 @@ import com.andy327.server.actors.core.GameManager.{
   SubscribeAcknowledged,
   UnsubscribeAcknowledged
 }
-import com.andy327.server.actors.core.PlayerEvent
-import com.andy327.server.chat.ChatCodecs
+import com.andy327.actor.core.PlayerEvent
+import com.andy327.actor.game.{BattleshipState, GameState, GridGameState}
+import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
+import com.andy327.persistence.db.MoveRecord
+import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
+import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 import com.andy327.server.http.auth.{
   ChangePasswordRequest,
   LoginRequest,
@@ -31,13 +33,12 @@ import com.andy327.server.http.auth.{
   PlayerHistory,
   RegisterRequest
 }
-import com.andy327.server.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *
   * Case-class codecs are derived via `deriveCodec`. The value codecs for `Player`, `GameLifecycleStatus`, and
   * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from
-  * [[com.andy327.server.lobby.LobbyCodecs]] and re-exported as members here, so the wire format is defined once and is
+  * `LobbyCodecs` and re-exported as members here, so the wire format is defined once and is
   * shared by the HTTP layer and Redis persistence. [[playerEventEncoder]] is write-only (server-push only). Marshalling
   * is provided by [[CirceSupport]]: any type with an `Encoder` can be `complete`d, any type with a `Decoder` read with
   * `entity(as[A])`.
@@ -104,8 +105,8 @@ object JsonProtocol extends CirceSupport {
 
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
 
-  /** Encoder for the polymorphic `GameState` hierarchy (grid games share [[GridGameState]]; Battleship has its own
-    * per-viewer [[BattleshipState]]).
+  /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`;
+    * Battleship has its own per-viewer `BattleshipState`).
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson
