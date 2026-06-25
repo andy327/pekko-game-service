@@ -221,13 +221,95 @@ REST actions (joining, starting, moving) and WebSocket pushes work together: you
 
 ## Design deep-dive
 
-<!-- TODO [P2]: actor model & supervision (with actor diagram); move lifecycle (with sequence diagram); persistence strategy (snapshots vs move log, write-through cache, recovery); per-viewer / fog-of-war serialization; real-time delivery; how to add a new game type. -->
+How the pieces fit together: the actor supervision tree, what happens on a move, how state is persisted and recovered, how hidden-information games stay hidden, and how to add a game type.
 
-_Coming soon._
+### Actor model and supervision
+
+Every piece of mutable game state lives inside an actor, and actors only ever communicate by sending messages — so there are no locks and no shared mutable state to race on. A single `GameManager` sits at the root and owns what must be coordinated centrally: spawning game actors, routing operations to them, and restoring state on startup. It delegates the two concerns that have their own lifecycle to dedicated children — lobbies to a `LobbyManager`, and player sessions to a `PlayerManager` (one `PlayerActor` per connected client). A `PostgresActor` handles all database writes.
+
+```mermaid
+graph TD
+    AS["ActorSystem[GameManager.Command]"] --> GM[GameManager]
+    GM --> LM["LobbyManager<br/>lobby lifecycle + Redis store"]
+    GM --> PM[PlayerManager]
+    GM --> GA["game actors<br/>one per active match"]
+    GM --> PG["PostgresActor<br/>snapshot + move-log writes"]
+    PM --> PA["PlayerActor<br/>one per connected client"]
+```
+
+Each game actor is the single source of truth for one match. Because an actor processes one message at a time, the moves within a game are serialized for free: two players submitting at once are simply handled in arrival order, and neither can observe a half-applied board.
+
+### The move lifecycle
+
+A move is server-authoritative end to end. The client POSTs it; the route hands it to `GameManager`, which routes it by `gameId` to the right game actor; the actor asks the pure game model to validate and apply it. Only if the model accepts the move does anything change.
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Routes
+    participant GameManager
+    participant Game as Game actor
+    participant Postgres as PostgresActor
+    participant Subs as Subscribers
+
+    Client->>Routes: POST /{type}/{id}/move (JWT)
+    Routes->>GameManager: RunGameOperation(MakeMove)
+    GameManager->>Game: MakeMove (routed by gameId)
+    Note over Game: game model validates turn + legality
+    Game--)Postgres: SaveSnapshot (fire-and-forget)
+    Game-->>GameManager: Right(acting player's view)
+    GameManager-->>Routes: GameStatus(state)
+    Routes-->>Client: 200 OK
+    Game->>Subs: GameStateUpdated (per-viewer) over WebSocket
+    Note over Game,Subs: on win/draw — GameEnded to subscribers,<br/>GameCompleted to GameManager, then the actor stops
+```
+
+Two things are worth calling out. First, persistence is **fire-and-forget**: the actor fires a snapshot save at the `PostgresActor` and replies to the caller without waiting for the write to land, so a move's latency is never gated on the database. Second, once a move produces a win or a draw, the game actor emits a final `GameEnded` to everyone watching, tells `GameManager` the game is over, and stops itself — completed games don't linger in memory, and later status requests are served from the database instead.
+
+### Persistence and recovery
+
+PostgreSQL is the system of record. A game's state is stored there in two forms: the **snapshot** is the current state, overwritten on every move, and it's what a game is restored from; the **move log** is an append-only history of every move, which never changes and powers the `/history` endpoint. Two more things outlast any single match and live in Postgres too — **user accounts** (durable player identity) and each player's **completed-game history** (win/loss/draw records). Redis sits in front of the snapshot as a write-through cache (the lobby store and chat backscroll live there too), so a hot game is read from memory while Postgres stays the durable copy; the move log, accounts, and history are Postgres-only.
+
+On startup `GameManager` doesn't accept traffic blindly — it kicks off an asynchronous restore (`loadAllGames` + `loadAllLobbies`), stashing incoming messages until the restore finishes, then replays them against the recovered state. In-progress games come back exactly where they left off, which is what makes a restart invisible to connected players.
+
+### Per-viewer projection (fog of war)
+
+A game actor never ships its raw internal state to anyone. When it needs to send state out — as a move reply or a push — it renders a **view** for a specific viewer through a `GameStateView` type class: `serialize(game, Some(playerId))` for that player's own view, `serialize(game, None)` for a public/spectator view. Full-information games (Tic-Tac-Toe, Connect Four) ignore the viewer and show everyone the same board. For Battleship the projection is where fog of war is enforced: your own ships are visible to you, your opponent's are hidden, and a spectator sees both boards fogged. No code path can leak hidden state, because the unredacted model never leaves the actor.
+
+### Real-time delivery
+
+Each connected client holds one WebSocket, backed by a `PlayerActor`. When a game or lobby changes, the relevant actor fans a `PlayerEvent` out to every subscriber's `PlayerActor`. The actor layer deals only in domain events — `GameStateUpdated`, `GameEnded`, `LobbyUpdated`, `ChatMessage` — and JSON rendering happens at the WebSocket edge in the server module. This is the boundary the [module split](#project-structure) makes physical: the actors have no idea what a WebSocket or a JSON encoder is.
+
+### Observability and analytics
+
+The same lifecycle moments that drive gameplay also feed a metrics pipeline — but the two are kept completely apart, so analytics can never slow a game down. As games start, moves land, matches end, and chat is sent, the actors emit small domain events — `GameStarted`, `MoveMade`, `GameCompleted`, `ChatSent` — through an `EventPublisher` seam and move on. They know nothing more about it: `NoOpEventPublisher` is the default, so analytics is entirely opt-in and a slow or broken consumer can't stall a move.
+
+```mermaid
+graph TD
+    A["game actors"] -->|"GameEvent"| EP["EventPublisher"]
+    EP -->|"JSON"| CH["Redis: game-analytics"]
+    CH --> AC["AnalyticsConsumer"]
+    AC --> GM["GameMetrics"]
+    GM -->|"GET /metrics"| P["Prometheus"]
+```
+
+On the producing side, `RedisAnalyticsPublisher` serializes each event and publishes it to a dedicated `game-analytics` Redis channel. On the consuming side — a background fiber started before the server accepts connections — `AnalyticsConsumer` reads that stream, decodes each event, and folds it into a small set of Prometheus collectors (`GameMetrics`): games started and completed by outcome, move counts, and chat volume, each labelled by game type. Those are exposed at `GET /metrics` in Prometheus' text format, ready to scrape.
+
+Two deliberate choices shape this. The metrics are intentionally low-cardinality — keyed on `game_type` and `outcome` (won/draw/forfeit), never on player identity, so the series count stays bounded. And the thing on the wire is the producer's own `GameEvent`, not a rendered board view, so no per-player or hidden state ever reaches the analytics path. "Analytics" is really just the name of this one consumer; the event seam itself is generic, which is what would make adding a second listener — an audit log, a player-stats writer — a matter of subscribing rather than touching the actors.
+
+### Adding a new game type
+
+New games plug in without touching the actor or HTTP plumbing. Write the pure game model (a `Game` implementation in `game-service-model`), then add two small pieces in the actor module:
+
+1. A **`GameActor[G]`** — for a turn-based game this is a one-line binding, since all the move/persist/fan-out/lifecycle logic lives once in the shared `TurnBasedGameActor`:
+   ```scala
+   object MyGameActor extends TurnBasedGameActor[MyGame, MyMove, ...](players => MyGame.empty(players), deriveEncoder[MyMove])
+   ```
+2. A **`GameModule[G]`** with three methods: `moveDecoder` (a Circe decoder for your move payload), `toGameCommand` (map a generic operation to your actor's command), and `serialize` (render the model to a view via `GameStateConverters`).
+
+Then register the pair in `GameRegistry.forType`. That single `case` is the only wiring — routing, validation, persistence, and WebSocket delivery are all generic and pick the new type up automatically.
 
 ## Project structure
-
-<!-- TODO: expand with a short description of each module's responsibilities. -->
 
 - `game-service-model` — pure game logic: the `Game` trait and per-game implementations (no I/O).
 - `game-service-persistence` — the persistence layer: Doobie/PostgreSQL and Redis repositories, plus Circe codecs.
@@ -236,9 +318,21 @@ _Coming soon._
 
 ## Testing
 
-<!-- TODO [P2]: what's covered (model specs, actor specs, integration tests against real Redis/Postgres containers) and how to run them. -->
+The test strategy mirrors the module layout — pure logic is tested in isolation, and anything with I/O is tested against the real thing in a container.
 
-_Coming soon._
+- **Model specs** (`game-service-model`) — the game rules as plain unit tests: win/draw detection, turn order, legal and illegal moves, per-game edge cases. No actors, no I/O.
+- **Actor specs** (`game-service-actor`) — `GameManager`, `LobbyManager`, `PlayerManager`, and the game actors driven through Pekko's `ActorTestKit` with `TestProbe`s, asserting on the domain events and replies they emit. In-memory repository fakes stand in for persistence, keeping these fast and deterministic.
+- **Integration specs** — the Redis and Postgres repositories run against **real** datastores via Testcontainers (`game-service-persistence` for the repositories, `game-service-actor` for the Redis-backed lobby and chat stores), so the SQL and Redis commands are exercised for real rather than mocked.
+- **Route specs** (`game-service-server`) — the HTTP and WebSocket endpoints through Pekko HTTP's route testkit and `WSProbe`, reusing the actor module's in-memory fakes.
+
+Run them with:
+
+```
+$ sbt test          # all modules
+$ sbt actor/test    # a single module
+```
+
+`sbt ci` runs the full gate the way CI does — formatting and lint checks, the whole suite, and coverage. The integration specs need a running Docker daemon for Testcontainers.
 
 ## Roadmap
 
