@@ -24,10 +24,10 @@ import com.andy327.server.lobby.Player
 object PlayerManager {
   sealed trait Command
 
-  /** Spawn (or replace) a PlayerActor for `player`, wired to `wsOut`; replies with the new actor ref. */
+  /** Spawn (or replace) a PlayerActor for `player`, wired to `sessionOut`; replies with the new actor ref. */
   final case class RegisterPlayer(
       player: Player,
-      wsOut: ActorRef[PlayerActor.WsOutput],
+      sessionOut: ActorRef[PlayerActor.SessionOutput],
       replyTo: ActorRef[ActorRef[PlayerActor.Command]]
   ) extends Command
 
@@ -53,9 +53,9 @@ object PlayerManager {
   private def running(players: Map[PlayerId, ActorRef[PlayerActor.Command]], spawnCount: Int): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
-        case RegisterPlayer(player, wsOut, replyTo) =>
+        case RegisterPlayer(player, sessionOut, replyTo) =>
           players.get(player.id).foreach(_ ! PlayerActor.Disconnect)
-          val ref = context.spawn(PlayerActor(player, wsOut), s"player-${player.id}-$spawnCount")
+          val ref = context.spawn(PlayerActor(player, sessionOut), s"player-${player.id}-$spawnCount")
           replyTo ! ref
           running(players + (player.id -> ref), spawnCount + 1)
 

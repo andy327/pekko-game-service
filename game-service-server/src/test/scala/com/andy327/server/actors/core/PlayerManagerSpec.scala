@@ -16,7 +16,7 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
   "PlayerManager" should {
     "register a player and return its actor ref" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val wsProbe = TestProbe[PlayerActor.SessionOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
@@ -28,7 +28,7 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "return Some(ref) for a registered player" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val wsProbe = TestProbe[PlayerActor.SessionOutput]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
@@ -50,8 +50,8 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "stop the old actor, close its stream, and return a new ref on reconnect" in {
       val pm = spawn(PlayerManager())
-      val oldWsProbe = TestProbe[PlayerActor.WsOutput]()
-      val newWsProbe = TestProbe[PlayerActor.WsOutput]()
+      val oldWsProbe = TestProbe[PlayerActor.SessionOutput]()
+      val newWsProbe = TestProbe[PlayerActor.SessionOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val alice = Player("alice")
 
@@ -62,13 +62,13 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
       val secondRef = replyProbe.expectMessageType[ActorRef[PlayerActor.Command]]
 
       secondRef should not be theSameInstanceAs(firstRef)
-      oldWsProbe.expectMessage(PlayerActor.WsComplete) // old WebSocket is closed from the server side
+      oldWsProbe.expectMessage(PlayerActor.SessionComplete) // old WebSocket is closed from the server side
       replyProbe.expectTerminated(firstRef)
     }
 
     "remove a player on PlayerDisconnected" in {
       val pm = spawn(PlayerManager())
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
+      val wsProbe = TestProbe[PlayerActor.SessionOutput]()
       val registerProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")
@@ -84,8 +84,8 @@ class PlayerManagerSpec extends AnyWordSpecLike with Matchers {
 
     "ignore a stale PlayerDisconnected after the player has reconnected" in {
       val pm = spawn(PlayerManager())
-      val oldWsProbe = TestProbe[PlayerActor.WsOutput]()
-      val newWsProbe = TestProbe[PlayerActor.WsOutput]()
+      val oldWsProbe = TestProbe[PlayerActor.SessionOutput]()
+      val newWsProbe = TestProbe[PlayerActor.SessionOutput]()
       val replyProbe = TestProbe[ActorRef[PlayerActor.Command]]()
       val lookupProbe = TestProbe[Option[ActorRef[PlayerActor.Command]]]()
       val alice = Player("alice")

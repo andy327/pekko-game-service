@@ -83,7 +83,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         // the subscribe pushes the current lobby state: LobbyManager -> PlayerActor -> wsOut -> client frame
         wsClient.expectMessage().asTextMessage.getStrictText should include("LobbyUpdated")
 
-        // alice reconnects: the old session's PlayerActor emits WsComplete, closing this socket server-side
+        // alice reconnects: the old session's PlayerActor emits SessionComplete, closing this socket server-side
         val wsClient2 = WSProbe()
         WS("/ws", wsClient2.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
           isWebSocketUpgrade shouldBe true

@@ -413,7 +413,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[GameManager.LobbyCreated].gameId
       }
 
-      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val wsProbe = testKit.createTestProbe[PlayerActor.SessionOutput]()
       val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds
@@ -438,7 +438,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         status shouldBe StatusCodes.OK
       }
 
-      val wsProbe = testKit.createTestProbe[PlayerActor.WsOutput]()
+      val wsProbe = testKit.createTestProbe[PlayerActor.SessionOutput]()
       val aliceRef = Await.result(
         typedSystem.ask[ActorRef[PlayerActor.Command]](GameManager.RegisterPlayer(alicePlayer, wsProbe.ref, _)),
         3.seconds

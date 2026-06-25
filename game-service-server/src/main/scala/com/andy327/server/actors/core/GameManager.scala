@@ -135,7 +135,7 @@ object GameManager {
   /** Register (or reconnect) a player; replies with the spawned [[PlayerActor]] ref. */
   final case class RegisterPlayer(
       player: Player,
-      wsOut: ActorRef[PlayerActor.WsOutput],
+      sessionOut: ActorRef[PlayerActor.SessionOutput],
       replyTo: ActorRef[ActorRef[PlayerActor.Command]]
   ) extends Command
 
@@ -632,8 +632,8 @@ object GameManager {
           replyTo ! UnsubscribeAcknowledged(gameId)
           Behaviors.same
 
-        case RegisterPlayer(player, wsOut, replyTo) =>
-          playerManager ! PlayerManager.RegisterPlayer(player, wsOut, replyTo)
+        case RegisterPlayer(player, sessionOut, replyTo) =>
+          playerManager ! PlayerManager.RegisterPlayer(player, sessionOut, replyTo)
           Behaviors.same
 
         case PlayerDisconnected(playerId, playerRef) =>

@@ -1,7 +1,6 @@
 package com.andy327.server.actors.core
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
-import org.apache.pekko.http.scaladsl.model.ws.TextMessage
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -12,18 +11,11 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
   import testKit._
 
-  /** Extracts the text of a WsMessage frame from the probe, failing on any other WsOutput. */
-  private def expectText(probe: TestProbe[PlayerActor.WsOutput]): String =
-    probe.expectMessageType[PlayerActor.WsMessage].message match {
-      case TextMessage.Strict(text) => text
-      case other                    => fail(s"Expected a strict text frame, got: $other")
-    }
-
   "PlayerActor" should {
-    "forward SendEvent as a TextMessage to wsOut" in {
+    "forward SendEvent as a SessionEvent to sessionOut" in {
       val alice = Player("alice")
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
-      val actor = spawn(PlayerActor(alice, wsProbe.ref))
+      val sessionProbe = TestProbe[PlayerActor.SessionOutput]()
+      val actor = spawn(PlayerActor(alice, sessionProbe.ref))
 
       val dummyState = GridGameState(
         board = Vector.fill(3)(Vector.fill(3)("")),
@@ -31,23 +23,24 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
         winner = None,
         draw = false
       )
+      val event = PlayerEvent.GameStateUpdated(dummyState)
 
-      actor ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(dummyState))
-      expectText(wsProbe) should include("GameStateUpdated")
+      actor ! PlayerActor.SendEvent(event)
+      sessionProbe.expectMessage(PlayerActor.SessionEvent(event))
 
       // send a second event to confirm the actor is still alive and processing
-      actor ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(dummyState))
-      wsProbe.expectMessageType[PlayerActor.WsMessage]
+      actor ! PlayerActor.SendEvent(event)
+      sessionProbe.expectMessageType[PlayerActor.SessionEvent]
     }
 
-    "complete the WebSocket stream and stop when it receives Disconnect" in {
+    "complete the session stream and stop when it receives Disconnect" in {
       val alice = Player("alice")
-      val wsProbe = TestProbe[PlayerActor.WsOutput]()
-      val actor = spawn(PlayerActor(alice, wsProbe.ref))
+      val sessionProbe = TestProbe[PlayerActor.SessionOutput]()
+      val actor = spawn(PlayerActor(alice, sessionProbe.ref))
       val probe = TestProbe[PlayerActor.Command]()
 
       actor ! PlayerActor.Disconnect
-      wsProbe.expectMessage(PlayerActor.WsComplete)
+      sessionProbe.expectMessage(PlayerActor.SessionComplete)
       probe.expectTerminated(actor)
     }
   }
