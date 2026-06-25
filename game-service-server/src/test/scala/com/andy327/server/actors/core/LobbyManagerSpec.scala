@@ -223,6 +223,31 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
         PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled)
     }
 
+    "migrate the host to a remaining member when the host leaves a populated lobby" in {
+      val f = newLobby()
+      val subscriberProbe = TestProbe[PlayerActor.Command]()
+      val (gameId, host) = createReadyLobby(f) // alice hosts, bob has joined
+
+      f.lm ! LobbyManager.SubscribeToLobby(gameId, host.id, subscriberProbe.ref, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state
+
+      // host (alice) leaves while bob remains — the host role migrates to bob and the lobby survives
+      f.lm ! LobbyManager.LeaveLobby(gameId, host, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft].message should include("host transferred")
+
+      subscriberProbe.expectMessageType[PlayerActor.SendEvent].event match {
+        case PlayerEvent.LobbyUpdated(meta) =>
+          meta.hostId shouldBe bob.id
+          meta.players.keySet shouldBe Set(bob.id)
+        case other => fail(s"expected LobbyUpdated, got $other")
+      }
+
+      // the lobby is still present and queryable, now hosted by bob
+      f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.hostId shouldBe bob.id
+    }
+
     "pass subscriber refs to SpawnGame and remove them from the subscriber map" in {
       val f = newLobby()
       val listProbe = TestProbe[LobbyManager.LobbiesListed]()

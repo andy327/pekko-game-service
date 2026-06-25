@@ -55,7 +55,8 @@ object LobbyManager {
   final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
-  /** Remove `player` from a lobby; cancels the lobby if the departing player is the host. Rejected with
+  /** Remove `player` from a lobby. If the host leaves, the host role migrates to a remaining member and the lobby
+    * survives; it is cancelled only when the host was the last player. Rejected with
     * [[lobby.LobbyError.GameInProgress]] once the game has started.
     */
   final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
@@ -246,13 +247,27 @@ object LobbyManager {
               replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} already absent from lobby $gameId")
               Behaviors.same
             } else if (player.id == metadata.hostId) {
-              context.log.info(s"Host (${player.name}) left lobby $gameId. Cancelling game...")
-              val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
-              recentlyEnded.put(gameId, cancelled)
-              fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
-              replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
-              persist(lobbyRepo.deleteLobby(gameId))
-              running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
+              updatedPlayers.headOption match {
+                case None =>
+                  // host was the last player remaining — disband the lobby
+                  context.log.info(s"Host (${player.name}) left lobby $gameId with no players left. Cancelling game...")
+                  val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
+                  recentlyEnded.put(gameId, cancelled)
+                  fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+                  replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
+                  persist(lobbyRepo.deleteLobby(gameId))
+                  running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
+                case Some((newHostId, newHost)) =>
+                  // promote a remaining member to host so the lobby survives the host leaving (host migration)
+                  context.log.info(s"Host (${player.name}) left lobby $gameId; transferring host to ${newHost.name}")
+                  val migrated = newMetadata.copy(hostId = newHostId)
+                  val msg = s"${player.name} left lobby $gameId; host transferred to ${newHost.name}"
+                  replyTo ! GameManager.LobbyLeft(gameId, msg)
+                  fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(migrated))
+                  val updatedSubscribers = subscribers.updatedWith(gameId)(_.map(_ - player.id))
+                  persist(lobbyRepo.saveLobby(migrated))
+                  running(lobbies + (gameId -> migrated), recentlyEnded, updatedSubscribers, gameManager, lobbyRepo)
+              }
             } else {
               context.log.info(s"Player ${player.name} left lobby $gameId")
               replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} left lobby $gameId")

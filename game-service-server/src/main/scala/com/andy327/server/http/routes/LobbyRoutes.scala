@@ -176,6 +176,10 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         } ~
         /** Leaves an existing lobby using the authenticated player.
           *
+          * If the host leaves a pre-game lobby with other members present, the host role migrates to a remaining member
+          * and the lobby stays open; it is cancelled only if the host was the last player. To deliberately end a lobby,
+          * the host uses `DELETE /lobby/{gameId}` instead.
+          *
           * - Auth: Bearer token required
           * - Path: `gameId` — the UUID of the lobby to leave
           * - 200: `LobbyLeft` (pre-game leave) with the game ID and a status message, or the leaver's final game
