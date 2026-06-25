@@ -92,15 +92,132 @@ For the actor supervision tree, the move-flow sequence, and design rationale, se
 
 ## Getting started
 
-<!-- TODO [P1]: prerequisites; `docker-compose up` for Postgres + Redis; required env vars (notably JWT_SECRET); `sbt run`; a 2-minute "create lobby → start → make a move" walkthrough. -->
+You'll need a JDK (17+), [sbt](https://www.scala-sbt.org/), and Docker (for Postgres and Redis). Clone the repo, bring up the datastores, and run the server:
 
-_Coming soon._
+```
+$ git clone https://github.com/andy327/pekko-game-service.git
+$ cd pekko-game-service/
+$ docker-compose up -d          # starts PostgreSQL and Redis
+$ sbt run
+```
+
+That's it — the service listens on `http://localhost:8080`. The schema is created on first boot, and the bundled defaults match the `docker-compose.yml` credentials, so there's nothing to configure for local play.
+
+### Configuration
+
+Every setting has a working default for local development and can be overridden by an environment variable:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORT` | `8080` | HTTP port the service binds to |
+| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/gamedb` | PostgreSQL connection string |
+| `DB_USER` / `DB_PASSWORD` | `gameuser` / `gamepass` | PostgreSQL credentials |
+| `REDIS_URI` | `redis://localhost:6379` | Redis connection string |
+| `JWT_SECRET` | `local-dev-secret` | HMAC signing key for JWTs — **set this to a strong secret in any real deployment** |
+| `JWT_TTL` | `1h` | Lifetime of an issued access token |
+| `CHAT_MAX_MESSAGES` | `100` | Per-match chat backscroll retained for `GET /chat` |
+| `ARGON2_MEMORY_KIB` / `ARGON2_ITERATIONS` / `ARGON2_PARALLELISM` | `19456` / `2` / `1` | Argon2id password-hashing cost (OWASP baseline) |
+
+### A two-minute walkthrough
+
+Tic-Tac-Toe needs two players, so we'll register two accounts, gather them in a lobby, start the match, and make the opening move. The examples use [HTTPie](https://httpie.io/) for readability; `curl` works just as well.
+
+Register two players. Each call returns a signed JWT — grab one for each player:
+
+```
+$ http POST :8080/auth/register username=alice email=alice@example.com password=hunter2-aaaa
+$ http POST :8080/auth/register username=bob   email=bob@example.com   password=hunter2-bbbb
+```
+
+```jsonc
+{ "token": "eyJhbGciOi..." }   // save Alice's as $ALICE and Bob's as $BOB
+```
+
+Alice creates a Tic-Tac-Toe lobby (she becomes the host); the response carries the new `gameId`:
+
+```
+$ http POST :8080/lobby/create/tictactoe "Authorization: Bearer $ALICE"
+```
+
+Bob joins it, then Alice — the host — starts the match:
+
+```
+$ http POST :8080/lobby/$GAME_ID/join  "Authorization: Bearer $BOB"
+$ http POST :8080/lobby/$GAME_ID/start "Authorization: Bearer $ALICE"
+```
+
+Now play. Moves are game-specific JSON; for Tic-Tac-Toe that's a zero-based `(row, col)`, with `(0,0)` at the top-left. Alice (X) takes the center:
+
+```
+$ http POST :8080/tictactoe/$GAME_ID/move "Authorization: Bearer $ALICE" row:=1 col:=1
+```
+
+The response is the updated board, and every connected participant is pushed the new state over their WebSocket in real time (see [API reference](#api-reference) for the `/ws` protocol). Bob can reply with his own `move`, and so on until someone wins or the board fills.
 
 ## API reference
 
-<!-- TODO [P2]: REST endpoints (auth, lobby, move, status, history, chat) as a table, plus the WebSocket protocol and event envelope shapes (GameStateUpdated, GameEnded, LobbyUpdated, ChatMessage). -->
+All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a token from `/auth/register` or `/auth/token`. Paths with a `{gameType}` segment accept `tictactoe`, `connectfour`, or `battleship`.
 
-_Coming soon._
+### Auth
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/register` | Create an account (`username`, `email`, `password`) and receive a JWT |
+| `POST` | `/auth/token` | Authenticate with `email` + `password` and receive a JWT |
+| `POST` | `/auth/password` | Change the authenticated account's password (does not revoke existing tokens) |
+| `GET`  | `/auth/whoami` | Return the caller's player `id` and `name` decoded from the token |
+
+### Lobbies
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST`   | `/lobby/create/{gameType}` | Create a lobby for a game type; the caller becomes host |
+| `GET`    | `/lobby/list` | List all open lobbies |
+| `GET`    | `/lobby/{gameId}` | Fetch metadata for one lobby |
+| `POST`   | `/lobby/{gameId}/join` | Join an open lobby |
+| `POST`   | `/lobby/{gameId}/leave` | Leave a lobby (or forfeit an in-progress game) |
+| `POST`   | `/lobby/{gameId}/start` | Start the match (host only) |
+| `DELETE` | `/lobby/{gameId}` | Cancel a pre-game lobby (host only) |
+| `POST` / `DELETE` | `/lobby/{gameId}/subscribe` | Start / stop spectating a lobby's push events |
+
+### Gameplay
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST`   | `/{gameType}/{gameId}/move` | Submit a move; payload shape is game-specific (e.g. `{ "row": 1, "col": 1 }` for Tic-Tac-Toe) |
+| `GET`    | `/{gameType}/{gameId}/status` | Fetch current game state (your view) |
+| `GET`    | `/{gameType}/{gameId}/history` | Fetch the ordered move log |
+| `GET`    | `/{gameType}/{gameId}/chat` | Fetch recent chat backscroll |
+| `POST` / `DELETE` | `/{gameType}/{gameId}/subscribe` | Start / stop spectating a game's push events |
+
+### Player & metrics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/players/me/sessions` | The caller's live lobbies and active games (survives reconnect) |
+| `GET` | `/players/me/history` | The caller's completed-game win/loss/draw record |
+| `GET` | `/metrics` | Prometheus metrics (text exposition format 0.0.4) |
+
+### WebSocket protocol
+
+After authenticating, a client opens a single WebSocket to `GET /ws` (Bearer token required at connect). The connection is the player's real-time channel for every match and lobby they're part of; it's authenticated only at connect, so an expiring token never drops a live socket.
+
+**Server → client** frames are JSON-tagged by `type`:
+
+| `type` | Payload | Sent when |
+|--------|---------|-----------|
+| `LobbyUpdated` | lobby `metadata` | A player joins/leaves or the lobby's status changes |
+| `GameStateUpdated` | the viewer's `state` | A move is applied — each recipient gets their own per-viewer projection |
+| `GameEnded` | final `result` | The game reaches a win or draw |
+| `ChatMessage` | `gameId`, `senderId`, `senderName`, `text`, `sentAt` | Anyone watching that match posts chat |
+
+**Client → server** frames are likewise tagged by `type`. Today the sole inbound message is chat; unrecognized or malformed frames are logged and dropped:
+
+```jsonc
+{ "type": "ChatSend", "gameId": "<uuid>", "text": "good luck!" }
+```
+
+REST actions (joining, starting, moving) and WebSocket pushes work together: you `POST` a move over HTTP and receive the resulting state both in the HTTP response and as a `GameStateUpdated` push to every participant.
 
 ## Design deep-dive
 
