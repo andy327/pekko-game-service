@@ -12,6 +12,8 @@
 
 The architecture is built around the actor model: each game is an isolated actor that serializes its own moves (no race conditions), and new game types plug in through a small `Game` trait plus a module registry. Games with hidden information (e.g. Battleship's fog of war) are supported through per-viewer state projection, so each player — and any spectator — only ever receives the slice of state they're allowed to see.
 
+Although it runs as a single instance today, the system is **designed for horizontal scale from the ground up**, and the actor model is the foundation for getting there. A few choices made early reflect that intent: each match is an independent, self-contained game actor — a natural unit of sharding that can be relocated to any node without changing its logic; all durable state lives outside the process (PostgreSQL as system of record, Redis as a shared write-through cache), so instances hold no irreplaceable in-memory state and stay interchangeable; the HTTP layer is stateless and authenticates every request with a self-contained JWT, so REST traffic needs no sticky sessions; and analytics are decoupled over a Redis pub/sub channel rather than computed inline, letting the consumer side scale and evolve independently of gameplay. The remaining step — distributing those game actors across a cluster via Pekko Cluster Sharding — is on the [Roadmap](#roadmap), and the seams it needs are already in place.
+
 ## Features
 
 **Built**
