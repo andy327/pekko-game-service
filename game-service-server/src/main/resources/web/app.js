@@ -118,14 +118,14 @@ function handleEvent(msg) {
 async function createGame(gameType) {
   setError("lobby-error", "");
   const res = await api(`/lobby/create/${gameType}`, { method: "POST", body: {} });
-  if (!res.ok) return setError("lobby-error", res.data?.error || res.data || "Could not create game");
+  if (!res.ok) return flashError("lobby-error", res.data?.error || res.data || "Could not create game");
   await enterGame({ gameId: res.data.gameId, gameType, isHost: true });
 }
 
 async function joinGame(gameId, gameType) {
   setError("lobby-error", "");
   const res = await api(`/lobby/${gameId}/join`, { method: "POST", body: {} });
-  if (!res.ok) return setError("lobby-error", res.data?.error || res.data || "Could not join game");
+  if (!res.ok) return flashError("lobby-error", res.data?.error || res.data || "Could not join game");
   await enterGame({ gameId, gameType, isHost: false });
 }
 
@@ -136,7 +136,7 @@ async function refreshLobbies() {
   const res = await api(`/lobby/list${filter ? `?gameType=${filter}` : ""}`);
   const list = $("lobby-list");
   list.innerHTML = "";
-  if (!res.ok) return setError("lobby-error", "Could not list lobbies");
+  if (!res.ok) return flashError("lobby-error", "Could not list lobbies");
 
   const lobbies = (res.data.lobbies || []).filter((l) => GAMES[l.gameType.toLowerCase()]);
   if (lobbies.length === 0) {
@@ -183,7 +183,7 @@ async function enterGame({ gameId, gameType, isHost }) {
   showPanel("game");
 
   const res = await api(`/lobby/${gameId}/subscribe`, { method: "POST", body: {} });
-  if (!res.ok) setError("game-error", res.data?.error || res.data || "Could not subscribe to the lobby");
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not subscribe to the lobby");
   loadChatHistory(gameId, gameType);
 }
 
@@ -216,7 +216,7 @@ function onLobbyUpdated(metadata) {
 async function startGame() {
   setError("game-error", "");
   const res = await api(`/lobby/${session.game.gameId}/start`, { method: "POST", body: {} });
-  if (!res.ok) setError("game-error", res.data?.error || res.data || "Could not start the game");
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the game");
   // On success the game-state push arrives over the WebSocket and renders the board.
 }
 
@@ -274,6 +274,7 @@ function sendChat(text) {
 function renderBoard(state) {
   const board = $("board");
   $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
+  setError("game-error", ""); // the state changed, so any prior move error (e.g. "not your turn") is now stale
   const rows = state.board;
   const cols = rows[0] ? rows[0].length : 0;
   board.style.setProperty("--cols", cols);
@@ -325,7 +326,7 @@ async function submitMove(row, col) {
   const payload = GAMES[game.gameType].move(row, col);
   const res = await api(`/${game.gameType}/${game.gameId}/move`, { method: "POST", body: payload });
   // Successful moves redraw via the WebSocket push; only failures need surfacing here.
-  if (!res.ok) setError("game-error", res.data?.error || res.data || "Move rejected");
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Move rejected");
 }
 
 // --- View helpers ----------------------------------------------------------------------------------------------------
@@ -339,6 +340,15 @@ function setStatus(text) {
 
 function setError(id, text) {
   $(id).textContent = text;
+  clearTimeout(errorTimers[id]); // cancel any pending auto-dismiss; an explicit set/clear wins
+}
+
+// Show a transient error that auto-dismisses after a few seconds, so a rejected action (e.g. an illegal move that
+// triggers no state update to clear it) doesn't leave a message stranded on screen.
+const errorTimers = {};
+function flashError(id, text) {
+  setError(id, text);
+  if (text) errorTimers[id] = setTimeout(() => setError(id, ""), 5000);
 }
 
 // --- Wiring ----------------------------------------------------------------------------------------------------------
