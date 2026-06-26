@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import org.apache.pekko.http.scaladsl.model.headers.{`Cache-Control`, CacheDirectives}
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 
@@ -15,11 +16,20 @@ import org.apache.pekko.http.scaladsl.server.Route
   */
 class StaticRoutes {
 
+  /** Classpath resources carry a fixed, ancient `Last-Modified`, which browsers turn into a multi-year heuristic
+    * freshness window — so an updated `app.js`/`index.html` is served from cache and never picked up. `no-cache` forces
+    * the browser to revalidate every request; the resource directives still answer conditional GETs with a cheap `304`,
+    * so this costs a round-trip but no payload when the asset is unchanged.
+    */
+  private val revalidate = `Cache-Control`(CacheDirectives.`no-cache`)
+
   val routes: Route =
-    concat(
-      pathSingleSlash {
-        getFromResource("web/index.html")
-      },
-      getFromResourceDirectory("web")
-    )
+    respondWithHeader(revalidate) {
+      concat(
+        pathSingleSlash {
+          getFromResource("web/index.html")
+        },
+        getFromResourceDirectory("web")
+      )
+    }
 }

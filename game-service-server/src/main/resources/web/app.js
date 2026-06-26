@@ -106,7 +106,7 @@ function handleEvent(msg) {
       onGameEnded(msg.result);
       break;
     case "ChatMessage":
-      // Chat UI is a follow-up; ignore for now.
+      appendChat(msg);
       break;
     default:
       break;
@@ -147,11 +147,15 @@ async function refreshLobbies() {
   for (const lobby of lobbies) {
     const type = lobby.gameType.toLowerCase();
     const count = Object.keys(lobby.players).length;
+    const host = lobby.players[lobby.hostId]; // the host is always present in the players map
+    const hostName = host ? host.name : "unknown";
+    const mine = session.me && lobby.hostId === session.me.id;
     const li = document.createElement("li");
 
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = `${GAMES[type].label} — ${count}/2 players`;
+    meta.textContent =
+      `${GAMES[type].label} — hosted by ${hostName}${mine ? " (you)" : ""} — ${count}/2 players`;
 
     const join = document.createElement("button");
     join.textContent = "Join";
@@ -171,25 +175,34 @@ async function enterGame({ gameId, gameType, isHost }) {
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
   setStatus(isHost ? "Waiting for an opponent to join…" : "Joined. Waiting for the host to start…");
+  $("chat-log").innerHTML = "";
   showPanel("game");
 
   const res = await api(`/lobby/${gameId}/subscribe`, { method: "POST", body: {} });
   if (!res.ok) setError("game-error", res.data?.error || res.data || "Could not subscribe to the lobby");
+  loadChatHistory(gameId, gameType);
 }
 
-// A pre-game lobby changed: refresh the player count and, for the host, enable Start once the lobby is ready.
+// A pre-game lobby changed: refresh the player count, surface the host, and (for the host) enable Start when ready.
 function onLobbyUpdated(metadata) {
   if (!session.game || metadata.gameId !== session.game.gameId) return;
-  const count = Object.keys(metadata.players).length;
   if (metadata.status === "InProgress") return; // game state pushes take over from here
 
-  if (session.game.isHost) {
+  const count = Object.keys(metadata.players).length;
+  const host = metadata.players[metadata.hostId];
+  const hostName = host ? host.name : "the host";
+  // The host role can migrate if the original host leaves a pre-game lobby, so re-derive it on every update.
+  const youHost = Boolean(session.me) && metadata.hostId === session.me.id;
+  session.game.isHost = youHost;
+
+  if (youHost) {
     const ready = metadata.status === "ReadyToStart";
     $("start-game").classList.remove("hidden");
     $("start-game").disabled = !ready;
-    setStatus(ready ? "Opponent joined — press Start." : `Waiting for an opponent… (${count}/2)`);
+    setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/2)`);
   } else {
-    setStatus("Waiting for the host to start…");
+    $("start-game").classList.add("hidden");
+    setStatus(`Hosted by ${hostName} — waiting for them to start… (${count}/2)`);
   }
 }
 
@@ -211,6 +224,40 @@ async function leaveGame() {
   session.game = null;
   showPanel("lobby");
   refreshLobbies();
+}
+
+// --- Chat ------------------------------------------------------------------------------------------------------------
+// Chat rides the same one-per-player WebSocket. Outbound messages are ClientMessage.ChatSend frames; the server fans
+// the resulting ChatMessage back to every subscriber (including the sender), so — like the board — we render purely
+// from received events rather than echoing locally.
+function appendChat(m) {
+  const log = $("chat-log");
+  const li = document.createElement("li");
+  li.className = "chat-msg" + (session.me && m.senderId === session.me.id ? " own" : "");
+
+  const who = document.createElement("span");
+  who.className = "chat-who";
+  who.textContent = m.senderName + ":";
+
+  const text = document.createElement("span");
+  text.className = "chat-text";
+  text.textContent = m.text; // textContent, never innerHTML, so message bodies can't inject markup
+
+  li.append(who, text);
+  log.appendChild(li);
+  log.scrollTop = log.scrollHeight; // keep the latest message in view
+}
+
+// Load the recent backscroll (oldest first) for a game/lobby; best-effort, so an empty or failed load is harmless.
+async function loadChatHistory(gameId, gameType) {
+  const res = await api(`/${gameType}/${gameId}/chat`);
+  if (res.ok && res.data && Array.isArray(res.data.messages)) res.data.messages.forEach(appendChat);
+}
+
+// Send a chat frame over the WebSocket. Requires an open socket and an active game/lobby context.
+function sendChat(text) {
+  if (!session.ws || session.ws.readyState !== WebSocket.OPEN || !session.game) return;
+  session.ws.send(JSON.stringify({ type: "ChatSend", gameId: session.game.gameId, text }));
 }
 
 // --- Board rendering -------------------------------------------------------------------------------------------------
@@ -291,3 +338,12 @@ for (const button of document.querySelectorAll("[data-gametype]")) {
 $("refresh-lobbies").addEventListener("click", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
 $("leave-game").addEventListener("click", leaveGame);
+
+$("chat-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  sendChat(text);
+  input.value = "";
+});

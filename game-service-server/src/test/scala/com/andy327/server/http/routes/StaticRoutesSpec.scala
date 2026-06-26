@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import org.apache.pekko.http.scaladsl.model.headers.{`Cache-Control`, CacheDirectives}
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
@@ -23,6 +24,11 @@ class StaticRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
         status shouldBe StatusCodes.OK
         mediaType.subType shouldBe "javascript"
         responseAs[String] should include("authenticate")
+      }
+
+    "tell browsers to revalidate assets so an updated UI is never served stale" in
+      Get("/app.js") ~> routes ~> check {
+        header[`Cache-Control`].map(_.directives) shouldBe Some(Seq(CacheDirectives.`no-cache`))
       }
 
     "reject an unknown asset path" in

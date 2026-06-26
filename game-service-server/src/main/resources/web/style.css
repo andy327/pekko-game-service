@@ -120,3 +120,24 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.mark-O { color: var(--o); }
 .cell.mark-R { color: var(--error); }
 .cell.mark-Y { color: #f5c451; }
+
+/* Chat */
+#chat { margin-top: 1rem; }
+
+#chat-log {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.chat-msg { padding: 0.15rem 0; word-break: break-word; }
+.chat-who { color: var(--muted); font-weight: 600; margin-right: 0.4rem; }
+.chat-msg.own .chat-who { color: var(--accent); }
+.chat-text { color: var(--text); }
+
+#chat-input { flex: 1; }

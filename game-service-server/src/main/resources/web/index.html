@@ -48,6 +48,15 @@
       <button id="leave-game">Leave</button>
     </div>
     <p id="game-error" class="error"></p>
+
+    <!-- Chat: works while waiting in the lobby and during the game (the server routes by game phase). -->
+    <div id="chat">
+      <ul id="chat-log"></ul>
+      <form id="chat-form" class="row">
+        <input id="chat-input" type="text" placeholder="Message…" autocomplete="off" maxlength="500" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
   </section>
 
   <script src="app.js"></script>
