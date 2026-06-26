@@ -33,6 +33,12 @@
     </div>
     <div class="row">
       <button id="refresh-lobbies">Refresh open lobbies</button>
+      <label for="lobby-filter">Show:</label>
+      <select id="lobby-filter">
+        <option value="">All games</option>
+        <option value="tictactoe">Tic-Tac-Toe</option>
+        <option value="connectfour">Connect Four</option>
+      </select>
     </div>
     <ul id="lobby-list"></ul>
     <p id="lobby-error" class="error"></p>

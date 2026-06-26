@@ -130,7 +130,9 @@ async function joinGame(gameId, gameType) {
 
 async function refreshLobbies() {
   setError("lobby-error", "");
-  const res = await api("/lobby/list");
+  // The server filters by game type when a `gameType` query param is supplied; empty means all types.
+  const filter = $("lobby-filter").value;
+  const res = await api(`/lobby/list${filter ? `?gameType=${filter}` : ""}`);
   const list = $("lobby-list");
   list.innerHTML = "";
   if (!res.ok) return setError("lobby-error", "Could not list lobbies");
@@ -139,7 +141,7 @@ async function refreshLobbies() {
   if (lobbies.length === 0) {
     const li = document.createElement("li");
     li.className = "meta";
-    li.textContent = "No open lobbies. Create one above.";
+    li.textContent = filter ? "No open lobbies for this game. Create one above." : "No open lobbies. Create one above.";
     list.appendChild(li);
     return;
   }
@@ -336,6 +338,7 @@ for (const button of document.querySelectorAll("[data-gametype]")) {
 }
 
 $("refresh-lobbies").addEventListener("click", refreshLobbies);
+$("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
 $("leave-game").addEventListener("click", leaveGame);
 
