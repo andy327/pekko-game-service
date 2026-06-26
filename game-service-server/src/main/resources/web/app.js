@@ -3,13 +3,14 @@
 /*
  * Minimal client for the Pekko game service. Plain JS, no build step, served same-origin with the API.
  *
- * Flow: authenticate() -> open one WebSocket -> create or join a lobby and subscribe to it -> the host starts the game.
+ * Flow: sign in -> open one WebSocket -> create or join a lobby and subscribe to it -> the host starts the game.
  * Lobby subscribers are carried over to the game actor on start, so each player begins receiving GameStateUpdated
  * pushes automatically; this client never re-subscribes once a game begins. Moves are fired optimistically over REST
  * and the board is redrawn purely from the WebSocket pushes, with the server as the sole authority on legality.
  */
 
-// In-memory session state only; nothing is persisted to localStorage, so a refresh is a fresh session.
+// The token is persisted to sessionStorage so a reload within the same tab stays signed in (and "My sessions" survives
+// a refresh). sessionStorage is per-tab, so separate tabs/windows remain independent sessions.
 const session = {
   token: null,
   me: null, // { id, name }
@@ -27,22 +28,115 @@ const GAMES = {
 const $ = (id) => document.getElementById(id);
 
 // --- Auth seam -------------------------------------------------------------------------------------------------------
-// authenticate() is the single point that knows how a token is obtained. Today it registers a throwaway account so the
-// user only types a name; swapping in real email/password login later changes only this function and the login markup.
-async function authenticate(name) {
-  const suffix = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random();
-  const body = {
-    username: name,
-    email: `guest-${suffix}@example.invalid`,
-    password: `pw-${suffix}` // satisfies the 8–128 char rule; throwaway, never shown to the user
-  };
-  const res = await api("/auth/register", { method: "POST", body, auth: false });
-  if (!res.ok) throw new Error(res.data?.error || `Registration failed (${res.status})`);
-  session.token = res.data.token;
+// login/register/playAsGuest are the only places that know how a token is obtained; each hands off to completeSignIn for
+// everything downstream (persist, load profile, open the socket, route). Adding another auth method touches only these.
+const TOKEN_KEY = "pekko-game-token";
 
+function saveToken(token) {
+  session.token = token;
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  } catch (_) {
+    /* storage may be unavailable (private mode quirks); the in-memory token still works for this session */
+  }
+}
+
+function clearToken() {
+  session.token = null;
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+// Authenticate with existing credentials.
+async function login(email, password) {
+  const res = await api("/auth/token", { method: "POST", body: { email, password }, auth: false });
+  if (!res.ok) throw new Error(res.data?.error || "Invalid email or password");
+  await completeSignIn(res.data.token);
+}
+
+// Create a new account and sign in.
+async function register(username, email, password) {
+  const res = await api("/auth/register", { method: "POST", body: { username, email, password }, auth: false });
+  if (!res.ok) throw new Error(res.data?.error || `Registration failed (${res.status})`);
+  await completeSignIn(res.data.token);
+}
+
+// Guest play: register a throwaway account behind the scenes so the user only types a display name.
+async function playAsGuest(name) {
+  const suffix = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random();
+  const body = { username: name, email: `guest-${suffix}@example.invalid`, password: `pw-${suffix}` };
+  const res = await api("/auth/register", { method: "POST", body, auth: false });
+  if (!res.ok) throw new Error(res.data?.error || "Could not start a guest session");
+  await completeSignIn(res.data.token);
+}
+
+// Persist a freshly-obtained token, then bring the session up and route into the app.
+async function completeSignIn(token) {
+  saveToken(token);
+  if (!(await establishSession())) throw new Error("Could not load your profile — please try again.");
+  routeAfterSignIn();
+}
+
+// Load the profile for the current token and open the WebSocket. Returns false (and clears the token) if the token is
+// rejected — shared by a fresh sign-in and by restoring a saved session.
+async function establishSession() {
   const who = await api("/auth/whoami");
-  if (!who.ok) throw new Error("Could not load profile");
+  if (!who.ok) {
+    clearToken();
+    return false;
+  }
   session.me = who.data;
+  await connectWs();
+  $("whoami").textContent = `Signed in as ${session.me.name}`;
+  $("logout").classList.remove("hidden");
+  return true;
+}
+
+// Restore a session saved in sessionStorage (survives a reload within the tab). Returns true if it routed into the app.
+async function restoreSession() {
+  let token = null;
+  try {
+    token = sessionStorage.getItem(TOKEN_KEY);
+  } catch (_) {
+    /* ignore */
+  }
+  if (!token) return false;
+  session.token = token;
+  if (!(await establishSession())) return false; // expired/invalid — fall back to the login screen
+  routeAfterSignIn();
+  return true;
+}
+
+// Land on the invite-link target if one is pending, otherwise the lobby.
+function routeAfterSignIn() {
+  if (pendingJoinGameId) {
+    const id = pendingJoinGameId;
+    pendingJoinGameId = null;
+    joinByGameId(id);
+  } else {
+    enterLobby();
+  }
+}
+
+// Clear the session (token, profile, socket) and return to the login screen.
+function logout() {
+  clearToken();
+  session.me = null;
+  session.game = null;
+  if (session.ws) {
+    try {
+      session.ws.close();
+    } catch (_) {
+      /* ignore */
+    }
+    session.ws = null;
+  }
+  $("whoami").textContent = "";
+  $("logout").classList.add("hidden");
+  showPanel("login");
 }
 
 // --- HTTP helper -----------------------------------------------------------------------------------------------------
@@ -481,30 +575,49 @@ function flashError(id, text) {
 }
 
 // --- Wiring ----------------------------------------------------------------------------------------------------------
-$("login-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
+
+// Toggle between the login and register forms on the sign-in screen.
+function showAuthMode(mode) {
+  const register = mode === "register";
+  $("login-form").classList.toggle("hidden", register);
+  $("to-register-line").classList.toggle("hidden", register);
+  $("register-form").classList.toggle("hidden", !register);
+  $("to-login-line").classList.toggle("hidden", !register);
   setError("login-error", "");
-  const name = $("name").value.trim();
-  if (!name) return;
-  const button = e.target.querySelector("button");
-  button.disabled = true;
-  try {
-    await authenticate(name);
-    await connectWs();
-    $("whoami").textContent = `Signed in as ${session.me.name}`;
-    if (pendingJoinGameId) {
-      const id = pendingJoinGameId;
-      pendingJoinGameId = null;
-      joinByGameId(id); // arrived via an invite link — go straight to that lobby
-    } else {
-      enterLobby();
+}
+
+// Shared submit wrapper for the auth forms: runs the sign-in action with the button disabled and surfaces any error.
+function wireAuthForm(formId, signIn) {
+  $(formId).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setError("login-error", "");
+    const button = e.target.querySelector("button");
+    button.disabled = true;
+    try {
+      await signIn();
+    } catch (err) {
+      setError("login-error", err.message || "Sign-in failed");
+    } finally {
+      button.disabled = false;
     }
-  } catch (err) {
-    setError("login-error", err.message || "Sign-in failed");
-  } finally {
-    button.disabled = false;
-  }
+  });
+}
+
+wireAuthForm("login-form", () => login($("login-email").value.trim(), $("login-password").value));
+wireAuthForm("register-form", () =>
+  register($("register-username").value.trim(), $("register-email").value.trim(), $("register-password").value)
+);
+wireAuthForm("guest-form", () => playAsGuest($("guest-name").value.trim()));
+
+$("to-register").addEventListener("click", (e) => {
+  e.preventDefault();
+  showAuthMode("register");
 });
+$("to-login").addEventListener("click", (e) => {
+  e.preventDefault();
+  showAuthMode("login");
+});
+$("logout").addEventListener("click", logout);
 
 for (const button of document.querySelectorAll("[data-gametype]")) {
   button.addEventListener("click", () => createGame(button.dataset.gametype));
@@ -528,3 +641,6 @@ $("chat-form").addEventListener("submit", (e) => {
   sendChat(text);
   input.value = "";
 });
+
+// On load, restore a saved session if there is one; otherwise the login screen (shown by default) stays.
+restoreSession().catch(() => showPanel("login"));

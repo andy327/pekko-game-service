@@ -23,7 +23,7 @@ body {
 
 header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--line);
@@ -31,7 +31,11 @@ header {
 
 header h1 { font-size: 1.2rem; margin: 0; }
 
+.header-right { display: flex; align-items: center; gap: 0.75rem; }
+
 .whoami { color: var(--muted); font-size: 0.9rem; }
+
+#logout { padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .panel {
   max-width: 640px;
@@ -54,7 +58,9 @@ header h1 { font-size: 1.2rem; margin: 0; }
   margin: 0.75rem 0;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="email"],
+input[type="password"] {
   padding: 0.5rem 0.7rem;
   background: var(--bg);
   border: 1px solid var(--line);
@@ -62,6 +68,21 @@ input[type="text"] {
   color: var(--text);
   font-size: 1rem;
 }
+
+/* Sign-in forms: stacked fields with the action button beneath. */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 280px;
+}
+
+.auth-form button { align-self: flex-start; }
+
+.muted-line { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; }
+.muted-line a { color: var(--accent); }
+
+#login hr { border: none; border-top: 1px solid var(--line); margin: 1.25rem 0; }
 
 button {
   padding: 0.5rem 0.9rem;

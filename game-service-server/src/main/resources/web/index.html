@@ -9,17 +9,39 @@
 <body>
   <header>
     <h1>Pekko Game Service</h1>
-    <span id="whoami" class="whoami"></span>
+    <div class="header-right">
+      <span id="whoami" class="whoami"></span>
+      <button id="logout" class="hidden">Log out</button>
+    </div>
   </header>
 
-  <!-- Login screen: a single name field. authenticate() hides the real signup behind it. -->
+  <!-- Login screen: real email/password auth, with a frictionless "play as guest" path alongside. -->
   <section id="login" class="panel">
-    <h2>Quick start</h2>
-    <p>Pick a display name to jump in. (A throwaway account is created behind the scenes.)</p>
-    <form id="login-form">
-      <input id="name" type="text" placeholder="Your name" autocomplete="off" required />
-      <button type="submit">Play</button>
+    <h2>Sign in</h2>
+
+    <form id="login-form" class="auth-form">
+      <input id="login-email" type="email" placeholder="Email" autocomplete="username" required />
+      <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required />
+      <button type="submit">Log in</button>
     </form>
+    <p class="muted-line" id="to-register-line">No account? <a href="#" id="to-register">Register</a></p>
+
+    <form id="register-form" class="auth-form hidden">
+      <input id="register-username" type="text" placeholder="Display name" autocomplete="username" required />
+      <input id="register-email" type="email" placeholder="Email" autocomplete="email" required />
+      <input id="register-password" type="password" placeholder="Password (8+ characters)"
+             autocomplete="new-password" required />
+      <button type="submit">Register</button>
+    </form>
+    <p class="muted-line hidden" id="to-login-line">Have an account? <a href="#" id="to-login">Log in</a></p>
+
+    <hr />
+
+    <form id="guest-form" class="auth-form">
+      <input id="guest-name" type="text" placeholder="Display name" autocomplete="off" required />
+      <button type="submit">Play as guest</button>
+    </form>
+
     <p id="login-error" class="error"></p>
   </section>
 
