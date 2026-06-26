@@ -17,10 +17,11 @@ const session = {
   game: null // { gameId, gameType, isHost }
 };
 
-// Per-game-type knowledge the rest of the client stays agnostic to: display label and how a clicked cell becomes a move.
+// Per-game-type knowledge the rest of the client stays agnostic to: display label, how a click becomes a move, and
+// whether moves are made by picking a column (Connect Four) rather than an individual cell.
 const GAMES = {
   tictactoe: { label: "Tic-Tac-Toe", move: (row, col) => ({ row, col }) },
-  connectfour: { label: "Connect Four", move: (row, col) => ({ col }) }
+  connectfour: { label: "Connect Four", move: (row, col) => ({ col }), columns: true }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -173,6 +174,7 @@ async function enterGame({ gameId, gameType, isHost }) {
   session.game = { gameId, gameType, isHost };
   $("game-title").textContent = GAMES[gameType].label;
   $("board").innerHTML = "";
+  $("column-controls").innerHTML = "";
   setError("game-error", "");
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
@@ -267,7 +269,8 @@ function sendChat(text) {
 
 // --- Board rendering -------------------------------------------------------------------------------------------------
 // Renders any grid game-state view: board is rows of cell tokens (mark symbol or "" when empty). Clicks are optimistic —
-// the server validates turn/legality and rejects with a plain-text message we surface.
+// the server validates turn/legality and rejects with a plain-text message we surface. Column-based games (Connect Four)
+// are played via drop buttons above the board rather than by clicking individual cells.
 function renderBoard(state) {
   const board = $("board");
   $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
@@ -277,13 +280,18 @@ function renderBoard(state) {
   board.innerHTML = "";
 
   const over = Boolean(state.winner) || state.draw === true;
+  const columnMode = Boolean(session.game && GAMES[session.game.gameType] && GAMES[session.game.gameType].columns);
+
+  renderColumnControls(columnMode ? cols : 0, rows, over);
 
   rows.forEach((cells, r) => {
     cells.forEach((mark, c) => {
       const cell = document.createElement("div");
-      cell.className = "cell" + (mark ? ` mark-${mark}` : "") + (over ? " disabled" : " clickable");
+      // In column mode the cells are display-only; you drop via the buttons above the board.
+      const clickable = !over && !columnMode;
+      cell.className = "cell" + (mark ? ` mark-${mark}` : "") + (clickable ? " clickable" : " disabled");
       cell.textContent = mark;
-      if (!over) cell.onclick = () => submitMove(r, c);
+      if (clickable) cell.onclick = () => submitMove(r, c);
       board.appendChild(cell);
     });
   });
@@ -291,6 +299,23 @@ function renderBoard(state) {
   if (state.winner) setStatus(`${state.winner} wins!`);
   else if (state.draw) setStatus("Draw.");
   else setStatus(`Turn: ${state.currentPlayer}`);
+}
+
+// Render one drop button per column above the board (for column-based games). Pass cols=0 to clear the controls for
+// cell-click games. A column whose top cell is filled is full, so its button is disabled.
+function renderColumnControls(cols, rows, over) {
+  const controls = $("column-controls");
+  controls.innerHTML = "";
+  if (cols === 0) return;
+  controls.style.setProperty("--cols", cols);
+  for (let c = 0; c < cols; c++) {
+    const btn = document.createElement("button");
+    btn.className = "col-btn";
+    btn.textContent = "▼";
+    btn.disabled = over || (rows[0] && rows[0][c] !== ""); // column full when its top cell is occupied
+    btn.onclick = () => submitMove(0, c); // row is ignored for column moves
+    controls.appendChild(btn);
+  }
 }
 
 async function submitMove(row, col) {

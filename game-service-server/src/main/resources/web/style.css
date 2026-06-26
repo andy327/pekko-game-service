@@ -121,6 +121,26 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.mark-R { color: var(--error); }
 .cell.mark-Y { color: #f5c451; }
 
+/* Drop buttons for column-based games (Connect Four), aligned to the board columns. */
+#column-controls {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 7), 1fr);
+  gap: 4px;
+  max-width: 360px;
+  margin: 1rem 0 0;
+}
+
+#column-controls:empty { display: none; }
+
+/* When the drop buttons are present, pull the board up snug beneath them. */
+#column-controls:not(:empty) + #board { margin-top: 4px; }
+
+.col-btn {
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
 /* Chat */
 #chat { margin-top: 1rem; }
 
