@@ -188,7 +188,10 @@ async function enterGame({ gameId, gameType, isHost }) {
 // A pre-game lobby changed: refresh the player count, surface the host, and (for the host) enable Start when ready.
 function onLobbyUpdated(metadata) {
   if (!session.game || metadata.gameId !== session.game.gameId) return;
-  if (metadata.status === "InProgress") return; // game state pushes take over from here
+  if (metadata.status === "InProgress") {
+    $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    return; // game state pushes take over from here
+  }
 
   const count = Object.keys(metadata.players).length;
   const host = metadata.players[metadata.hostId];
@@ -267,6 +270,7 @@ function sendChat(text) {
 // the server validates turn/legality and rejects with a plain-text message we surface.
 function renderBoard(state) {
   const board = $("board");
+  $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
   const rows = state.board;
   const cols = rows[0] ? rows[0].length : 0;
   board.style.setProperty("--cols", cols);
