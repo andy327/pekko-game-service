@@ -31,8 +31,13 @@
       <button data-gametype="tictactoe">Tic-Tac-Toe</button>
       <button data-gametype="connectfour">Connect Four</button>
     </div>
+
+    <h3>Your games &amp; lobbies</h3>
+    <ul id="my-sessions"></ul>
+
+    <h3>Open lobbies</h3>
     <div class="row">
-      <button id="refresh-lobbies">Refresh open lobbies</button>
+      <button id="refresh-lobbies">Refresh</button>
       <label for="lobby-filter">Show:</label>
       <select id="lobby-filter">
         <option value="">All games</option>
@@ -52,6 +57,7 @@
     <div id="column-controls"></div>
     <div id="board"></div>
     <div class="row">
+      <button id="back-to-lobby">← Lobby</button>
       <button id="start-game" class="hidden">Start game</button>
       <button id="copy-link">Copy invite link</button>
       <button id="leave-game">Leave</button>

@@ -20,8 +20,8 @@ const session = {
 // Per-game-type knowledge the rest of the client stays agnostic to: display label, how a click becomes a move, and
 // whether moves are made by picking a column (Connect Four) rather than an individual cell.
 const GAMES = {
-  tictactoe: { label: "Tic-Tac-Toe", move: (row, col) => ({ row, col }) },
-  connectfour: { label: "Connect Four", move: (row, col) => ({ col }), columns: true }
+  tictactoe: { label: "Tic-Tac-Toe", maxPlayers: 2, move: (row, col) => ({ row, col }) },
+  connectfour: { label: "Connect Four", maxPlayers: 2, move: (row, col) => ({ col }), columns: true }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -138,7 +138,9 @@ async function refreshLobbies() {
   list.innerHTML = "";
   if (!res.ok) return flashError("lobby-error", "Could not list lobbies");
 
-  const lobbies = (res.data.lobbies || []).filter((l) => GAMES[l.gameType.toLowerCase()]);
+  const lobbies = (res.data.lobbies || [])
+    .filter((l) => GAMES[l.gameType.toLowerCase()])
+    .filter((l) => !(session.me && l.players[session.me.id])); // lobbies you're in appear under "Your games & lobbies"
   if (lobbies.length === 0) {
     const li = document.createElement("li");
     li.className = "meta";
@@ -149,28 +151,29 @@ async function refreshLobbies() {
 
   for (const lobby of lobbies) {
     const type = lobby.gameType.toLowerCase();
+    const max = GAMES[type].maxPlayers;
     const count = Object.keys(lobby.players).length;
     const host = lobby.players[lobby.hostId]; // the host is always present in the players map
     const hostName = host ? host.name : "unknown";
-    const mine = session.me && lobby.hostId === session.me.id;
     const li = document.createElement("li");
 
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent =
-      `${GAMES[type].label} — hosted by ${hostName}${mine ? " (you)" : ""} — ${count}/2 players`;
+    meta.textContent = `${GAMES[type].label} — hosted by ${hostName} — ${count}/${max} players`;
 
+    const full = count >= max;
     const join = document.createElement("button");
-    join.textContent = "Join";
-    join.onclick = () => joinGame(lobby.gameId, type);
+    join.textContent = full ? "Full" : "Join";
+    join.disabled = full;
+    if (!full) join.onclick = () => joinGame(lobby.gameId, type);
 
     li.append(meta, join);
     list.appendChild(li);
   }
 }
 
-// Enter the game view for a lobby we just created or joined, then subscribe so we receive its push events.
-async function enterGame({ gameId, gameType, isHost }) {
+// Reset the game view to a clean slate for a given game/lobby and show it. The caller sets the status and subscribes.
+function prepareGameView({ gameId, gameType, isHost }) {
   session.game = { gameId, gameType, isHost };
   $("game-title").textContent = GAMES[gameType].label;
   $("board").innerHTML = "";
@@ -180,12 +183,83 @@ async function enterGame({ gameId, gameType, isHost }) {
   $("start-game").disabled = true;
   clearTimeout(copyLinkTimer);
   $("copy-link").textContent = COPY_LINK_LABEL;
-  setStatus(isHost ? "Waiting for an opponent to join…" : "Joined. Waiting for the host to start…");
   $("chat-log").innerHTML = "";
   showPanel("game");
+}
 
+// Show the lobby screen and refresh both lists: the player's own sessions and the open lobbies.
+function enterLobby() {
+  showPanel("lobby");
+  refreshMySessions();
+  refreshLobbies();
+}
+
+// Load the player's current participation (joined lobbies + in-progress games) from live actor state and render
+// Return entries. Best-effort: the open-lobby list remains the primary view if this fails.
+async function refreshMySessions() {
+  const res = await api("/players/me/sessions");
+  if (res.ok) renderMySessions(res.data);
+}
+
+function renderMySessions(data) {
+  const ul = $("my-sessions");
+  ul.innerHTML = "";
+  const games = (data.games || []).filter((g) => GAMES[g.gameType.toLowerCase()]);
+  const lobbies = (data.lobbies || []).filter((l) => GAMES[l.gameType.toLowerCase()]);
+
+  if (games.length === 0 && lobbies.length === 0) {
+    ul.appendChild(sessionRow("You're not in any games or lobbies right now.", null, null));
+    return;
+  }
+
+  // In-progress games first (more actionable), then pre-game lobbies.
+  for (const g of games) {
+    const type = g.gameType.toLowerCase();
+    ul.appendChild(
+      sessionRow(`${GAMES[type].label} — in progress`, "Return", () => resumeGame({ gameId: g.gameId, gameType: type }))
+    );
+  }
+  for (const l of lobbies) {
+    const type = l.gameType.toLowerCase();
+    const youHost = Boolean(session.me) && l.hostId === session.me.id;
+    const count = Object.keys(l.players).length;
+    const label = `${GAMES[type].label} — lobby (${count}/${GAMES[type].maxPlayers})${youHost ? " · you host" : ""}`;
+    ul.appendChild(sessionRow(label, "Return", () => enterGame({ gameId: l.gameId, gameType: type, isHost: youHost })));
+  }
+}
+
+// Build one row for the sessions list: a label and, when an action is given, a button.
+function sessionRow(text, btnText, onClick) {
+  const li = document.createElement("li");
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = text;
+  li.appendChild(meta);
+  if (btnText) {
+    const btn = document.createElement("button");
+    btn.textContent = btnText;
+    btn.onclick = onClick;
+    li.appendChild(btn);
+  }
+  return li;
+}
+
+// Enter the game view for a lobby we just created or joined, then subscribe to the lobby so we receive its push events.
+async function enterGame({ gameId, gameType, isHost }) {
+  prepareGameView({ gameId, gameType, isHost });
+  setStatus(isHost ? "Waiting for an opponent to join…" : "Joined. Waiting for the host to start…");
   const res = await api(`/lobby/${gameId}/subscribe`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not subscribe to the lobby");
+  loadChatHistory(gameId, gameType);
+}
+
+// Return to a game already in progress (from the sessions list): subscribe to the game actor, which immediately pushes
+// the current board. Pre-game lobbies are returned to via enterGame instead (they subscribe to the lobby).
+async function resumeGame({ gameId, gameType }) {
+  prepareGameView({ gameId, gameType, isHost: false });
+  setStatus("Returning to the game…");
+  const res = await api(`/${gameType}/${gameId}/subscribe`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not return to the game");
   loadChatHistory(gameId, gameType);
 }
 
@@ -204,14 +278,15 @@ function onLobbyUpdated(metadata) {
   const youHost = Boolean(session.me) && metadata.hostId === session.me.id;
   session.game.isHost = youHost;
 
+  const max = GAMES[session.game.gameType].maxPlayers;
   if (youHost) {
     const ready = metadata.status === "ReadyToStart";
     $("start-game").classList.remove("hidden");
     $("start-game").disabled = !ready;
-    setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/2)`);
+    setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/${max})`);
   } else {
     $("start-game").classList.add("hidden");
-    setStatus(`Hosted by ${hostName} — waiting for them to start… (${count}/2)`);
+    setStatus(`Hosted by ${hostName} — waiting for them to start… (${count}/${max})`);
   }
 }
 
@@ -231,8 +306,7 @@ async function leaveGame() {
   const game = session.game;
   if (game) await api(`/lobby/${game.gameId}/leave`, { method: "POST", body: {} });
   session.game = null;
-  showPanel("lobby");
-  refreshLobbies();
+  enterLobby();
 }
 
 // --- Chat ------------------------------------------------------------------------------------------------------------
@@ -357,8 +431,7 @@ window.addEventListener("hashchange", () => {
 
 // Join the lobby named by a deep link: look up its game type, then join — falling back to the lobby list on any issue.
 async function joinByGameId(gameId) {
-  showPanel("lobby");
-  refreshLobbies();
+  enterLobby();
   const res = await api(`/lobby/${gameId}`);
   if (!res.ok) return flashError("lobby-error", "That lobby is no longer available.");
   const type = res.data.gameType.toLowerCase();
@@ -424,8 +497,7 @@ $("login-form").addEventListener("submit", async (e) => {
       pendingJoinGameId = null;
       joinByGameId(id); // arrived via an invite link — go straight to that lobby
     } else {
-      showPanel("lobby");
-      refreshLobbies();
+      enterLobby();
     }
   } catch (err) {
     setError("login-error", err.message || "Sign-in failed");
@@ -438,9 +510,13 @@ for (const button of document.querySelectorAll("[data-gametype]")) {
   button.addEventListener("click", () => createGame(button.dataset.gametype));
 }
 
-$("refresh-lobbies").addEventListener("click", refreshLobbies);
+$("refresh-lobbies").addEventListener("click", () => {
+  refreshMySessions();
+  refreshLobbies();
+});
 $("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
+$("back-to-lobby").addEventListener("click", enterLobby); // browse the lobby without leaving the current game
 $("leave-game").addEventListener("click", leaveGame);
 $("copy-link").addEventListener("click", copyInviteLink);
 

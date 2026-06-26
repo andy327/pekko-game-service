@@ -79,17 +79,29 @@ button:disabled { opacity: 0.5; cursor: default; }
 .status { color: var(--accent); font-weight: 600; min-height: 1.5em; }
 .error { color: var(--error); min-height: 1.2em; margin: 0.5rem 0 0; }
 
-#lobby-list { list-style: none; padding: 0; margin: 0.5rem 0 0; }
-#lobby-list li {
+.panel h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+#lobby-list,
+#my-sessions { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+
+#lobby-list li,
+#my-sessions li {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 6px;
   margin-bottom: 0.4rem;
 }
-#lobby-list .meta { color: var(--muted); font-size: 0.9rem; }
+
+#lobby-list .meta,
+#my-sessions .meta { color: var(--muted); font-size: 0.9rem; }
 
 /* Board: a grid of square cells sized from the --cols custom property. */
 #board {
