@@ -23,7 +23,7 @@ class StaticRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       Get("/app.js") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         mediaType.subType shouldBe "javascript"
-        responseAs[String] should include("authenticate")
+        responseAs[String] should include("createGame")
       }
 
     "tell browsers to revalidate assets so an updated UI is never served stale" in
