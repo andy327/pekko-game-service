@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pekko Game Service</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Pekko Game Service</h1>
+    <span id="whoami" class="whoami"></span>
+  </header>
+
+  <!-- Login screen: a single name field. authenticate() hides the real signup behind it. -->
+  <section id="login" class="panel">
+    <h2>Quick start</h2>
+    <p>Pick a display name to jump in. (A throwaway account is created behind the scenes.)</p>
+    <form id="login-form">
+      <input id="name" type="text" placeholder="Your name" autocomplete="off" required />
+      <button type="submit">Play</button>
+    </form>
+    <p id="login-error" class="error"></p>
+  </section>
+
+  <!-- Lobby screen: create a game, or refresh and join an open one. -->
+  <section id="lobby" class="panel hidden">
+    <h2>Lobbies</h2>
+    <div class="row">
+      <span>New game:</span>
+      <button data-gametype="tictactoe">Tic-Tac-Toe</button>
+      <button data-gametype="connectfour">Connect Four</button>
+    </div>
+    <div class="row">
+      <button id="refresh-lobbies">Refresh open lobbies</button>
+      <label for="lobby-filter">Show:</label>
+      <select id="lobby-filter">
+        <option value="">All games</option>
+        <option value="tictactoe">Tic-Tac-Toe</option>
+        <option value="connectfour">Connect Four</option>
+      </select>
+    </div>
+    <ul id="lobby-list"></ul>
+    <p id="lobby-error" class="error"></p>
+  </section>
+
+  <!-- Game screen: live board, status line, controls. -->
+  <section id="game" class="panel hidden">
+    <h2 id="game-title"></h2>
+    <p id="game-status" class="status"></p>
+    <!-- Drop buttons for column-based games (Connect Four); empty (and hidden) for cell-click games. -->
+    <div id="column-controls"></div>
+    <div id="board"></div>
+    <div class="row">
+      <button id="start-game" class="hidden">Start game</button>
+      <button id="copy-link">Copy invite link</button>
+      <button id="leave-game">Leave</button>
+    </div>
+    <p id="game-error" class="error"></p>
+
+    <!-- Chat: works while waiting in the lobby and during the game (the server routes by game phase). -->
+    <div id="chat">
+      <ul id="chat-log"></ul>
+      <form id="chat-form" class="row">
+        <input id="chat-input" type="text" placeholder="Message…" autocomplete="off" maxlength="500" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
