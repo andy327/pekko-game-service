@@ -6,6 +6,8 @@
 
 > A multiplayer, turn-based game backend in Scala/Pekko — real-time WebSocket play, durable game state, and a pluggable game-type model.
 
+[![Play Now!](https://img.shields.io/badge/Play%20Now!-green?style=for-the-badge&logo=render)](https://pekko-game-service.onrender.com/)
+
 ## Overview
 
 **Pekko Game Service** is a backend for hosting multiplayer turn-based games. Players authenticate, gather in lobbies, and play matches whose moves are validated server-side and pushed to every participant in real time over WebSockets. Game state is the single source of truth held in a per-game actor, persisted to PostgreSQL, and cached in Redis so matches survive restarts.
