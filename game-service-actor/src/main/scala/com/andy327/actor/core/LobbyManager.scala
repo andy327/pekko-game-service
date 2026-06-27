@@ -173,6 +173,17 @@ object LobbyManager {
   ): Unit =
     subscribers.getOrElse(gameId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
 
+  /** Seat order for a match: the host first, then the remaining players ordered by id, rotated left by the room's
+    * match count. Rotation makes the first-move seat (seat 0) alternate across rematches; the first match (count 0)
+    * keeps the host in seat 0.
+    */
+  private def seatOrder(metadata: LobbyMetadata): Seq[PlayerId] = {
+    val others = (metadata.players.keySet - metadata.hostId).toList.sortBy(_.toString)
+    val roster = metadata.hostId :: others
+    val rotation = metadata.matchCount % roster.size
+    roster.drop(rotation) ::: roster.take(rotation)
+  }
+
   /** Steady-state behavior holding all lobby data.
     *
     * @param lobbies map of active lobbies (WaitingForPlayers, ReadyToStart, InProgress)
@@ -315,19 +326,27 @@ object LobbyManager {
         }
 
       case StartGame(gameId, playerId, replyTo) =>
+        // a host may start a ready pre-game lobby, or start a rematch from a finished room (same roster)
+        def startable(status: GameLifecycleStatus): Boolean =
+          status == GameLifecycleStatus.ReadyToStart || status == GameLifecycleStatus.Finished
         lobbies.get(gameId) match {
-          case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
-            context.log.info(s"Lobby $gameId validated for start — delegating game actor spawn to GameManager")
+          case Some(metadata) if metadata.hostId == playerId && startable(metadata.status) =>
+            val rematch = metadata.status == GameLifecycleStatus.Finished
+            val newStatus = if (rematch) "rematch" else "start"
+            context.log.info(s"Lobby $gameId validated for $newStatus — delegating to GM")
             // mint a fresh match id for this playthrough; the room id (gameId) stays stable across rematches
             val matchId = UUID.randomUUID()
-            val updatedMetadata =
-              metadata.copy(status = GameLifecycleStatus.InProgress, currentMatchId = Some(matchId))
+            val updatedMetadata = metadata.copy(
+              status = GameLifecycleStatus.InProgress,
+              currentMatchId = Some(matchId),
+              matchCount = metadata.matchCount + 1
+            )
             val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty)
             gameManager ! GameManager.SpawnGame(
               gameId,
               matchId,
               metadata.gameType,
-              metadata.players.keySet,
+              seatOrder(metadata),
               replyTo,
               lobbySubscribers
             )

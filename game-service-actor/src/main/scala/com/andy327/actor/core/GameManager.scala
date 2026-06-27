@@ -167,13 +167,14 @@ object GameManager {
   ) extends Command
 
   /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. Carries the stable
-    * `roomId` and the freshly-minted `matchId` for this playthrough.
+    * `roomId`, the freshly-minted `matchId` for this playthrough, and the seated `players` in turn order (seat 0 moves
+    * first); LobbyManager rotates that order across rematches.
     */
   final private[core] case class SpawnGame(
       roomId: RoomId,
       matchId: MatchId,
       gameType: GameType,
-      players: Set[PlayerId],
+      players: Seq[PlayerId],
       replyTo: ActorRef[GameResponse],
       subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
   ) extends Command
@@ -696,7 +697,7 @@ object GameManager {
           } else {
             val bundle = GameRegistry.forType(gameType)
             val (game, behavior) =
-              bundle.actor.create(matchId, roomId, players.toSeq, persistActor, context.self, publisher)
+              bundle.actor.create(matchId, roomId, players, persistActor, context.self, publisher)
             val actorRef = context.spawn(behavior, s"game-$matchId").unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }

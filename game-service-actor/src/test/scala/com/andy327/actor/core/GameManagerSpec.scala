@@ -1395,7 +1395,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.SpawnGame(gameId, UUID.randomUUID(), GameType.TicTacToe, Set(alice), responseProbe.ref)
+      gm ! GameManager.SpawnGame(gameId, UUID.randomUUID(), GameType.TicTacToe, Seq(alice), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")

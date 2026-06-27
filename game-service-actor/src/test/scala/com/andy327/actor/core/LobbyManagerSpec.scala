@@ -89,6 +89,44 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.InProgress
     }
 
+    "seat the host first on the initial start" in {
+      val f = newLobby()
+      val (_, spawnMsg) = startGame(f)
+      spawnMsg.players.head shouldBe alice.id // alice hosts; seat 0 moves first
+    }
+
+    "let the host start a rematch from a finished room with a fresh match id" in {
+      val f = newLobby()
+      val (gameId, spawn1) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty) // the match ends → room becomes Finished
+
+      f.lm ! LobbyManager.StartGame(gameId, alice.id, f.responseProbe.ref) // same StartGame command = rematch
+      val spawn2 = f.gmProbe.expectMessageType[GameManager.SpawnGame]
+      spawn2.roomId shouldBe gameId
+      spawn2.matchId should not be spawn1.matchId
+      spawn2.players.toSet shouldBe spawn1.players.toSet // same roster
+    }
+
+    "rotate the first-move seat on a rematch" in {
+      val f = newLobby()
+      val (gameId, spawn1) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty)
+
+      f.lm ! LobbyManager.StartGame(gameId, alice.id, f.responseProbe.ref)
+      val spawn2 = f.gmProbe.expectMessageType[GameManager.SpawnGame]
+      spawn1.players.head shouldBe alice.id // first match: host leads
+      spawn2.players.head should not be alice.id // rematch: the seating rotates so the other player leads
+    }
+
+    "reject a rematch attempt from a non-host" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty)
+
+      f.lm ! LobbyManager.StartGame(gameId, bob.id, f.responseProbe.ref) // bob is not the host
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.NotHostError(gameId)
+    }
+
     "move the room to Finished when its match ends" in {
       val f = newLobby()
       val (gameId, _) = startGame(f)

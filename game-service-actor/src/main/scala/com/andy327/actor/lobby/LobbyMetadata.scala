@@ -35,6 +35,8 @@ object LobbyMetadata {
   * @param createdAt server time the lobby was created; used to order the lobby list newest-first
   * @param currentMatchId the match currently being played in this room, if any; links the room to the live (or
   *                       most-recent) match so an in-progress game can be re-associated with its room after a restart
+  * @param matchCount how many matches have been started in this room (incremented on each start/rematch); used to
+  *                   rotate the seating so the first-move seat alternates across rematches
   */
 case class LobbyMetadata(
     gameId: GameId,
@@ -43,5 +45,6 @@ case class LobbyMetadata(
     hostId: PlayerId,
     status: GameLifecycleStatus,
     createdAt: Instant,
-    currentMatchId: Option[MatchId] = None
+    currentMatchId: Option[MatchId] = None,
+    matchCount: Int = 0
 )
