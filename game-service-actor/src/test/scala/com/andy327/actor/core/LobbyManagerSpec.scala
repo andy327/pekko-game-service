@@ -89,32 +89,51 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.InProgress
     }
 
-    "update lobby status when MarkCompleted is received" in {
+    "move the room to Finished when its match ends" in {
       val f = newLobby()
       val (gameId, _) = startGame(f)
 
-      f.lm ! LobbyManager.MarkCompleted(gameId, GameLifecycleStatus.Completed)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty)
 
       f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
-      metadata.status shouldBe GameLifecycleStatus.Completed
+      metadata.status shouldBe GameLifecycleStatus.Finished
     }
 
-    "serve lobby metadata from cache after MarkCompleted removes it from active lobbies" in {
+    "keep a finished room out of the joinable list but still queryable" in {
       val f = newLobby()
       val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val (gameId, _) = startGame(f)
 
-      f.lm ! LobbyManager.MarkCompleted(gameId, GameLifecycleStatus.Completed)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty)
 
-      // lobby is no longer in active map, so it must not appear in ListLobbies
+      // a Finished room is not joinable, so it must not appear in ListLobbies
       f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
       listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.gameId) should not contain gameId
 
-      // but GetLobbyInfo should still find it via the cache
+      // but the room survives in memory (for chat/rematch), so GetLobbyInfo still finds it
       f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
-      metadata.status shouldBe GameLifecycleStatus.Completed
+      metadata.status shouldBe GameLifecycleStatus.Finished
+    }
+
+    "return match subscribers to the room so post-game chat reaches them" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+      val sub = TestProbe[PlayerActor.Command]()
+
+      f.lm ! LobbyManager.MatchEnded(gameId, Map(alice.id -> sub.ref))
+
+      // the returned subscriber is told the room is now in its post-game (Finished) state
+      sub.expectMessageType[PlayerActor.SendEvent].event match {
+        case PlayerEvent.LobbyUpdated(m) => m.status shouldBe GameLifecycleStatus.Finished
+        case other                       => fail(s"expected LobbyUpdated(Finished), got $other")
+      }
+
+      // and a chat broadcast to the room now reaches the returned subscriber (chat-after-end)
+      val chat = PlayerEvent.ChatMessage(gameId, alice.id, "alice", "gg", Instant.now())
+      f.lm ! LobbyManager.BroadcastChat(gameId, chat)
+      sub.expectMessage(PlayerActor.SendEvent(chat))
     }
 
     "revert lobby status to WaitingForPlayers when a non-host player leaves" in {
@@ -432,11 +451,11 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       listed.lobbies.map(l => l.players(l.hostId).name) shouldBe List("carol", "bob", "alice")
     }
 
-    "ignore MarkCompleted for an unknown lobby" in {
+    "ignore MatchEnded for an unknown lobby" in {
       val LobbyFixture(lm, _, _) = newLobby()
       val listProbe = TestProbe[LobbyManager.LobbiesListed]()
 
-      lm ! LobbyManager.MarkCompleted(UUID.randomUUID(), GameLifecycleStatus.Completed)
+      lm ! LobbyManager.MatchEnded(UUID.randomUUID(), Map.empty)
 
       // sanity check: LobbyManager is still responsive
       lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)

@@ -15,7 +15,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameId, GameType, PlayerId, RoomId}
 
 /** A child actor of GameManager that owns all lobby lifecycle state.
   *
@@ -115,8 +115,14 @@ object LobbyManager {
 
   // --- Internal commands (sent by GameManager, not reachable from HTTP) ---
 
-  /** Move the lobby to the recently-ended cache and fan-out a [[PlayerEvent.GameEnded]] to subscribers. */
-  final private[core] case class MarkCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
+  /** A match in `gameId`'s room has ended. Move the room to [[GameLifecycleStatus.Finished]] and re-own the match's
+    * `subscribers` (handed back from the game actor) so the room can keep fanning out chat and the post-game state.
+    * The room survives in memory for chat and rematch; its now-stale in-progress record is dropped from Redis.
+    */
+  final private[core] case class MatchEnded(
+      gameId: RoomId,
+      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]]
+  ) extends Command
 
   /** Replace the in-memory lobby map with lobbies restored from Redis at startup. */
   final private[core] case class RestoreLobbies(lobbies: List[LobbyMetadata]) extends Command
@@ -390,17 +396,28 @@ object LobbyManager {
         replyTo ! GameManager.UnsubscribeAcknowledged(gameId)
         running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo)
 
-      case MarkCompleted(gameId, result) =>
+      case MatchEnded(gameId, returnedSubscribers) =>
         lobbies.get(gameId) match {
           case Some(metadata) =>
-            context.log.info(s"Marking lobby $gameId as $result")
-            val updated = metadata.copy(status = result)
-            recentlyEnded.put(gameId, updated)
-            fanOut(subscribers, gameId, PlayerEvent.GameEnded(result))
+            context.log.info(s"Match in room $gameId ended; returning ${returnedSubscribers.size} players to the room")
+            val finished = metadata.copy(status = GameLifecycleStatus.Finished)
+            // re-own the match's subscribers (the game actor already sent them GameEnded before handing them back) and
+            // watch each so a later disconnect drops it, mirroring SubscribeToLobby
+            returnedSubscribers.values.foreach(context.watch)
+            val merged = subscribers.getOrElse(gameId, Map.empty) ++ returnedSubscribers
+            // tell everyone in the room it is now in its post-game state (drives the rematch process)
+            merged.values.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(finished)))
+            // the post-game room lives in memory only; drop the stale in-progress record so a restart won't revive it
             persist(lobbyRepo.deleteLobby(gameId))
-            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo)
+            running(
+              lobbies + (gameId -> finished),
+              recentlyEnded,
+              subscribers + (gameId -> merged),
+              gameManager,
+              lobbyRepo
+            )
           case None =>
-            context.log.info(s"MarkCompleted for $gameId: no lobby entry (already removed or never restored)")
+            context.log.info(s"MatchEnded for $gameId: no lobby entry (orphan match); dropping returned subscribers")
             Behaviors.same
         }
     }

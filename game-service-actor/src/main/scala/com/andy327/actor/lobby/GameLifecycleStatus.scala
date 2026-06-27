@@ -31,6 +31,11 @@ object GameLifecycleStatus {
   /** Indicates that the game has started and is currently in progress. */
   case object InProgress extends GameLifecycleStatus
 
+  /** A match has finished but the room survives: the same players can chat and start a rematch. Distinct from the
+    * terminal [[GameEnded]] states — the room stays live (in memory) rather than being retired.
+    */
+  case object Finished extends GameLifecycleStatus
+
   /** Trait representing any terminal game state - where the game has ended and can no longer be interacted with. */
   sealed trait GameEnded extends GameLifecycleStatus
 

@@ -147,11 +147,16 @@ object GameManager {
 
   // --- Lifecycle commands ---
 
-  /** Sent by a game actor when its match reaches a terminal state (won or draw). Carries both the `matchId` that just
-    * ended and the `roomId` hosting it, so GameManager can retire the match and address the room.
+  /** Sent by a game actor when its match reaches a terminal state (won or draw). Carries the `matchId` that just ended,
+    * the `roomId` hosting it, and the match's `subscribers` (by playerId) so GameManager can hand them back to the
+    * room, which then survives as a post-game room for chat and rematch.
     */
-  final case class GameCompleted(matchId: MatchId, roomId: RoomId, result: GameLifecycleStatus.GameEnded)
-      extends Command
+  final case class GameCompleted(
+      matchId: MatchId,
+      roomId: RoomId,
+      result: GameLifecycleStatus.GameEnded,
+      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
+  ) extends Command
 
   // --- Internal commands (not reachable from HTTP) ---
 
@@ -722,11 +727,12 @@ object GameManager {
             )
           }
 
-        case GameCompleted(matchId, roomId, result) =>
+        case GameCompleted(matchId, roomId, result, subscribers) =>
           activeGames.get(roomId) match {
             case Some((gameType, _, _)) =>
               context.log.info(s"Match $matchId in room $roomId completed with result $result — actor self-terminating")
-              lobbyManager ! LobbyManager.MarkCompleted(roomId, result)
+              // hand the match's subscribers back to the room so it survives as a post-game room (chat + rematch)
+              lobbyManager ! LobbyManager.MatchEnded(roomId, subscribers)
               // drop the finished game from every player's index, removing players left with no live games
               val prunedPlayerGames =
                 playerGames.view.mapValues(_ - roomId).filter(_._2.nonEmpty).toMap

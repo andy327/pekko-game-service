@@ -30,6 +30,7 @@ object LobbyCodecs {
       case "WaitingForPlayers" => Right(GameLifecycleStatus.WaitingForPlayers)
       case "ReadyToStart"      => Right(GameLifecycleStatus.ReadyToStart)
       case "InProgress"        => Right(GameLifecycleStatus.InProgress)
+      case "Finished"          => Right(GameLifecycleStatus.Finished)
       case "Completed"         => Right(GameLifecycleStatus.Completed)
       case "Cancelled"         => Right(GameLifecycleStatus.Cancelled)
       case other               => Left(s"Unknown GameLifecycleStatus: $other")
@@ -38,6 +39,7 @@ object LobbyCodecs {
       case GameLifecycleStatus.WaitingForPlayers => "WaitingForPlayers"
       case GameLifecycleStatus.ReadyToStart      => "ReadyToStart"
       case GameLifecycleStatus.InProgress        => "InProgress"
+      case GameLifecycleStatus.Finished          => "Finished"
       case GameLifecycleStatus.Completed         => "Completed"
       case GameLifecycleStatus.Cancelled         => "Cancelled"
     }

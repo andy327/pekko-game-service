@@ -234,7 +234,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
           persist ! PersistenceProtocol.RecordGameResult(pid, matchId, gameType, result, forfeit)
         }
         publisher.publish(GameEvent.GameCompleted(matchId, gameType, outcome, nextState.moveCount))
-        gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed)
+        // hand the subscriber set back to the room so it survives this match's actor stopping and can keep fanning out
+        // chat and the post-game state; re-key by playerId to match the GameCompleted/MatchEnded shape
+        val subscribersByPlayer = subscribers.map { case (ref, pid) => pid -> ref }
+        gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed, subscribersByPlayer)
         terminating(matchId)
 
       case InProgress =>

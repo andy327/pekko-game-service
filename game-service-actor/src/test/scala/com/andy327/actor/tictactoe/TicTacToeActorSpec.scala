@@ -461,14 +461,16 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       )
       persistProbe.expectNoMessage()
 
-      // the subscriber sees the finished state then the game-ended event; GameManager is notified
+      // the subscriber sees the finished state then the game-ended event; GameManager is notified and the subscriber
+      // set is handed back to the room (keyed by playerId) so the room survives the match
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
         PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(
         gameId,
         gameId,
-        GameLifecycleStatus.Completed
+        GameLifecycleStatus.Completed,
+        Map(alice -> subscriberProbe.ref)
       )
     }
 

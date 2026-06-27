@@ -523,7 +523,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       error.message should include("Failed to retrieve move history")
     }
 
-    "mark game as completed when receiving GameCompleted message" in {
+    "move the room to Finished when receiving GameCompleted message" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val gameRepo = new InMemRepo
       val alice = Player("alice")
@@ -545,15 +545,16 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       // game actor sends a GameCompleted message to the GameManager
       gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
+      // the room survives the match as a post-game room, now in the Finished state
       gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
-      metadata.status shouldBe GameLifecycleStatus.Completed
+      metadata.status shouldBe GameLifecycleStatus.Finished
     }
 
-    "mark a restored lobby as completed when its restored game finishes" in {
+    "move a restored room to Finished when its restored game finishes" in {
       // Simulates a restart mid-game: the game comes back from the game repository and its
       // InProgress lobby comes back from the lobby repository. When the game later completes,
-      // the lobby must still be marked completed and deleted from persistent storage.
+      // the room must move to Finished and its stale in-progress record be deleted from persistent storage.
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
       val gameId: GameId = UUID.randomUUID()
@@ -591,7 +592,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
-      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Completed
+      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Finished
 
       // the fire-and-forget Redis delete is eventually dispatched
       responseProbe.awaitAssert(deletedLobbies.keySet should contain(gameId))
@@ -770,10 +771,10 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val forfeited = responseProbe.expectMessageType[GameManager.GameForfeited]
       forfeited.state.asInstanceOf[GridGameState].winner shouldBe Some("X")
 
-      // the lobby has been moved to Completed by the GameCompleted -> MarkCompleted flow
+      // the room has moved to Finished (post-game) via the GameCompleted -> MatchEnded flow
       eventually {
         gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
-        responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Completed
+        responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Finished
       }
     }
 
