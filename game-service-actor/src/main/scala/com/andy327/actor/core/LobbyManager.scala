@@ -1,5 +1,7 @@
 package com.andy327.actor.core
 
+import java.time.Instant
+
 import scala.concurrent.duration._
 
 import org.slf4j.LoggerFactory
@@ -181,8 +183,13 @@ object LobbyManager {
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive[Command] { (context, message) =>
     message match {
       case RestoreLobbies(restored) =>
-        val restoredMap = restored.map(m => m.gameId -> m).toMap
-        context.log.info(s"Restoring ${restoredMap.size} lobbies from Redis")
+        // Only in-progress games are worth restoring: their game actor comes back from the database. Pre-game lobbies
+        // (WaitingForPlayers/ReadyToStart) are dead across a restart — their players' sessions are gone — so drop and
+        // delete them from Redis rather than leaving stale, un-rejoinable lobbies advertised in the list.
+        val (keep, drop) = restored.partition(_.status == GameLifecycleStatus.InProgress)
+        val restoredMap = keep.map(m => m.gameId -> m).toMap
+        context.log.info(s"Restoring ${restoredMap.size} in-progress lobbies; deleting ${drop.size} dead pre-game ones")
+        drop.foreach(m => persist(lobbyRepo.deleteLobby(m.gameId)))
         running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo)
 
       case BroadcastChat(gameId, event) =>
@@ -333,8 +340,10 @@ object LobbyManager {
         context.log.info("Listing available lobbies")
         val all = lobbies.values.filter(_.status.isJoinable).toList
         val filtered = gameTypeFilter.fold(all)(gt => all.filter(_.gameType == gt))
-        val total = filtered.size
-        val paged = filtered.drop((page - 1) * limit).take(limit)
+        // newest first, so freshly created lobbies surface at the top of the (paginated) list
+        val ordered = filtered.sortBy(_.createdAt)(Ordering[Instant].reverse)
+        val total = ordered.size
+        val paged = ordered.drop((page - 1) * limit).take(limit)
         replyTo ! LobbyManager.LobbiesListed(paged, page, limit, total)
         Behaviors.same
 

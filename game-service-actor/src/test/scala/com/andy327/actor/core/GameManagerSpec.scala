@@ -554,7 +554,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
         GameType.TicTacToe,
         Map(host.id -> host, guest.id -> guest),
         host.id,
-        GameLifecycleStatus.InProgress
+        GameLifecycleStatus.InProgress,
+        Instant.now()
       )
       val deletedLobbies = scala.collection.concurrent.TrieMap.empty[GameId, Unit]
       val restoringLobbyRepo: LobbyRepository = new LobbyRepository {

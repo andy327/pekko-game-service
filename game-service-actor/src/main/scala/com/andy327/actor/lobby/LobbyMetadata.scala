@@ -1,5 +1,6 @@
 package com.andy327.actor.lobby
 
+import java.time.Instant
 import java.util.UUID
 
 import com.andy327.model.core.{GameId, GameType, PlayerId}
@@ -8,8 +9,8 @@ object LobbyMetadata {
 
   /** Creates a new lobby for the given game type with the specified host player.
     *
-    * This method generates a unique game ID, initializes the player map with the host, and sets the lifecycle status to
-    * `WaitingForPlayers`.
+    * This method generates a unique game ID, initializes the player map with the host, stamps the creation time, and
+    * sets the lifecycle status to `WaitingForPlayers`.
     *
     * @param gameType the type of game (e.g., TicTacToe)
     * @param host the player who is creating and hosting the lobby
@@ -18,7 +19,7 @@ object LobbyMetadata {
   def newLobby(gameType: GameType, host: Player): LobbyMetadata = {
     val gameId = UUID.randomUUID()
     val players = Map(host.id -> host)
-    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers)
+    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, Instant.now())
   }
 }
 
@@ -31,11 +32,13 @@ object LobbyMetadata {
   * @param players map of player UUIDs to Player objects (includes host and any joined players)
   * @param hostId UUID of the player who created and controls the lobby
   * @param status current lifecycle status of the game (e.g., waiting, in progress, completed)
+  * @param createdAt server time the lobby was created; used to order the lobby list newest-first
   */
 case class LobbyMetadata(
     gameId: GameId,
     gameType: GameType,
     players: Map[PlayerId, Player], // includes the host
     hostId: PlayerId,
-    status: GameLifecycleStatus
+    status: GameLifecycleStatus,
+    createdAt: Instant
 )

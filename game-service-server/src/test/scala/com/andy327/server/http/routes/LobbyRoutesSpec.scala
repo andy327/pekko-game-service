@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.Await
@@ -245,13 +246,15 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         gameType = GameType.TicTacToe,
         players = Map(aliceId -> alicePlayer),
         hostId = aliceId,
-        status = GameLifecycleStatus.WaitingForPlayers
+        status = GameLifecycleStatus.WaitingForPlayers,
+        createdAt = Instant.EPOCH
       )
 
       Get(s"/lobby/$gameId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val response = responseAs[LobbyMetadata]
-        response shouldBe expectedLobbyMetadata
+        // createdAt is stamped server-side at creation time, so compare the rest of the metadata against it
+        response shouldBe expectedLobbyMetadata.copy(createdAt = response.createdAt)
       }
     }
 

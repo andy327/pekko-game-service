@@ -374,16 +374,61 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.responseProbe.expectMessageType[GameManager.LobbyJoined]
     }
 
-    "restore lobbies from a RestoreLobbies message" in {
+    "restore in-progress lobbies from a RestoreLobbies message" in {
       val LobbyFixture(lm, _, responseProbe) = newLobby()
-      val lobby = LobbyMetadata.newLobby(GameType.TicTacToe, alice)
+      val lobby = LobbyMetadata.newLobby(GameType.TicTacToe, alice).copy(status = GameLifecycleStatus.InProgress)
 
       lm ! LobbyManager.RestoreLobbies(List(lobby))
 
       lm ! LobbyManager.GetLobbyInfo(lobby.gameId, responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
       metadata.gameId shouldBe lobby.gameId
-      metadata.status shouldBe lobby.status
+      metadata.status shouldBe GameLifecycleStatus.InProgress
+    }
+
+    "drop and delete dead pre-game lobbies on restore, keeping only in-progress ones" in {
+      val deleted = scala.collection.concurrent.TrieMap.empty[GameId, Unit]
+      val trackingRepo: LobbyRepository = new LobbyRepository {
+        override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
+        override def deleteLobby(gameId: GameId): IO[Unit] = IO(deleted.update(gameId, ()))
+        override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
+      }
+      val gmProbe = TestProbe[GameManager.Command]()
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+      val lm = spawn(LobbyManager(gmProbe.ref, trackingRepo))
+
+      val inProgress = LobbyMetadata.newLobby(GameType.TicTacToe, alice).copy(status = GameLifecycleStatus.InProgress)
+      val waiting = LobbyMetadata.newLobby(GameType.TicTacToe, bob) // WaitingForPlayers — dead across a restart
+
+      lm ! LobbyManager.RestoreLobbies(List(inProgress, waiting))
+
+      // the in-progress lobby is restored and queryable
+      lm ! LobbyManager.GetLobbyInfo(inProgress.gameId, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.InProgress
+
+      // the pre-game lobby is gone from the active map and deleted from persistent storage
+      lm ! LobbyManager.GetLobbyInfo(waiting.gameId, responseProbe.ref)
+      val err = responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error
+      err shouldBe LobbyError.LobbyNotFound(waiting.gameId)
+      responseProbe.awaitAssert(deleted.keySet should contain(waiting.gameId))
+    }
+
+    "list joinable lobbies newest-first" in {
+      val LobbyFixture(lm, _, responseProbe) = newLobby()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
+      val carol = Player("carol")
+
+      // created oldest-to-newest; the high-resolution creation clock makes each createdAt strictly later
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, bob, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+      lm ! LobbyManager.CreateLobby(GameType.TicTacToe, carol, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyCreated]
+
+      lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      val listed = listProbe.expectMessageType[LobbyManager.LobbiesListed]
+      listed.lobbies.map(l => l.players(l.hostId).name) shouldBe List("carol", "bob", "alice")
     }
 
     "ignore MarkCompleted for an unknown lobby" in {

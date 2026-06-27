@@ -53,7 +53,8 @@ class SerializationSpec extends AnyWordSpec with Matchers {
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),
           hostId = host.id,
-          status = GameLifecycleStatus.InProgress
+          status = GameLifecycleStatus.InProgress,
+          createdAt = Instant.EPOCH
         ),
         joinedPlayer = joiner
       )
@@ -135,7 +136,8 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host),
         hostId = host.id,
-        status = GameLifecycleStatus.WaitingForPlayers
+        status = GameLifecycleStatus.WaitingForPlayers,
+        createdAt = Instant.EPOCH
       )
       val json = (PlayerEvent.LobbyUpdated(metadata): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("LobbyUpdated")
