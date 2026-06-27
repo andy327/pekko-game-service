@@ -74,7 +74,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       val f = newLobby()
       val (gameId, spawnMsg) = startGame(f)
 
-      spawnMsg.gameId shouldBe gameId
+      spawnMsg.roomId shouldBe gameId
+      spawnMsg.matchId should not be gameId // a fresh match id, distinct from the stable room id
       spawnMsg.gameType shouldBe GameType.TicTacToe
       (spawnMsg.players should contain).allOf(alice.id, bob.id)
     }

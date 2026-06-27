@@ -161,9 +161,12 @@ object GameManager {
       lobbies: List[LobbyMetadata]
   ) extends Command
 
-  /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. */
+  /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. Carries the stable
+    * `roomId` and the freshly-minted `matchId` for this playthrough.
+    */
   final private[core] case class SpawnGame(
-      gameId: GameId,
+      roomId: RoomId,
+      matchId: MatchId,
       gameType: GameType,
       players: Set[PlayerId],
       replyTo: ActorRef[GameResponse],
@@ -393,6 +396,16 @@ object GameManager {
     *
     * Waits for a single [[RestoreGames]] message, spawns actors for every recovered game, then unstashes
     * all buffered messages and transitions to [[running]].
+    *
+    * @param lobbyManager child actor owning all lobby/room lifecycle state
+    * @param playerManager child actor tracking connected players' sessions (their PlayerActor refs)
+    * @param persistActor shared actor for all persistence I/O (snapshots, move log, results)
+    * @param gameRepo repository used for the initial game restore and completed-game state lookups
+    * @param moveRepo repository read to serve move-history queries
+    * @param chatRepo repository written on each chat message and read to serve backscroll
+    * @param stash buffer holding commands received before the restore completes; drained into [[running]]
+    * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent)
+    * @param onReady optional ref signalled once the running state is entered (used in tests)
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
@@ -407,18 +420,32 @@ object GameManager {
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games, lobbies) =>
-        val restoredActors = games.map { case (gameId, (gameType, game)) =>
-          val gameActor = GameRegistry.forType(gameType).actor
-          // 3a: matchId == roomId == gameId; a fresh per-match id is introduced in the next commit
-          val behavior = gameActor.fromSnapshot(gameId, gameId, game, persistActor, context.self, publisher)
-          val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
-          gameId -> (gameType, actorRef)
+        // a persisted game is keyed by its matchId; recover the room hosting it from the lobby that recorded that match
+        // as current. An orphan match (no such lobby — e.g. its lobby was lost from Redis) falls back to a self-room
+        // keyed by the matchId so the game is still reachable.
+        val matchToRoom: Map[MatchId, RoomId] =
+          lobbies.flatMap(m => m.currentMatchId.map(_ -> m.gameId)).toMap
+
+        // resolve each restored game to its room once, then derive the actor map and the player index from it
+        val resolved = games.toList.map { case (matchId, (gameType, game)) =>
+          val roomId = matchToRoom.getOrElse(matchId, matchId)
+          if (!matchToRoom.contains(matchId))
+            context.log.warn(s"Restored match $matchId has no owning lobby; treating it as its own room")
+          (roomId, matchId, gameType, game)
         }
 
-        // Rebuild the player -> live-games index from each restored game's roster, so a reconnecting player can
+        val restoredActors = resolved.map { case (roomId, matchId, gameType, game) =>
+          val gameActor = GameRegistry.forType(gameType).actor
+          val behavior = gameActor.fromSnapshot(matchId, roomId, game, persistActor, context.self, publisher)
+          val actorRef = context.spawn(behavior, s"game-$matchId").unsafeUpcast[GameActor.GameCommand]
+          roomId -> (gameType, matchId, actorRef)
+        }.toMap
+
+        // Rebuild the player -> live-rooms index from each restored game's roster, so a reconnecting player can
         // rediscover in-flight matches that survived a restart.
-        val restoredPlayerGames = games.foldLeft(Map.empty[PlayerId, Set[GameId]]) { case (acc, (gameId, (_, game))) =>
-          game.players.foldLeft(acc)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + gameId))
+        val restoredPlayerGames = resolved.foldLeft(Map.empty[PlayerId, Set[RoomId]]) {
+          case (acc, (roomId, _, _, game)) =>
+            game.players.foldLeft(acc)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + roomId))
         }
 
         context.log.info(s"Initialized ${restoredActors.size} game actors from snapshots")
@@ -450,16 +477,24 @@ object GameManager {
     * Lobby and player session commands are forwarded to [[LobbyManager]] and [[PlayerManager]] respectively.
     * Game operation commands are dispatched to the appropriate game actor via [[GameRegistry]].
     *
-    * @param activeGames map from GameId to (GameType, game actor ref) for all currently running games
-    * @param completedGameTypes retains the GameType of finished games so GetState queries can fall back to the DB
-    * @param playerGames reverse index from PlayerId to the set of live games they are seated in, used to answer
-    *                    "which games am I in?" without scanning every game; populated at spawn/restore, pruned on
+    * @param activeGames map from RoomId to (GameType, matchId, game actor ref) for the live match in each running room
+    * @param completedMatch retains the (matchId, GameType) of each room's finished match so GetState/history queries
+    *                       can fall back to the DB by match id after the actor has stopped
+    * @param playerGames reverse index from PlayerId to the set of live rooms they are seated in, used to answer
+    *                    "which games am I in?" without scanning every room; populated at spawn/restore, pruned on
     *                    completion
+    * @param lobbyManager child actor owning all lobby/room lifecycle state
+    * @param playerManager child actor tracking connected players' sessions (their PlayerActor refs)
+    * @param persistActor shared actor for all persistence I/O (snapshots, move log, results)
+    * @param gameRepo repository used for completed-game state lookups (the DB fallback for GetState)
+    * @param moveRepo repository read to serve move-history queries
+    * @param chatRepo repository written on each chat message and read to serve backscroll
+    * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent)
     */
   private def running(
-      activeGames: Map[GameId, (GameType, ActorRef[GameActor.GameCommand])],
-      completedGameTypes: Map[GameId, GameType],
-      playerGames: Map[PlayerId, Set[GameId]],
+      activeGames: Map[RoomId, (GameType, MatchId, ActorRef[GameActor.GameCommand])],
+      completedMatch: Map[RoomId, (MatchId, GameType)],
+      playerGames: Map[PlayerId, Set[RoomId]],
       lobbyManager: ActorRef[LobbyManager.Command],
       playerManager: ActorRef[PlayerManager.Command],
       persistActor: ActorRef[PersistenceProtocol.Command],
@@ -484,7 +519,7 @@ object GameManager {
           activeGames.get(gameId) match {
             // game in progress: leaving it is a forfeit, handled by the game actor (which then self-completes and
             // triggers GameCompleted -> MarkCompleted, moving the lobby to Completed)
-            case Some((gameType, gameActor)) =>
+            case Some((gameType, _, gameActor)) =>
               val adaptedRef: ActorRef[Either[GameError, GameState]] =
                 context.messageAdapter(response => WrappedForfeitResponse(response, gameId, replyTo))
               gameActor ! GameRegistry.forType(gameType).actor.forfeitCommand(player.id, adaptedRef)
@@ -562,8 +597,8 @@ object GameManager {
         case GetPlayerSessions(playerId, replyTo) =>
           // resolve the player's live games from the reverse index, intersected with activeGames so a stale entry can
           // never surface a game that is no longer running
-          val games = playerGames.getOrElse(playerId, Set.empty).toList.flatMap { gid =>
-            activeGames.get(gid).map { case (gameType, _) => ActiveGameSummary(gid, gameType) }
+          val games = playerGames.getOrElse(playerId, Set.empty).toList.flatMap { roomId =>
+            activeGames.get(roomId).map { case (gameType, _, _) => ActiveGameSummary(roomId, gameType) }
           }
           implicit val t: Timeout = subscribeAskTimeout
           context.ask(lobbyManager, LobbyManager.ListLobbiesForPlayer(playerId, _)) {
@@ -578,15 +613,16 @@ object GameManager {
 
         case SendChat(gameId, sender, text) =>
           val event = PlayerEvent.ChatMessage(gameId, sender.id, sender.name, text, Instant.now())
-          activeGames.get(gameId) match {
-            case Some((gameType, gameActor)) =>
+          val liveMatch = activeGames.get(gameId)
+          liveMatch match {
+            case Some((gameType, _, gameActor)) =>
               gameActor ! GameRegistry.forType(gameType).actor.broadcastCommand(event)
             case None =>
               // not in progress (or unknown): fan out via the lobby; a bogus gameId is a harmless no-op there
               lobbyManager ! LobbyManager.BroadcastChat(gameId, event)
           }
           // record the send for analytics (gameType is None for lobby chat, before the game starts)
-          publisher.publish(GameEvent.ChatSent(gameId, activeGames.get(gameId).map(_._1)))
+          publisher.publish(GameEvent.ChatSent(gameId, liveMatch.map(_._1)))
           // record to the bounded chat history so late joiners can backscroll; best-effort, never blocks the send
           chatRepo.append(event).unsafeRunAsync {
             case Left(ex) => context.log.warn(s"Failed to persist chat message for $gameId", ex)
@@ -604,7 +640,7 @@ object GameManager {
           playerRefOpt match {
             case Some(ref) =>
               activeGames.get(gameId) match {
-                case Some((gameType, gameActor)) =>
+                case Some((gameType, _, gameActor)) =>
                   gameActor ! GameRegistry.forType(gameType).actor.subscribeCommand(ref, playerId)
                   replyTo ! SubscribeAcknowledged(gameId)
                 case None =>
@@ -627,7 +663,7 @@ object GameManager {
           // drop their session from the game actor's subscriber set; otherwise there is nothing to remove. Either way
           // the DELETE succeeds, so a client can safely call it without first checking its own subscription state.
           (playerRefOpt, activeGames.get(gameId)) match {
-            case (Some(ref), Some((gameType, gameActor))) =>
+            case (Some(ref), Some((gameType, _, gameActor))) =>
               gameActor ! GameRegistry.forType(gameType).actor.unsubscribeCommand(ref)
             case _ =>
               ()
@@ -643,39 +679,38 @@ object GameManager {
           playerManager ! PlayerManager.PlayerDisconnected(playerId, playerRef)
           Behaviors.same
 
-        case SpawnGame(gameId, gameType, players, replyTo, subscribers) =>
+        case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers) =>
           val n = players.size
           if (n < gameType.minPlayers || n > gameType.maxPlayers) {
             val expected =
               if (gameType.minPlayers == gameType.maxPlayers) s"${gameType.minPlayers}"
               else s"${gameType.minPlayers}–${gameType.maxPlayers}"
-            context.log.error(s"SpawnGame rejected for $gameId: $n players supplied, expected $expected")
+            context.log.error(s"SpawnGame rejected for room $roomId: $n players supplied, expected $expected")
             replyTo ! ErrorResponse(s"$expected players required, got $n")
             Behaviors.same
           } else {
             val bundle = GameRegistry.forType(gameType)
-            // 3a: matchId == roomId == gameId; a fresh per-match id is introduced in the next commit
             val (game, behavior) =
-              bundle.actor.create(gameId, gameId, players.toSeq, persistActor, context.self, publisher)
-            val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
+              bundle.actor.create(matchId, roomId, players.toSeq, persistActor, context.self, publisher)
+            val actorRef = context.spawn(behavior, s"game-$matchId").unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
 
             persistActor ! PersistenceProtocol.SaveSnapshot(
-              gameId,
+              matchId,
               gameType,
               game.asInstanceOf[Game[_, _, _, _, _]],
               replyTo = context.system.ignoreRef
             )
 
-            context.log.info(s"Created and persisted new game with gameId: $gameId")
-            publisher.publish(GameEvent.GameStarted(gameId, gameType, n))
-            replyTo ! GameStarted(gameId)
+            context.log.info(s"Created and persisted new match $matchId in room $roomId")
+            publisher.publish(GameEvent.GameStarted(matchId, gameType, n))
+            replyTo ! GameStarted(roomId)
             val updatedPlayerGames =
-              players.foldLeft(playerGames)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + gameId))
+              players.foldLeft(playerGames)((idx, pid) => idx.updated(pid, idx.getOrElse(pid, Set.empty) + roomId))
             running(
-              activeGames + (gameId -> (gameType, actorRef)),
-              completedGameTypes,
+              activeGames + (roomId -> (gameType, matchId, actorRef)),
+              completedMatch,
               updatedPlayerGames,
               lobbyManager,
               playerManager,
@@ -689,7 +724,7 @@ object GameManager {
 
         case GameCompleted(matchId, roomId, result) =>
           activeGames.get(roomId) match {
-            case Some((gameType, _)) =>
+            case Some((gameType, _, _)) =>
               context.log.info(s"Match $matchId in room $roomId completed with result $result — actor self-terminating")
               lobbyManager ! LobbyManager.MarkCompleted(roomId, result)
               // drop the finished game from every player's index, removing players left with no live games
@@ -697,7 +732,7 @@ object GameManager {
                 playerGames.view.mapValues(_ - roomId).filter(_._2.nonEmpty).toMap
               running(
                 activeGames - roomId,
-                completedGameTypes + (roomId -> gameType),
+                completedMatch + (roomId -> (matchId, gameType)),
                 prunedPlayerGames,
                 lobbyManager,
                 playerManager,
@@ -714,7 +749,7 @@ object GameManager {
 
         case RunGameOperation(gameId, op, replyTo) =>
           activeGames.get(gameId) match {
-            case Some((gameType, gameActor)) =>
+            case Some((gameType, _, gameActor)) =>
               val adaptedRef: ActorRef[Either[GameError, GameState]] =
                 context.messageAdapter(response => WrappedGameResponse(response, replyTo))
 
@@ -724,11 +759,11 @@ object GameManager {
               }
 
             case None =>
-              completedGameTypes.get(gameId) match {
-                case Some(gameType) =>
+              completedMatch.get(gameId) match {
+                case Some((matchId, gameType)) =>
                   op match {
                     case GameOperation.GetState =>
-                      context.pipeToSelf(gameRepo.loadGame(gameId, gameType).attempt.unsafeToFuture()) {
+                      context.pipeToSelf(gameRepo.loadGame(matchId, gameType).attempt.unsafeToFuture()) {
                         case Success(result) => CompletedGameLoaded(result, gameId, gameType, replyTo)
                         // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
                         case Failure(ex) => CompletedGameLoaded(Left(ex), gameId, gameType, replyTo)
@@ -738,7 +773,7 @@ object GameManager {
                       replyTo ! MoveRejected("Game has already ended")
                   }
                 case None =>
-                  context.log.warn(s"No game found with gameId $gameId to forward operation $op")
+                  context.log.warn(s"No game found for room $gameId to forward operation $op")
                   replyTo ! GameNotFound(gameId)
               }
           }
@@ -758,7 +793,10 @@ object GameManager {
           Behaviors.same
 
         case GetMoveHistory(gameId, replyTo) =>
-          context.pipeToSelf(moveRepo.loadMoves(gameId).attempt.unsafeToFuture()) {
+          // the move log is keyed by matchId. Resolve the room's live or most-recent match; if the id is not a known
+          // room (e.g. a game finished before a restart, or a direct match lookup), fall back to using it as the match.
+          val matchId = activeGames.get(gameId).map(_._2).orElse(completedMatch.get(gameId).map(_._1)).getOrElse(gameId)
+          context.pipeToSelf(moveRepo.loadMoves(matchId).attempt.unsafeToFuture()) {
             case Success(result) => MoveHistoryLoaded(result, gameId, replyTo)
             // $COVERAGE-OFF$ .attempt converts IO failures to Success(Left(ex)); Failure is unreachable
             case Failure(ex) => MoveHistoryLoaded(Left(ex), gameId, replyTo)

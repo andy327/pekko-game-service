@@ -319,7 +319,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessage(GameManager.GameStarted(gameId))
 
       val snapshot = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
-      snapshot.gameId shouldBe gameId
+      // the snapshot is keyed by the match id (minted fresh, distinct from the stable room id)
+      snapshot.gameId should not be gameId
+      snapshot.gameType shouldBe GameType.TicTacToe
     }
 
     "prevent a non-host player from starting the game" in {
@@ -473,18 +475,29 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
     "return the recorded move history for a game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
-      val gameId: GameId = UUID.randomUUID()
+      val moveRepo = new InMemMoveRepo()
+      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, moveRepo = moveRepo))
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      // start a game so the room resolves to a live match (the move log is keyed by match id, not room id)
+      gm ! GameManager.CreateLobby(GameType.TicTacToe, Player("alice"), responseProbe.ref)
+      val GameManager.LobbyCreated(roomId, host) = responseProbe.receiveMessage()
+      gm ! GameManager.JoinLobby(roomId, Player("bob"), responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.LobbyJoined]
+      gm ! GameManager.StartGame(roomId, host.id, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.GameStarted(roomId))
+      val matchId = persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot].gameId
+
+      // seed the move log under the match id the room now points at
+      moveRepo.appendMove(matchId, 0, alice, Json.obj("col" -> 3.asJson)).unsafeRunSync()
+      moveRepo.appendMove(matchId, 1, bob, Json.obj("col" -> 4.asJson)).unsafeRunSync()
       val moves = List(
         MoveRecord(0, alice, Json.obj("col" -> 3.asJson), Instant.EPOCH),
         MoveRecord(1, bob, Json.obj("col" -> 4.asJson), Instant.EPOCH)
       )
-      val moveRepo = new InMemMoveRepo(Map(gameId -> moves))
-      val gm = spawn(GameManager(persistProbe.ref, new InMemRepo, noOpLobbyRepo, moveRepo = moveRepo))
 
-      val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.GetMoveHistory(gameId, responseProbe.ref)
-
-      responseProbe.expectMessage(GameManager.MoveHistory(gameId, moves))
+      gm ! GameManager.GetMoveHistory(roomId, responseProbe.ref)
+      responseProbe.expectMessage(GameManager.MoveHistory(roomId, moves))
     }
 
     "return an empty move history for a game with no recorded moves" in {
@@ -555,7 +568,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
         Map(host.id -> host, guest.id -> guest),
         host.id,
         GameLifecycleStatus.InProgress,
-        Instant.now()
+        Instant.now(),
+        currentMatchId = Some(gameId) // links the restored room to its in-progress match (keyed by gameId in gameRepo)
       )
       val deletedLobbies = scala.collection.concurrent.TrieMap.empty[GameId, Unit]
       val restoringLobbyRepo: LobbyRepository = new LobbyRepository {
@@ -1380,7 +1394,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
-      gm ! GameManager.SpawnGame(gameId, GameType.TicTacToe, Set(alice), responseProbe.ref)
+      gm ! GameManager.SpawnGame(gameId, UUID.randomUUID(), GameType.TicTacToe, Set(alice), responseProbe.ref)
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")

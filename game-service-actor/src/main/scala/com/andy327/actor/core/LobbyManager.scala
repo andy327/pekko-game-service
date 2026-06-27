@@ -1,6 +1,7 @@
 package com.andy327.actor.core
 
 import java.time.Instant
+import java.util.UUID
 
 import scala.concurrent.duration._
 
@@ -311,10 +312,14 @@ object LobbyManager {
         lobbies.get(gameId) match {
           case Some(metadata) if metadata.hostId == playerId && metadata.status == GameLifecycleStatus.ReadyToStart =>
             context.log.info(s"Lobby $gameId validated for start — delegating game actor spawn to GameManager")
-            val updatedMetadata = metadata.copy(status = GameLifecycleStatus.InProgress)
+            // mint a fresh match id for this playthrough; the room id (gameId) stays stable across rematches
+            val matchId = UUID.randomUUID()
+            val updatedMetadata =
+              metadata.copy(status = GameLifecycleStatus.InProgress, currentMatchId = Some(matchId))
             val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty)
             gameManager ! GameManager.SpawnGame(
               gameId,
+              matchId,
               metadata.gameType,
               metadata.players.keySet,
               replyTo,

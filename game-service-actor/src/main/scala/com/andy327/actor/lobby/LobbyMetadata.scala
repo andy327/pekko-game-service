@@ -3,7 +3,7 @@ package com.andy327.actor.lobby
 import java.time.Instant
 import java.util.UUID
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameId, GameType, MatchId, PlayerId}
 
 object LobbyMetadata {
 
@@ -33,6 +33,8 @@ object LobbyMetadata {
   * @param hostId UUID of the player who created and controls the lobby
   * @param status current lifecycle status of the game (e.g., waiting, in progress, completed)
   * @param createdAt server time the lobby was created; used to order the lobby list newest-first
+  * @param currentMatchId the match currently being played in this room, if any; links the room to the live (or
+  *                       most-recent) match so an in-progress game can be re-associated with its room after a restart
   */
 case class LobbyMetadata(
     gameId: GameId,
@@ -40,5 +42,6 @@ case class LobbyMetadata(
     players: Map[PlayerId, Player], // includes the host
     hostId: PlayerId,
     status: GameLifecycleStatus,
-    createdAt: Instant
+    createdAt: Instant,
+    currentMatchId: Option[MatchId] = None
 )
