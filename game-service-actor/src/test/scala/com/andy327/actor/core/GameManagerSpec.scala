@@ -438,7 +438,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.PlayerSessions].games.map(_.gameId) should contain(gameId)
 
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.GetPlayerSessions(alice.id, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.PlayerSessions].games shouldBe empty
@@ -530,7 +530,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessageType[GameManager.GameStarted]
 
       // game actor sends a GameCompleted message to the GameManager
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = responseProbe.expectMessageType[GameManager.LobbyInfo]
@@ -574,7 +574,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.InProgress
 
       // the restored game completes
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.GetLobbyInfo(gameId, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Completed
@@ -597,7 +597,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.GameStatus]
@@ -618,7 +618,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.RunGameOperation(
         gameId,
@@ -649,7 +649,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
       responseProbe.expectMessageType[GameManager.GameNotFound].gameId shouldBe gameId
@@ -676,7 +676,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
-      gm ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
 
       gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
@@ -693,7 +693,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val responseProbe = TestProbe[GameManager.GameResponse]()
 
       // game actor sends a GameCompleted message to the GameManager
-      gm ! GameManager.GameCompleted(nonexistentGameId, GameLifecycleStatus.Completed)
+      gm ! GameManager.GameCompleted(nonexistentGameId, nonexistentGameId, GameLifecycleStatus.Completed)
 
       // no-op: behavior remains the same and GameManager can continue receiving messages
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)

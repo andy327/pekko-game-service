@@ -144,10 +144,12 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.asObject.flatMap(_("metadata")) should be(defined)
     }
 
-    "encode GameStateUpdated with a type discriminator and state" in {
+    "encode GameStateUpdated with a type discriminator, roomId, and state" in {
+      val roomId = UUID.randomUUID()
       val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
-      val json = (PlayerEvent.GameStateUpdated(state): PlayerEvent).asJson
+      val json = (PlayerEvent.GameStateUpdated(roomId, state): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
+      json.hcursor.get[UUID]("roomId") shouldBe Right(roomId)
       json.asObject.flatMap(_("state")) should be(defined)
     }
 

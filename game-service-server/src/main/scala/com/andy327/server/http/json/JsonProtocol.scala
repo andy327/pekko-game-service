@@ -141,15 +141,15 @@ object JsonProtocol extends CirceSupport {
     * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the event
     * kind without additional out-of-band information:
     *   - `{"type":"LobbyUpdated",     "metadata":{...}}`
-    *   - `{"type":"GameStateUpdated", "state":{...}}`
+    *   - `{"type":"GameStateUpdated", "roomId":..., "state":{...}}`
     *   - `{"type":"GameEnded",        "result":"Completed"}`
     *   - `{"type":"ChatMessage",      "gameId":..., "senderId":..., "senderName":..., "text":..., "sentAt":...}`
     */
   implicit val playerEventEncoder: Encoder[PlayerEvent] = Encoder.instance {
     case PlayerEvent.LobbyUpdated(metadata) =>
       Json.obj("type" -> "LobbyUpdated".asJson, "metadata" -> metadata.asJson)
-    case PlayerEvent.GameStateUpdated(state) =>
-      Json.obj("type" -> "GameStateUpdated".asJson, "state" -> state.asJson)
+    case PlayerEvent.GameStateUpdated(roomId, state) =>
+      Json.obj("type" -> "GameStateUpdated".asJson, "roomId" -> roomId.asJson, "state" -> state.asJson)
     case PlayerEvent.GameEnded(result) =>
       Json.obj("type" -> "GameEnded".asJson, "result" -> (result: GameLifecycleStatus).asJson)
     case PlayerEvent.ChatMessage(gameId, senderId, senderName, text, sentAt) =>

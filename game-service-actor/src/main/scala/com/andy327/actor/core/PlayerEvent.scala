@@ -4,7 +4,7 @@ import java.time.Instant
 
 import com.andy327.actor.game.GameState
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata}
-import com.andy327.model.core.{GameId, PlayerId}
+import com.andy327.model.core.{GameId, PlayerId, RoomId}
 
 /** Events pushed from the server to a connected player over WebSocket.
   *
@@ -17,8 +17,13 @@ object PlayerEvent {
   /** The lobby the player is in has changed — a player joined, left, or the status updated. */
   final case class LobbyUpdated(metadata: LobbyMetadata) extends PlayerEvent
 
-  /** The game state changed after a move — carries the full updated board state. */
-  final case class GameStateUpdated(state: GameState) extends PlayerEvent
+  /** The game state changed after a move — carries the full updated board state.
+    *
+    * @param roomId the room this update belongs to; lets a client routing several rooms dispatch the push to the right
+    *               one (a room hosts at most one live match at a time)
+    * @param state the full updated board state, rendered for the receiving subscriber
+    */
+  final case class GameStateUpdated(roomId: RoomId, state: GameState) extends PlayerEvent
 
   /** The game has ended.
     *

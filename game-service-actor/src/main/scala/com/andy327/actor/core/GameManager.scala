@@ -17,7 +17,7 @@ import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameError, GameId, GameType, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
@@ -147,8 +147,11 @@ object GameManager {
 
   // --- Lifecycle commands ---
 
-  /** Sent by a game actor when its game reaches a terminal state (won or draw). */
-  final case class GameCompleted(gameId: GameId, result: GameLifecycleStatus.GameEnded) extends Command
+  /** Sent by a game actor when its match reaches a terminal state (won or draw). Carries both the `matchId` that just
+    * ended and the `roomId` hosting it, so GameManager can retire the match and address the room.
+    */
+  final case class GameCompleted(matchId: MatchId, roomId: RoomId, result: GameLifecycleStatus.GameEnded)
+      extends Command
 
   // --- Internal commands (not reachable from HTTP) ---
 
@@ -406,7 +409,8 @@ object GameManager {
       case RestoreGames(games, lobbies) =>
         val restoredActors = games.map { case (gameId, (gameType, game)) =>
           val gameActor = GameRegistry.forType(gameType).actor
-          val behavior = gameActor.fromSnapshot(gameId, game, persistActor, context.self, publisher)
+          // 3a: matchId == roomId == gameId; a fresh per-match id is introduced in the next commit
+          val behavior = gameActor.fromSnapshot(gameId, gameId, game, persistActor, context.self, publisher)
           val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
           gameId -> (gameType, actorRef)
         }
@@ -650,7 +654,9 @@ object GameManager {
             Behaviors.same
           } else {
             val bundle = GameRegistry.forType(gameType)
-            val (game, behavior) = bundle.actor.create(gameId, players.toSeq, persistActor, context.self, publisher)
+            // 3a: matchId == roomId == gameId; a fresh per-match id is introduced in the next commit
+            val (game, behavior) =
+              bundle.actor.create(gameId, gameId, players.toSeq, persistActor, context.self, publisher)
             val actorRef = context.spawn(behavior, s"game-$gameId").unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
@@ -681,17 +687,17 @@ object GameManager {
             )
           }
 
-        case GameCompleted(gameId, result) =>
-          activeGames.get(gameId) match {
+        case GameCompleted(matchId, roomId, result) =>
+          activeGames.get(roomId) match {
             case Some((gameType, _)) =>
-              context.log.info(s"Game $gameId completed with result $result — actor self-terminating")
-              lobbyManager ! LobbyManager.MarkCompleted(gameId, result)
+              context.log.info(s"Match $matchId in room $roomId completed with result $result — actor self-terminating")
+              lobbyManager ! LobbyManager.MarkCompleted(roomId, result)
               // drop the finished game from every player's index, removing players left with no live games
               val prunedPlayerGames =
-                playerGames.view.mapValues(_ - gameId).filter(_._2.nonEmpty).toMap
+                playerGames.view.mapValues(_ - roomId).filter(_._2.nonEmpty).toMap
               running(
-                activeGames - gameId,
-                completedGameTypes + (gameId -> gameType),
+                activeGames - roomId,
+                completedGameTypes + (roomId -> gameType),
                 prunedPlayerGames,
                 lobbyManager,
                 playerManager,
@@ -702,7 +708,7 @@ object GameManager {
                 publisher
               )
             case None =>
-              context.log.warn(s"Received GameCompleted for unknown game: $gameId")
+              context.log.warn(s"Received GameCompleted for unknown room: $roomId")
               Behaviors.same
           }
 

@@ -6,7 +6,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 import com.andy327.actor.events.EventPublisher
 import com.andy327.actor.game.GameState
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{Game, GameError, GameId, GameType, GameTypeTag, PlayerId}
+import com.andy327.model.core.{Game, GameError, GameType, GameTypeTag, MatchId, PlayerId, RoomId}
 
 object GameActor {
 
@@ -47,7 +47,8 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
 
   /** Spawn a fresh game actor for a newly created game.
     *
-    * @param gameId the unique identifier for the game
+    * @param matchId the unique identifier for this match; keys its snapshot, move log, results, and analytics
+    * @param roomId the room hosting the match; carried so push events and completion can be addressed to the room
     * @param players the ordered list of players; game type determines how many are required
     * @param persist the shared persistence actor used to save snapshots
     * @param gameManager the parent GameManager actor, used to report game-end events
@@ -55,7 +56,8 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @return the initial game model and a `Behavior` ready to receive commands
     */
   def create(
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
@@ -64,7 +66,8 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
 
   /** Re-hydrate an actor from a snapshot already loaded from the database.
     *
-    * @param gameId the unique identifier for the game being restored
+    * @param matchId the unique identifier for the match being restored
+    * @param roomId the room hosting the match; carried so push events and completion can be addressed to the room
     * @param snap the snapshot returned by the persistence layer; must be a valid `G`
     * @param persist the shared persistence actor used to save future snapshots
     * @param gameManager the parent GameManager actor
@@ -72,7 +75,8 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * @return a `Behavior` initialised from the snapshot state
     */
   def fromSnapshot(
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
@@ -116,13 +120,13 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * A `Terminated` signal from a still-watched subscriber is ignored here; without an explicit handler Pekko would
     * raise `DeathPactException` and crash the actor before the final snapshot is confirmed.
     */
-  protected def terminating(gameId: GameId): Behavior[Command] =
+  protected def terminating(matchId: MatchId): Behavior[Command] =
     Behaviors.receive[Command] { (context, msg) =>
       snapshotSavedResult(msg) match {
         case Some(result) =>
           result match {
-            case Left(e)  => context.log.error(s"[$gameId] final snapshot failed", e)
-            case Right(_) => context.log.debug(s"[$gameId] final snapshot saved, stopping")
+            case Left(e)  => context.log.error(s"[$matchId] final snapshot failed", e)
+            case Right(_) => context.log.debug(s"[$matchId] final snapshot saved, stopping")
           }
           Behaviors.stopped
         case None =>

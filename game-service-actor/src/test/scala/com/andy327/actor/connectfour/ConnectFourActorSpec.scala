@@ -35,7 +35,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   ): (ActorRef[ConnectFourActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
     val (_, behavior) =
-      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
+      ConnectFourActor.create(gameId, gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -89,6 +89,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val behavior = ConnectFourActor.fromSnapshot(
         UUID.randomUUID(),
+        UUID.randomUUID(),
         snapshot,
         persistProbe.ref,
         dummyGameManager,
@@ -115,6 +116,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val actor = spawn(
         ConnectFourActor.fromSnapshot(
           gameId,
+          gameId,
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
@@ -122,7 +124,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         )
       )
 
-      gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed))
+      gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed))
       persistProbe.expectTerminated(actor)
     }
 
@@ -140,6 +142,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val behavior = ConnectFourActor.fromSnapshot(
+        UUID.randomUUID(),
         UUID.randomUUID(),
         dummyGame,
         persistProbe.ref,
@@ -342,7 +345,11 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(
+        gameId,
+        gameId,
+        GameLifecycleStatus.Completed
+      )
     }
   }
 }
