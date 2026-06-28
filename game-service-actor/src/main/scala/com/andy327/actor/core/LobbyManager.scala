@@ -42,8 +42,8 @@ import com.andy327.model.core.{GameId, GameType, PlayerId, RoomId}
   * Actor relationships:
   *   - Parent: [[GameManager]]
   *   - Receives from: [[GameManager]] (all lobby `Command` messages)
-  *   - Sends to: [[GameManager]] (`SpawnGame` to trigger game actor creation), [[PlayerActor]] (fan-out `LobbyUpdated`
-  *     and `GameEnded` events via `SendEvent`)
+  *   - Sends to: [[GameManager]] (`SpawnGame` to trigger game actor creation; `RoomClosed` when a room is retired for
+  *     good), [[PlayerActor]] (fan-out `LobbyUpdated` and `GameEnded` events via `SendEvent`)
   */
 object LobbyManager {
   sealed trait Command
@@ -326,6 +326,9 @@ object LobbyManager {
                   fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
                   replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
                   persist(lobbyRepo.deleteLobby(gameId))
+                  // a no-op if this room never completed a match (e.g. a pre-game lobby), but lets GameManager drop a
+                  // stale completedMatch entry if it had
+                  gameManager ! GameManager.RoomClosed(gameId)
                   running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo, emptyRoomGrace)
                 case Some((newHostId, newHost)) =>
                   // promote a remaining member to host so the lobby survives the host leaving (host migration)
@@ -375,6 +378,8 @@ object LobbyManager {
             fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
             replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId cancelled by host")
             persist(lobbyRepo.deleteLobby(gameId))
+            // a no-op unless this was a post-game room (a host can cancel a Finished room directly, ahead of eviction)
+            gameManager ! GameManager.RoomClosed(gameId)
             running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo, emptyRoomGrace)
           case Some(_) =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
@@ -529,6 +534,8 @@ object LobbyManager {
             // tell any remaining watchers the room has closed, then retire it to the recently-ended cache
             fanOut(subscribers, id, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
             recentlyEnded.put(id, m.copy(status = GameLifecycleStatus.Cancelled))
+            // every evicted room here was Finished, so it always has a completedMatch entry for GameManager to drop
+            gameManager ! GameManager.RoomClosed(id)
           }
           running(
             lobbies -- stale.keySet,

@@ -158,6 +158,12 @@ object GameManager {
       subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
   ) extends Command
 
+  /** Sent by [[LobbyManager]] when `roomId`'s room is retired for good (cancelled by the host, or evicted for sitting
+    * idle/empty) so GameManager can drop its `completedMatch` entry. A no-op if the room never completed a match —
+    * LobbyManager sends this from every room-closing path regardless of whether one is present.
+    */
+  final private[core] case class RoomClosed(roomId: RoomId) extends Command
+
   // --- Internal commands (not reachable from HTTP) ---
 
   /** Carries the result of the async restore initiated at startup; transitions from initializing to running. */
@@ -485,7 +491,8 @@ object GameManager {
     *
     * @param activeGames map from RoomId to (GameType, matchId, game actor ref) for the live match in each running room
     * @param completedMatch retains the (matchId, GameType) of each room's finished match so GetState/history queries
-    *                       can fall back to the DB by match id after the actor has stopped
+    *                       can fall back to the DB by match id after the actor has stopped; pruned on [[RoomClosed]]
+    *                       once the room itself is retired
     * @param playerGames reverse index from PlayerId to the set of live rooms they are seated in, used to answer
     *                    "which games am I in?" without scanning every room; populated at spawn/restore, pruned on
     *                    completion
@@ -753,6 +760,20 @@ object GameManager {
               context.log.warn(s"Received GameCompleted for unknown room: $roomId")
               Behaviors.same
           }
+
+        case RoomClosed(roomId) =>
+          running(
+            activeGames,
+            completedMatch - roomId,
+            playerGames,
+            lobbyManager,
+            playerManager,
+            persistActor,
+            gameRepo,
+            moveRepo,
+            chatRepo,
+            publisher
+          )
 
         case RunGameOperation(gameId, op, replyTo) =>
           activeGames.get(gameId) match {

@@ -128,6 +128,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.lm ! LobbyManager.MatchEnded(gameId, Map.empty) // Finished with no connected players
 
       f.lm ! LobbyManager.EvictIdleRooms
+      f.gmProbe.expectMessage(GameManager.RoomClosed(gameId)) // lets GameManager drop its completedMatch entry
 
       f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
@@ -430,11 +431,26 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.responseProbe.expectMessageType[GameManager.LobbyLeft]
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
         PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled)
+      // sent even though this lobby never started a match — a harmless no-op for GameManager's completedMatch map
+      f.gmProbe.expectMessage(GameManager.RoomClosed(gameId))
 
       // the lobby is gone from the joinable list
       val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
       listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies shouldBe empty
+    }
+
+    "send RoomClosed when the host disbands a Finished room by leaving it last" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty)
+
+      f.lm ! LobbyManager.LeaveLobby(gameId, bob, f.responseProbe.ref) // bob leaves first
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+
+      f.lm ! LobbyManager.LeaveLobby(gameId, alice, f.responseProbe.ref) // host leaves last — disbands the room
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+      f.gmProbe.expectMessage(GameManager.RoomClosed(gameId))
     }
 
     "reject CancelLobby from a non-host with NotHostError" in {

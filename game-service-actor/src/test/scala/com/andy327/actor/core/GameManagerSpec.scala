@@ -619,6 +619,31 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       response.state shouldBe GameStateConverters.serializeGame(game, None)
     }
 
+    "drop the completedMatch entry on RoomClosed, so a later operation reports GameNotFound" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val readyProbe = TestProbe[GameManager.Ready.type]()
+      val gameId: GameId = UUID.randomUUID()
+      val playerX: PlayerId = UUID.randomUUID()
+      val playerO: PlayerId = UUID.randomUUID()
+      val game = TicTacToe.empty(playerX, playerO)
+      val gameRepo = new InMemRepo(Map(gameId -> (GameType.TicTacToe, game)))
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, onReady = Some(readyProbe.ref)))
+      readyProbe.expectMessage(5.seconds, GameManager.Ready)
+
+      val responseProbe = TestProbe[GameManager.GameResponse]()
+
+      gm ! GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed)
+      // sanity check: the completedMatch entry serves GetState from the DB while the room is still known
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameStatus]
+
+      gm ! GameManager.RoomClosed(gameId) // the room is retired for good (cancelled or evicted)
+
+      gm ! GameManager.RunGameOperation(gameId, GameOperation.GetState, responseProbe.ref)
+      responseProbe.expectMessageType[GameManager.GameNotFound].gameId shouldBe gameId
+    }
+
     "return an error when forwarding a move to a completed game" in {
       val persistProbe = TestProbe[PersistenceProtocol.Command]()
       val readyProbe = TestProbe[GameManager.Ready.type]()
