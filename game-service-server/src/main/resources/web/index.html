@@ -78,6 +78,11 @@
     <!-- Drop buttons for column-based games (Connect Four); empty (and hidden) for cell-click games. -->
     <div id="column-controls"></div>
     <div id="board"></div>
+    <!-- Shown once a match in this room has finished; offers a rematch (host) or a wait message (guest). -->
+    <div id="post-game-bar" class="row hidden">
+      <span id="post-game-status" class="status"></span>
+      <button id="rematch-btn" class="hidden">Rematch</button>
+    </div>
     <div class="row">
       <button id="back-to-lobby">← Lobby</button>
       <button id="start-game" class="hidden">Start game</button>

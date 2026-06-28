@@ -400,7 +400,10 @@ object LobbyManager {
         Behaviors.same
 
       case ListLobbiesForPlayer(playerId, replyTo) =>
-        val mine = lobbies.values.filter(m => m.status.isJoinable && m.players.contains(playerId)).toList
+        val mine = lobbies.values
+          .filter(m => m.players.contains(playerId))
+          .filter(m => m.status.isJoinable || m.status == GameLifecycleStatus.Finished)
+          .toList
         replyTo ! LobbyManager.PlayerLobbies(mine)
         Behaviors.same
 

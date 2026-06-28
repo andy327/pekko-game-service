@@ -275,6 +275,8 @@ function prepareGameView({ gameId, gameType, isHost }) {
   setError("game-error", "");
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
+  $("post-game-bar").classList.add("hidden");
+  $("rematch-btn").classList.add("hidden");
   clearTimeout(copyLinkTimer);
   $("copy-link").textContent = COPY_LINK_LABEL;
   $("chat-log").innerHTML = "";
@@ -317,7 +319,8 @@ function renderMySessions(data) {
     const type = l.gameType.toLowerCase();
     const youHost = Boolean(session.me) && l.hostId === session.me.id;
     const count = Object.keys(l.players).length;
-    const label = `${GAMES[type].label} — lobby (${count}/${GAMES[type].maxPlayers})${youHost ? " · you host" : ""}`;
+    const phase = l.status === "Finished" ? "finished — chat/rematch" : `lobby (${count}/${GAMES[type].maxPlayers})`;
+    const label = `${GAMES[type].label} — ${phase}${youHost ? " · you host" : ""}`;
     ul.appendChild(sessionRow(label, "Return", () => enterGame({ gameId: l.gameId, gameType: type, isHost: youHost })));
   }
 }
@@ -362,7 +365,13 @@ function onLobbyUpdated(metadata) {
   if (!session.game || metadata.gameId !== session.game.gameId) return;
   if (metadata.status === "InProgress") {
     $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    $("post-game-bar").classList.add("hidden"); // a rematch just began; the next GameStateUpdated takes over
+    $("rematch-btn").classList.add("hidden");
     return; // game state pushes take over from here
+  }
+  if (metadata.status === "Finished") {
+    onMatchFinished(metadata);
+    return;
   }
 
   const count = Object.keys(metadata.players).length;
@@ -382,6 +391,27 @@ function onLobbyUpdated(metadata) {
     $("start-game").classList.add("hidden");
     setStatus(`Hosted by ${hostName} — waiting for them to start… (${count}/${max})`);
   }
+}
+
+// The room's match has ended but the room survives: keep the final board on screen, surface a rematch bar, and let
+// the host start again. The guest sees a wait message; both keep chatting via the still-live ChatMessage stream.
+function onMatchFinished(metadata) {
+  const youHost = Boolean(session.me) && metadata.hostId === session.me.id;
+  session.game.isHost = youHost;
+
+  const series = metadata.matchCount > 1 ? ` (match ${metadata.matchCount})` : "";
+  $("post-game-status").textContent = youHost
+    ? `Game over${series}. Start a rematch when you're ready.`
+    : `Game over${series}. Waiting for the host to start a rematch…`;
+  $("rematch-btn").classList.toggle("hidden", !youHost);
+  $("post-game-bar").classList.remove("hidden");
+}
+
+async function rematch() {
+  setError("game-error", "");
+  const res = await api(`/lobby/${session.game.gameId}/start`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the rematch");
+  // On success a fresh GameStateUpdated arrives over the WebSocket and clears the post-game bar.
 }
 
 async function startGame() {
@@ -444,6 +474,8 @@ function sendChat(text) {
 function renderBoard(state) {
   const board = $("board");
   $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
+  $("post-game-bar").classList.add("hidden"); // a fresh board (e.g. a rematch) supersedes the prior match's post-game bar
+  $("rematch-btn").classList.add("hidden");
   setError("game-error", ""); // the state changed, so any prior move error (e.g. "not your turn") is now stale
   const rows = state.board;
   const cols = rows[0] ? rows[0].length : 0;
@@ -629,6 +661,7 @@ $("refresh-lobbies").addEventListener("click", () => {
 });
 $("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
+$("rematch-btn").addEventListener("click", rematch);
 $("back-to-lobby").addEventListener("click", enterLobby); // browse the lobby without leaving the current game
 $("leave-game").addEventListener("click", leaveGame);
 $("copy-link").addEventListener("click", copyInviteLink);
