@@ -253,8 +253,11 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Get(s"/lobby/$gameId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val response = responseAs[LobbyMetadata]
-        // createdAt is stamped server-side at creation time, so compare the rest of the metadata against it
-        response shouldBe expectedLobbyMetadata.copy(createdAt = response.createdAt)
+        // createdAt/lastActivityAt are stamped server-side, so compare the rest of the metadata against them
+        response shouldBe expectedLobbyMetadata.copy(
+          createdAt = response.createdAt,
+          lastActivityAt = response.lastActivityAt
+        )
       }
     }
 

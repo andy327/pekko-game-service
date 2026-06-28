@@ -130,6 +130,9 @@ object LobbyManager {
   /** Fan `event` (a chat message) out to the lobby's subscribers, used while the match is still in its lobby phase. */
   final private[core] case class BroadcastChat(gameId: GameId, event: PlayerEvent) extends Command
 
+  /** Periodic self-tick that tears down post-game (Finished) rooms that are empty or idle past [[finishedRoomTtl]]. */
+  final private[core] case object EvictIdleRooms extends Command
+
   // --- Response type owned by LobbyManager ---
 
   /** Paginated lobby-list result; adapted into [[GameManager.LobbiesListed]] by a GameManager message adapter. */
@@ -141,6 +144,12 @@ object LobbyManager {
   final case class PlayerLobbies(lobbies: List[LobbyMetadata])
 
   val recentlyEndedTtl: FiniteDuration = 1.hour
+
+  /** A post-game (Finished) room with no connected players, or idle for longer than this, is torn down. */
+  val finishedRoomTtl: FiniteDuration = 30.minutes
+
+  /** How often the idle-room eviction runs. */
+  private val evictInterval: FiniteDuration = 1.minute
 
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -154,12 +163,14 @@ object LobbyManager {
   def apply(
       gameManager: ActorRef[GameManager.Command],
       lobbyRepo: LobbyRepository
-  )(implicit runtime: IORuntime): Behavior[Command] = {
-    val recentlyEnded: Cache[GameId, LobbyMetadata] = Scaffeine()
-      .expireAfterWrite(recentlyEndedTtl)
-      .build[GameId, LobbyMetadata]()
-    running(Map.empty, recentlyEnded, Map.empty, gameManager, lobbyRepo)
-  }
+  )(implicit runtime: IORuntime): Behavior[Command] =
+    Behaviors.withTimers { timers =>
+      timers.startTimerWithFixedDelay(EvictIdleRooms, evictInterval)
+      val recentlyEnded: Cache[GameId, LobbyMetadata] = Scaffeine()
+        .expireAfterWrite(recentlyEndedTtl)
+        .build[GameId, LobbyMetadata]()
+      running(Map.empty, recentlyEnded, Map.empty, gameManager, lobbyRepo)
+    }
 
   /** Sends a [[PlayerEvent]] to every PlayerActor subscribed to the given lobby.
     *
@@ -212,7 +223,18 @@ object LobbyManager {
 
       case BroadcastChat(gameId, event) =>
         fanOut(subscribers, gameId, event)
-        Behaviors.same
+        // chat keeps a post-game room alive: bump its activity so eviction doesn't close it mid-conversation
+        lobbies.get(gameId) match {
+          case Some(m) =>
+            running(
+              lobbies + (gameId -> m.copy(lastActivityAt = Instant.now())),
+              recentlyEnded,
+              subscribers,
+              gameManager,
+              lobbyRepo
+            )
+          case None => Behaviors.same
+        }
 
       case CreateLobby(gameType, host, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
@@ -419,7 +441,7 @@ object LobbyManager {
         lobbies.get(gameId) match {
           case Some(metadata) =>
             context.log.info(s"Match in room $gameId ended; returning ${returnedSubscribers.size} players to the room")
-            val finished = metadata.copy(status = GameLifecycleStatus.Finished)
+            val finished = metadata.copy(status = GameLifecycleStatus.Finished, lastActivityAt = Instant.now())
             // re-own the match's subscribers (the game actor already sent them GameEnded before handing them back) and
             // watch each so a later disconnect drops it, mirroring SubscribeToLobby
             returnedSubscribers.values.foreach(context.watch)
@@ -438,6 +460,24 @@ object LobbyManager {
           case None =>
             context.log.info(s"MatchEnded for $gameId: no lobby entry (orphan match); dropping returned subscribers")
             Behaviors.same
+        }
+
+      case EvictIdleRooms =>
+        // a post-game room is torn down once everyone has left it or it has sat idle past the TTL
+        val cutoff = Instant.now().toEpochMilli - finishedRoomTtl.toMillis
+        val stale = lobbies.filter { case (id, m) =>
+          m.status == GameLifecycleStatus.Finished &&
+          (subscribers.getOrElse(id, Map.empty).isEmpty || m.lastActivityAt.toEpochMilli < cutoff)
+        }
+        if (stale.isEmpty) Behaviors.same
+        else {
+          stale.foreach { case (id, m) =>
+            context.log.info(s"Evicting idle/empty finished room $id")
+            // tell any remaining watchers the room has closed, then retire it to the recently-ended cache
+            fanOut(subscribers, id, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+            recentlyEnded.put(id, m.copy(status = GameLifecycleStatus.Cancelled))
+          }
+          running(lobbies -- stale.keySet, recentlyEnded, subscribers -- stale.keySet, gameManager, lobbyRepo)
         }
     }
   }.receiveSignal { case (context, Terminated(ref)) =>

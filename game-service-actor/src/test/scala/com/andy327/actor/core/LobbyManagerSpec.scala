@@ -118,6 +118,31 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       spawn2.players.head should not be alice.id // rematch: the seating rotates so the other player leads
     }
 
+    "evict an empty finished room and serve it from the recently-ended cache as Cancelled" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty) // Finished with no connected players
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.status shouldBe GameLifecycleStatus.Cancelled
+    }
+
+    "keep a finished room with a connected, recently-active player" in {
+      val f = newLobby()
+      val (gameId, _) = startGame(f)
+      val sub = TestProbe[PlayerActor.Command]()
+      f.lm ! LobbyManager.MatchEnded(gameId, Map(alice.id -> sub.ref)) // re-owned subscriber, activity = now
+      sub.expectMessageType[PlayerActor.SendEvent] // LobbyUpdated(Finished)
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Finished
+    }
+
     "reject a rematch attempt from a non-host" in {
       val f = newLobby()
       val (gameId, _) = startGame(f)

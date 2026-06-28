@@ -19,7 +19,8 @@ object LobbyMetadata {
   def newLobby(gameType: GameType, host: Player): LobbyMetadata = {
     val gameId = UUID.randomUUID()
     val players = Map(host.id -> host)
-    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, Instant.now())
+    val now = Instant.now()
+    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, now, lastActivityAt = now)
   }
 }
 
@@ -37,6 +38,8 @@ object LobbyMetadata {
   *                       most-recent) match so an in-progress game can be re-associated with its room after a restart
   * @param matchCount how many matches have been started in this room (incremented on each start/rematch); used to
   *                   rotate the seating so the first-move seat alternates across rematches
+  * @param lastActivityAt server time of the last activity in this room (start, leave, chat, match end); used to reap
+  *                       idle post-game (Finished) rooms
   */
 case class LobbyMetadata(
     gameId: GameId,
@@ -46,5 +49,6 @@ case class LobbyMetadata(
     status: GameLifecycleStatus,
     createdAt: Instant,
     currentMatchId: Option[MatchId] = None,
-    matchCount: Int = 0
+    matchCount: Int = 0,
+    lastActivityAt: Instant = Instant.EPOCH
 )
