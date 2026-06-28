@@ -27,7 +27,8 @@ object PlayerEvent {
 
   /** The game has ended.
     *
-    * @param result Completed (someone won) or Cancelled (host left before the game started).
+    * @param result Completed (someone won or drew), or Cancelled — the host left/cancelled a pre-game lobby, or a
+    *               post-game room was evicted for sitting idle/empty too long.
     */
   final case class GameEnded(result: GameLifecycleStatus.GameEnded) extends PlayerEvent
 

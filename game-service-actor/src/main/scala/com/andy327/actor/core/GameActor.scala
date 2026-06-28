@@ -111,11 +111,21 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     */
   protected def snapshotSavedResult(cmd: Command): Option[Either[Throwable, Unit]]
 
+  /** Extract the `replyTo` ref from `cmd` if it is a command that expects a `GameError`/`GameState` reply (a move,
+    * a leave, or a state read), otherwise `None`.
+    *
+    * Used by [[terminating]] to answer a request that lands in the brief window between game completion and the
+    * final snapshot being confirmed, rather than leaving the caller's `ask` to time out silently.
+    */
+  protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameState]]]
+
   /** Waits for the final snapshot confirmation after a game ends, then stops the actor.
     *
-    * Entered after a win or draw is detected. All commands except `SnapshotSaved` are ignored — the actor is
-    * shutting down and should not process new moves or subscribe requests. The actor self-stops once the final
-    * snapshot is confirmed, so [[com.andy327.actor.core.GameManager]] does not need to call `context.stop`.
+    * Entered after a win or draw is detected. A move/leave/state-read landing in this window is answered with
+    * `GameError.GameOver` rather than dropped, so the caller's `ask` doesn't time out; everything else
+    * (subscribe/unsubscribe/broadcast) is ignored — the actor is shutting down and should not take on new subscribers.
+    * The actor self-stops once the final snapshot is confirmed, so [[com.andy327.actor.core.GameManager]] does not need
+    * to call `context.stop`.
     *
     * A `Terminated` signal from a still-watched subscriber is ignored here; without an explicit handler Pekko would
     * raise `DeathPactException` and crash the actor before the final snapshot is confirmed.
@@ -130,6 +140,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
           }
           Behaviors.stopped
         case None =>
+          replyToInTerminating(msg).foreach(_ ! Left(GameError.GameOver))
           Behaviors.same
       }
     }.receiveSignal { case (_, Terminated(_)) =>

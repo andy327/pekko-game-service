@@ -3,6 +3,8 @@ package com.andy327.actor.core
 import java.time.Instant
 import java.util.UUID
 
+import scala.concurrent.duration._
+
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
@@ -36,10 +38,12 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       responseProbe: TestProbe[GameManager.GameResponse]
   )
 
-  private def newLobby(): LobbyFixture = {
+  // Duration.Zero by default so tests can assert eviction without waiting out the real grace period; tests checking
+  // that the grace period actually withholds eviction pass a long-enough override explicitly.
+  private def newLobby(emptyRoomGrace: FiniteDuration = Duration.Zero): LobbyFixture = {
     val gmProbe = TestProbe[GameManager.Command]()
     val responseProbe = TestProbe[GameManager.GameResponse]()
-    LobbyFixture(spawn(LobbyManager(gmProbe.ref, noOpLobbyRepo)), gmProbe, responseProbe)
+    LobbyFixture(spawn(LobbyManager(gmProbe.ref, noOpLobbyRepo, emptyRoomGrace)), gmProbe, responseProbe)
   }
 
   /** Create a lobby with alice as host and have bob join. Returns (gameId, host). */
@@ -118,8 +122,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       spawn2.players.head should not be alice.id // rematch: the seating rotates so the other player leads
     }
 
-    "evict an empty finished room and serve it from the recently-ended cache as Cancelled" in {
-      val f = newLobby()
+    "evict an empty finished room past its grace period and serve it from the recently-ended cache as Cancelled" in {
+      val f = newLobby() // Duration.Zero grace: empty is immediately stale
       val (gameId, _) = startGame(f)
       f.lm ! LobbyManager.MatchEnded(gameId, Map.empty) // Finished with no connected players
 
@@ -128,6 +132,18 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
       metadata.status shouldBe GameLifecycleStatus.Cancelled
+    }
+
+    "not evict an empty finished room within its grace period" in {
+      // a real-world momentary disconnect (e.g. a browser refresh) shouldn't cost the room on the very next tick
+      val f = newLobby(emptyRoomGrace = 1.hour)
+      val (gameId, _) = startGame(f)
+      f.lm ! LobbyManager.MatchEnded(gameId, Map.empty) // Finished with no connected players, activity = now
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(gameId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Finished
     }
 
     "keep a finished room with a connected, recently-active player" in {

@@ -372,7 +372,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       persistProbe.expectTerminated(actor)
     }
 
-    "ignore non-SnapshotSaved messages in terminating state" in {
+    "reject a GetState landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -382,11 +382,68 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      // GetState is ignored in terminating — no reply, actor stays alive
+      // a request landing in the terminating window gets a clean rejection rather than no reply at all
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      replyProbe.expectNoMessage()
+      replyProbe.expectMessage(Left(GameError.GameOver))
 
       // SnapshotSaved then stops the actor
+      actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "reject a MakeMove landing in terminating state with GameOver instead of dropping it" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        expectMovePersisted(persistProbe)
+      }
+
+      actor ! TurnBasedGameActor.MakeMove(bob, Location(2, 2), replyProbe.ref)
+      replyProbe.expectMessage(Left(GameError.GameOver))
+
+      actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "reject a PlayerLeft landing in terminating state with GameOver instead of dropping it" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        expectMovePersisted(persistProbe)
+      }
+
+      actor ! TurnBasedGameActor.PlayerLeft(bob, replyProbe.ref)
+      replyProbe.expectMessage(Left(GameError.GameOver))
+
+      actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
+      persistProbe.expectTerminated(actor)
+    }
+
+    "silently ignore Subscribe and Broadcast landing in terminating state" in {
+      val (actor, persistProbe) = newActor()
+      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val subscriberProbe = createTestProbe[PlayerActor.Command]()
+
+      xWinsMoves.foreach { case (player, loc) =>
+        actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
+        replyProbe.receiveMessage()
+        expectMovePersisted(persistProbe)
+      }
+
+      // these have no GameError/GameState reply to give, so — unlike MakeMove/PlayerLeft/GetState — they are dropped
+      // exactly as before: no push to the would-be subscriber, and the actor stays alive awaiting SnapshotSaved
+      actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
+      actor ! TurnBasedGameActor.Broadcast(
+        PlayerEvent.ChatMessage(UUID.randomUUID(), alice, "Alice", "hi", Instant.now())
+      )
+      subscriberProbe.expectNoMessage()
+
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
       persistProbe.expectTerminated(actor)
     }

@@ -314,7 +314,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       persistProbe.expectTerminated(actor)
     }
 
-    "ignore non-SnapshotSaved messages in terminating state" in {
+    "reject a GetState landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -324,9 +324,9 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      // GetState is ignored in terminating — no reply, actor stays alive
+      // a request landing in the terminating window gets a clean rejection rather than no reply at all
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      replyProbe.expectNoMessage()
+      replyProbe.expectMessage(Left(GameError.GameOver))
 
       // SnapshotSaved then stops the actor
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))

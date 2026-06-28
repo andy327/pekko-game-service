@@ -22,6 +22,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 
 - 🔐 Credentialed accounts — register, log in, and change password (Argon2-hashed), issuing expiring JWTs for player actions
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
+- 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
 - 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, and Battleship
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
 - ⚡ Real-time state delivery to all participants over WebSockets
@@ -44,6 +45,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 
 - **Authentication** — players register and log in with a password (Argon2-hashed) to obtain a JWT, which they present to perform actions. Tokens expire, so clients re-authenticate when a request returns 401; WebSocket connections are authenticated only at connect, so an expiring token never drops a live socket.
 - **Lobbies** — create a lobby for a chosen game type; join, leave, and list open lobbies; start a match once the required number of players is present.
+- **Post-game rooms & rematch** — when a match ends, its room survives in a non-joinable `Finished` state instead of disappearing: the same players keep chatting, and the host can start a rematch (same `start` call, same roster, seating rotated so the other player leads). A room with no connected players, or sitting idle, is evicted automatically after a grace period.
 - **Gameplay** — submit moves; the server validates turn order and legality and applies them to authoritative game state.
 - **Real-time updates** — connected players and spectators receive game-state changes pushed over WebSockets.
 - **Hidden information** — players see only their own view of state; spectators receive a fog-of-war view (no leakage of hidden state).
@@ -180,7 +182,7 @@ All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a 
 | `GET`    | `/lobby/{gameId}` | Fetch metadata for one lobby |
 | `POST`   | `/lobby/{gameId}/join` | Join an open lobby |
 | `POST`   | `/lobby/{gameId}/leave` | Leave a lobby (or forfeit an in-progress game) |
-| `POST`   | `/lobby/{gameId}/start` | Start the match (host only) |
+| `POST`   | `/lobby/{gameId}/start` | Start the match (host only); also doubles as the rematch call when the room is in its post-game `Finished` state |
 | `DELETE` | `/lobby/{gameId}` | Cancel a pre-game lobby (host only) |
 | `POST` / `DELETE` | `/lobby/{gameId}/subscribe` | Start / stop spectating a lobby's push events |
 
@@ -210,9 +212,9 @@ After authenticating, a client opens a single WebSocket to `GET /ws` (Bearer tok
 
 | `type` | Payload | Sent when |
 |--------|---------|-----------|
-| `LobbyUpdated` | lobby `metadata` | A player joins/leaves or the lobby's status changes |
+| `LobbyUpdated` | lobby `metadata` | A player joins/leaves or the lobby's status changes, including the room turning `Finished` after a match ends, or `InProgress` again on rematch |
 | `GameStateUpdated` | the viewer's `state` | A move is applied — each recipient gets their own per-viewer projection |
-| `GameEnded` | final `result` | The game reaches a win or draw |
+| `GameEnded` | final `result` | The game reaches a win or draw, or a post-game room is evicted for sitting idle/empty |
 | `ChatMessage` | `gameId`, `senderId`, `senderName`, `text`, `sentAt` | Anyone watching that match posts chat |
 
 **Client → server** frames are likewise tagged by `type`. Today the sole inbound message is chat; unrecognized or malformed frames are logged and dropped:

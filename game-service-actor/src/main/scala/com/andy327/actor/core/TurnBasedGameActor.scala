@@ -117,6 +117,14 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     case _                     => None
   }
 
+  override protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameState]]] =
+    cmd match {
+      case MakeMove(_, _, replyTo) => Some(replyTo)
+      case PlayerLeft(_, replyTo)  => Some(replyTo)
+      case GetState(replyTo)       => Some(replyTo)
+      case _                       => None
+    }
+
   /** Initializes a new game actor with an empty game. */
   override def create(
       matchId: MatchId,
