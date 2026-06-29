@@ -232,10 +232,11 @@ async function refreshLobbies() {
   list.innerHTML = "";
   if (!res.ok) return flashError("lobby-error", "Could not list lobbies");
 
-  const lobbies = (res.data.lobbies || [])
-    .filter((l) => GAMES[l.gameType.toLowerCase()])
-    .filter((l) => !(session.me && l.players[session.me.id])); // lobbies you're in appear under "Your games & lobbies"
-  if (lobbies.length === 0) {
+  // entries are { metadata, spectatorCount }; the server already orders them most-watched-first
+  const entries = (res.data.lobbies || [])
+    .filter((e) => GAMES[e.metadata.gameType.toLowerCase()])
+    .filter((e) => !(session.me && e.metadata.players[session.me.id])); // yours appear under "Your games & lobbies"
+  if (entries.length === 0) {
     const li = document.createElement("li");
     li.className = "meta";
     li.textContent = filter ? "No open lobbies for this game. Create one above." : "No open lobbies. Create one above.";
@@ -243,32 +244,50 @@ async function refreshLobbies() {
     return;
   }
 
-  for (const lobby of lobbies) {
+  for (const entry of entries) {
+    const lobby = entry.metadata;
     const type = lobby.gameType.toLowerCase();
     const max = GAMES[type].maxPlayers;
     const count = Object.keys(lobby.players).length;
     const host = lobby.players[lobby.hostId]; // the host is always present in the players map
     const hostName = host ? host.name : "unknown";
+    const joinable = lobby.status === "WaitingForPlayers" || lobby.status === "ReadyToStart";
+    const phase = lobby.status === "InProgress" ? "in progress" : lobby.status === "Finished" ? "post-game" : null;
     const li = document.createElement("li");
 
+    const watching = entry.spectatorCount > 0 ? ` — ${entry.spectatorCount} watching` : "";
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = `${GAMES[type].label} — hosted by ${hostName} — ${count}/${max} players`;
+    meta.textContent = phase
+      ? `${GAMES[type].label} — hosted by ${hostName} — ${phase}${watching}`
+      : `${GAMES[type].label} — hosted by ${hostName} — ${count}/${max} players${watching}`;
 
-    const full = count >= max;
-    const join = document.createElement("button");
-    join.textContent = full ? "Full" : "Join";
-    join.disabled = full;
-    if (!full) join.onclick = () => joinGame(lobby.roomId, type);
+    li.appendChild(meta);
 
-    li.append(meta, join);
+    if (joinable) {
+      const full = count >= max;
+      const join = document.createElement("button");
+      join.textContent = full ? "Full" : "Join";
+      join.disabled = full;
+      if (!full) join.onclick = () => joinGame(lobby.roomId, type);
+      li.appendChild(join);
+    }
+
+    const spectate = document.createElement("button");
+    spectate.textContent = "Spectate";
+    spectate.onclick = () => spectateGame(lobby.roomId, type, lobby.status);
+    li.appendChild(spectate);
+
     list.appendChild(li);
   }
 }
 
 // Reset the game view to a clean slate for a given game/lobby and show it. The caller sets the status and subscribes.
-function prepareGameView({ roomId, gameType, isHost }) {
-  session.game = { roomId, gameType, isHost };
+// isSpectator marks a read-only viewer (board clicks disabled, no chat send); isLive tracks whether we're watching an
+// already-started match (game-actor subscription) vs. a pre-game lobby (lobby subscription) — needed so leaveGame
+// calls the matching unsubscribe endpoint.
+function prepareGameView({ roomId, gameType, isHost, isSpectator = false, isLive = false }) {
+  session.game = { roomId, gameType, isHost, isSpectator, isLive };
   $("game-title").textContent = GAMES[gameType].label;
   $("board").innerHTML = "";
   $("column-controls").innerHTML = "";
@@ -280,7 +299,23 @@ function prepareGameView({ roomId, gameType, isHost }) {
   clearTimeout(copyLinkTimer);
   $("copy-link").textContent = COPY_LINK_LABEL;
   $("chat-log").innerHTML = "";
+  $("chat-form").classList.toggle("hidden", isSpectator); // spectators get read-only chat
+  $("leave-game").textContent = isSpectator ? "Stop spectating" : "Leave";
   showPanel("game");
+}
+
+// Watch a lobby or live game without taking a seat. Subscribes via the lobby endpoint for a pre-game room (the same
+// path a joining player uses) or the game endpoint for an already-started match; both endpoints accept any
+// authenticated player regardless of whether they're seated.
+async function spectateGame(roomId, gameType, status) {
+  setError("lobby-error", "");
+  const live = status === "InProgress";
+  prepareGameView({ roomId, gameType, isHost: false, isSpectator: true, isLive: live });
+  setStatus(live ? "Spectating the match…" : "Spectating the lobby…");
+  const path = live ? `/${gameType}/${roomId}/subscribe` : `/lobby/${roomId}/subscribe`;
+  const res = await api(path, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not spectate");
+  loadChatHistory(roomId, gameType);
 }
 
 // Show the lobby screen and refresh both lists: the player's own sessions and the open lobbies.
@@ -353,7 +388,7 @@ async function enterGame({ roomId, gameType, isHost }) {
 // Return to a game already in progress (from the sessions list): subscribe to the game actor, which immediately pushes
 // the current board. Pre-game lobbies are returned to via enterGame instead (they subscribe to the lobby).
 async function resumeGame({ roomId, gameType }) {
-  prepareGameView({ roomId, gameType, isHost: false });
+  prepareGameView({ roomId, gameType, isHost: false, isLive: true });
   setStatus("Returning to the game…");
   const res = await api(`/${gameType}/${roomId}/subscribe`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not return to the game");
@@ -428,7 +463,16 @@ function onGameEnded(result) {
 
 async function leaveGame() {
   const game = session.game;
-  if (game) await api(`/lobby/${game.roomId}/leave`, { method: "POST", body: {} });
+  if (game) {
+    if (game.isSpectator) {
+      // a spectator never took a seat, so /lobby/leave (which forfeits a seated player) doesn't apply — unsubscribe
+      // from whichever side (lobby or live game) we're currently watching instead
+      const path = game.isLive ? `/${game.gameType}/${game.roomId}/subscribe` : `/lobby/${game.roomId}/subscribe`;
+      await api(path, { method: "DELETE" });
+    } else {
+      await api(`/lobby/${game.roomId}/leave`, { method: "POST", body: {} });
+    }
+  }
   session.game = null;
   enterLobby();
 }
@@ -473,6 +517,9 @@ function sendChat(text) {
 // are played via drop buttons above the board rather than by clicking individual cells.
 function renderBoard(state) {
   const board = $("board");
+  // a board push means we're now (or still) watching a live game, however we got here — e.g. a spectator watching a
+  // lobby whose match just started, handed off to the game actor along with the seated players
+  if (session.game) session.game.isLive = true;
   $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
   $("post-game-bar").classList.add("hidden"); // a fresh board (e.g. a rematch) supersedes the prior match's post-game bar
   $("rematch-btn").classList.add("hidden");
@@ -483,15 +530,16 @@ function renderBoard(state) {
   board.innerHTML = "";
 
   const over = Boolean(state.winner) || state.draw === true;
+  const spectating = Boolean(session.game && session.game.isSpectator);
   const columnMode = Boolean(session.game && GAMES[session.game.gameType] && GAMES[session.game.gameType].columns);
 
-  renderColumnControls(columnMode ? cols : 0, rows, over);
+  renderColumnControls(columnMode ? cols : 0, rows, over || spectating);
 
   rows.forEach((cells, r) => {
     cells.forEach((mark, c) => {
       const cell = document.createElement("div");
       // In column mode the cells are display-only; you drop via the buttons above the board.
-      const clickable = !over && !columnMode;
+      const clickable = !over && !spectating && !columnMode;
       cell.className = "cell" + (mark ? ` mark-${mark}` : "") + (clickable ? " clickable" : " disabled");
       cell.textContent = mark;
       if (clickable) cell.onclick = () => submitMove(r, c);
