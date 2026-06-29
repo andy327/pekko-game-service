@@ -389,9 +389,11 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       gm ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
       val GameManager.LobbyCreated(roomId3, _) = responseProbe.receiveMessage()
 
+      // joinable lobbies plus the live game are all listable (so a browser can spectate an in-progress match);
+      // only Finished/Completed/Cancelled rooms stay off this list
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
-      response.lobbies.map(_.metadata.roomId) should contain only (roomId2, roomId3)
+      response.lobbies.map(_.metadata.roomId) should contain only (roomId1, roomId2, roomId3)
     }
 
     "report a player's joined lobbies and active games via GetPlayerSessions" in {

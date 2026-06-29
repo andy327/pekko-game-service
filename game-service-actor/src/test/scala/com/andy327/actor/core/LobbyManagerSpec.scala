@@ -180,18 +180,18 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       metadata.status shouldBe GameLifecycleStatus.Finished
     }
 
-    "keep a finished room out of the joinable list but still queryable" in {
+    "keep a finished room listed (for spectating) and still queryable" in {
       val f = newLobby()
       val listProbe = TestProbe[LobbyManager.LobbiesListed]()
       val (roomId, _) = startGame(f)
 
       f.lm ! LobbyManager.MatchEnded(roomId, Map.empty)
 
-      // a Finished room is not joinable, so it must not appear in ListLobbies
+      // a Finished room isn't joinable, but it's still listed so a room doesn't flicker off the list between matches
       f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
-      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.metadata.roomId) should not contain roomId
+      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.metadata.roomId) should contain(roomId)
 
-      // but the room survives in memory (for chat/rematch), so GetLobbyInfo still finds it
+      // and the room survives in memory (for chat/rematch), so GetLobbyInfo still finds it
       f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
       val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
       metadata.status shouldBe GameLifecycleStatus.Finished

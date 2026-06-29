@@ -462,7 +462,10 @@ object LobbyManager {
 
       case ListLobbies(gameTypeFilter, page, limit, replyTo) =>
         context.log.info("Listing available lobbies")
-        val all = lobbies.values.filter(_.status.isJoinable).toList
+        // every room this map tracks is listable (WaitingForPlayers/ReadyToStart/InProgress/Finished) — terminal
+        // Completed/Cancelled rooms are never in this map, having already moved to recentlyEnded. Listing Finished
+        // rooms too (not just InProgress) avoids a room flickering in and out of the list across each rematch cycle
+        val all = lobbies.values.toList
         val filtered = gameTypeFilter.fold(all)(gt => all.filter(_.gameType == gt))
         val summaries = filtered.map(m => LobbySummary(m, spectatorCount(subscribers, m.roomId, m)))
         // most-watched first, newest first as a tiebreaker; sortBy is stable, so sorting by createdAt first and then
