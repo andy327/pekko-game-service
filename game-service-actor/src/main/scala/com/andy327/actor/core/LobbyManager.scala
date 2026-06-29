@@ -138,7 +138,13 @@ object LobbyManager {
   // --- Response type owned by LobbyManager ---
 
   /** Paginated lobby-list result; adapted into [[GameManager.LobbiesListed]] by a GameManager message adapter. */
-  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int)
+  final case class LobbiesListed(lobbies: List[LobbySummary], page: Int, limit: Int, total: Int)
+
+  /** A lobby paired with its current spectator count, for the public lobby-list endpoint. Kept separate from
+    * [[lobby.LobbyMetadata]] (which is persisted to Redis) since the spectator count is a live connection detail, not
+    * durable lobby state.
+    */
+  final case class LobbySummary(metadata: LobbyMetadata, spectatorCount: Int)
 
   /** A player's joined pre-game lobbies, replied to a [[ListLobbiesForPlayer]] query; consumed by [[GameManager]] while
     * assembling its combined [[GameManager.PlayerSessions]] response.
@@ -195,6 +201,14 @@ object LobbyManager {
       event: PlayerEvent
   ): Unit =
     subscribers.getOrElse(roomId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
+
+  /** Connected subscribers for `roomId` who are not seated in `metadata.players` — i.e. watching but not playing. */
+  private def spectatorCount(
+      subscribers: Map[RoomId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
+      roomId: RoomId,
+      metadata: LobbyMetadata
+  ): Int =
+    (subscribers.getOrElse(roomId, Map.empty).keySet -- metadata.players.keySet).size
 
   /** Seat order for a match: the host first, then the remaining players ordered by id, rotated left by the room's
     * match count. Rotation makes the first-move seat (seat 0) alternate across rematches; the first match (count 0)
@@ -275,7 +289,11 @@ object LobbyManager {
                 else GameLifecycleStatus.WaitingForPlayers
               val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
               replyTo ! GameManager.LobbyJoined(roomId, updatedMetadata, player)
-              fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(updatedMetadata))
+              fanOut(
+                subscribers,
+                roomId,
+                PlayerEvent.LobbyUpdated(updatedMetadata, spectatorCount(subscribers, roomId, updatedMetadata))
+              )
               persist(lobbyRepo.saveLobby(updatedMetadata))
               running(
                 lobbies + (roomId -> updatedMetadata),
@@ -336,7 +354,8 @@ object LobbyManager {
                   val migrated = newMetadata.copy(hostId = newHostId)
                   val msg = s"${player.name} left lobby $roomId; host transferred to ${newHost.name}"
                   replyTo ! GameManager.LobbyLeft(roomId, msg)
-                  fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(migrated))
+                  val spectators = spectatorCount(subscribers, roomId, migrated)
+                  fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(migrated, spectators))
                   val updatedSubscribers = subscribers.updatedWith(roomId)(_.map(_ - player.id))
                   persist(lobbyRepo.saveLobby(migrated))
                   running(
@@ -351,7 +370,11 @@ object LobbyManager {
             } else {
               context.log.info(s"Player ${player.name} left lobby $roomId")
               replyTo ! GameManager.LobbyLeft(roomId, s"${player.name} left lobby $roomId")
-              fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(newMetadata))
+              fanOut(
+                subscribers,
+                roomId,
+                PlayerEvent.LobbyUpdated(newMetadata, spectatorCount(subscribers, roomId, newMetadata))
+              )
               val updatedSubscribers = subscribers.updatedWith(roomId)(_.map(_ - player.id))
               persist(lobbyRepo.saveLobby(newMetadata))
               running(
@@ -439,10 +462,16 @@ object LobbyManager {
 
       case ListLobbies(gameTypeFilter, page, limit, replyTo) =>
         context.log.info("Listing available lobbies")
-        val all = lobbies.values.filter(_.status.isJoinable).toList
+        // every room this map tracks is listable (WaitingForPlayers/ReadyToStart/InProgress/Finished) — terminal
+        // Completed/Cancelled rooms are never in this map, having already moved to recentlyEnded. Listing Finished
+        // rooms too (not just InProgress) avoids a room flickering in and out of the list across each rematch cycle
+        val all = lobbies.values.toList
         val filtered = gameTypeFilter.fold(all)(gt => all.filter(_.gameType == gt))
-        // newest first, so freshly created lobbies surface at the top of the (paginated) list
-        val ordered = filtered.sortBy(_.createdAt)(Ordering[Instant].reverse)
+        val summaries = filtered.map(m => LobbySummary(m, spectatorCount(subscribers, m.roomId, m)))
+        // most-watched first, newest first as a tiebreaker; sortBy is stable, so sorting by createdAt first and then
+        // (stably) by spectatorCount preserves newest-first order within each spectatorCount group
+        val byCreatedAt = summaries.sortBy(_.metadata.createdAt)(Ordering[Instant].reverse)
+        val ordered = byCreatedAt.sortBy(-_.spectatorCount)
         val total = ordered.size
         val paged = ordered.drop((page - 1) * limit).take(limit)
         replyTo ! LobbyManager.LobbiesListed(paged, page, limit, total)
@@ -474,9 +503,15 @@ object LobbyManager {
             // mirroring TurnBasedGameActor; without this a dead ref would linger and receive dead-letter fan-out
             context.watch(playerRef)
             val updated = subscribers.getOrElse(roomId, Map.empty) + (playerId -> playerRef)
-            playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(metadata))
+            val updatedSubscribers = subscribers + (roomId -> updated)
+            // fan out (not just to the new subscriber) so already-connected viewers see the spectator count tick up
+            fanOut(
+              updatedSubscribers,
+              roomId,
+              PlayerEvent.LobbyUpdated(metadata, spectatorCount(updatedSubscribers, roomId, metadata))
+            )
             replyTo ! GameManager.SubscribeAcknowledged(roomId)
-            running(lobbies, recentlyEnded, subscribers + (roomId -> updated), gameManager, lobbyRepo, emptyRoomGrace)
+            running(lobbies, recentlyEnded, updatedSubscribers, gameManager, lobbyRepo, emptyRoomGrace)
           case None =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
@@ -486,6 +521,10 @@ object LobbyManager {
         // idempotent: unwatch and drop the player's ref if present, otherwise a harmless no-op; either way ack
         subscribers.getOrElse(roomId, Map.empty).get(playerId).foreach(context.unwatch)
         val updated = subscribers.updatedWith(roomId)(_.map(_ - playerId).filter(_.nonEmpty))
+        // tell the remaining viewers the spectator count just dropped
+        lobbies.get(roomId).foreach { metadata =>
+          fanOut(updated, roomId, PlayerEvent.LobbyUpdated(metadata, spectatorCount(updated, roomId, metadata)))
+        }
         replyTo ! GameManager.UnsubscribeAcknowledged(roomId)
         running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo, emptyRoomGrace)
 
@@ -498,14 +537,16 @@ object LobbyManager {
             // watch each so a later disconnect drops it, mirroring SubscribeToLobby
             returnedSubscribers.values.foreach(context.watch)
             val merged = subscribers.getOrElse(roomId, Map.empty) ++ returnedSubscribers
+            val mergedSubscribers = subscribers + (roomId -> merged)
             // tell everyone in the room it is now in its post-game state (drives the rematch process)
-            merged.values.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(finished)))
+            val event = PlayerEvent.LobbyUpdated(finished, spectatorCount(mergedSubscribers, roomId, finished))
+            merged.values.foreach(_ ! PlayerActor.SendEvent(event))
             // the post-game room lives in memory only; drop the stale in-progress record so a restart won't revive it
             persist(lobbyRepo.deleteLobby(roomId))
             running(
               lobbies + (roomId -> finished),
               recentlyEnded,
-              subscribers + (roomId -> merged),
+              mergedSubscribers,
               gameManager,
               lobbyRepo,
               emptyRoomGrace

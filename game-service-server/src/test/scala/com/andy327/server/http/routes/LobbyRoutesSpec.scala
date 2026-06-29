@@ -284,7 +284,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Get("/lobby/list") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val result = responseAs[GameManager.LobbiesListed]
-        result.lobbies.map(_.roomId) should contain(roomId)
+        result.lobbies.map(_.metadata.roomId) should contain(roomId)
         result.page shouldBe 1
         result.limit shouldBe 20
         result.total should be >= 1
@@ -299,7 +299,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Get("/lobby/list?gameType=tictactoe") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val result = responseAs[GameManager.LobbiesListed]
-        result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
+        result.lobbies.foreach(_.metadata.gameType shouldBe GameType.TicTacToe)
       }
     }
 
@@ -324,7 +324,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       Get("/lobby/list?gameType=connectfour") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val result = responseAs[GameManager.LobbiesListed]
-        result.lobbies.foreach(_.gameType shouldBe GameType.ConnectFour)
+        result.lobbies.foreach(_.metadata.gameType shouldBe GameType.ConnectFour)
       }
     }
 
@@ -504,7 +504,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       // the cancelled lobby is no longer joinable
       Get("/lobby/list") ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.LobbiesListed].lobbies.map(_.roomId) should not contain roomId
+        responseAs[GameManager.LobbiesListed].lobbies.map(_.metadata.roomId) should not contain roomId
       }
     }
 

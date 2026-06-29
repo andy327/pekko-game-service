@@ -174,6 +174,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       }
     }
 
+  /** Connected subscribers who are not one of `game.players` — i.e. watching but not seated in the match. */
+  private def spectatorCount(subscribers: Map[ActorRef[PlayerActor.Command], PlayerId], game: G): Int =
+    (subscribers.values.toSet -- game.players.toSet).size
+
   /** Persists, fans out, and completes a successful state transition — shared by `MakeMove` and `PlayerLeft`.
     *
     * Saves a snapshot, replies to the acting player with their own view, and fans a per-viewer view out to every
@@ -215,8 +219,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
     // reply to the acting player with their own view; fan out a per-viewer view to each subscriber
     replyTo ! Right(view.fromGame(nextState, Some(viewerId)))
+    val spectators = spectatorCount(subscribers, nextState)
     subscribers.foreach { case (ref, subscriberId) =>
-      ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(roomId, view.fromGame(nextState, Some(subscriberId))))
+      val event = PlayerEvent.GameStateUpdated(roomId, view.fromGame(nextState, Some(subscriberId)), spectators)
+      ref ! PlayerActor.SendEvent(event)
     }
 
     nextState.gameStatus match {
@@ -338,12 +344,18 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       case Subscribe(playerRef, playerId) =>
         // watch the subscriber so its termination (disconnect/reconnect) drops it from the map automatically
         context.watch(playerRef)
-        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(roomId, view.fromGame(game, Some(playerId))))
-        active(game, matchId, roomId, persist, gameManager, subscribers + (playerRef -> playerId), publisher)
+        val updatedSubscribers = subscribers + (playerRef -> playerId)
+        // only the (un)subscribing client is pushed here; already-connected viewers pick up the new spectator count
+        // on the next real state change (a move) rather than being re-pushed a full board on every subscribe
+        val viewState = view.fromGame(game, Some(playerId))
+        val event = PlayerEvent.GameStateUpdated(roomId, viewState, spectatorCount(updatedSubscribers, game))
+        playerRef ! PlayerActor.SendEvent(event)
+        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher)
 
       case Unsubscribe(playerRef) =>
         context.unwatch(playerRef)
-        active(game, matchId, roomId, persist, gameManager, subscribers - playerRef, publisher)
+        val updatedSubscribers = subscribers - playerRef
+        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher)
 
       case Broadcast(event) =>
         // chat and other broadcasts carry no hidden state, so every viewer gets the same event

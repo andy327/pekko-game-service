@@ -139,18 +139,20 @@ class SerializationSpec extends AnyWordSpec with Matchers {
         status = GameLifecycleStatus.WaitingForPlayers,
         createdAt = Instant.EPOCH
       )
-      val json = (PlayerEvent.LobbyUpdated(metadata): PlayerEvent).asJson
+      val json = (PlayerEvent.LobbyUpdated(metadata, spectatorCount = 0): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("LobbyUpdated")
       json.asObject.flatMap(_("metadata")) should be(defined)
+      json.hcursor.get[Int]("spectatorCount") shouldBe Right(0)
     }
 
     "encode GameStateUpdated with a type discriminator, roomId, and state" in {
       val roomId = UUID.randomUUID()
       val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
-      val json = (PlayerEvent.GameStateUpdated(roomId, state): PlayerEvent).asJson
+      val json = (PlayerEvent.GameStateUpdated(roomId, state, spectatorCount = 2): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
       json.hcursor.get[UUID]("roomId") shouldBe Right(roomId)
       json.asObject.flatMap(_("state")) should be(defined)
+      json.hcursor.get[Int]("spectatorCount") shouldBe Right(2)
     }
 
     "encode GameEnded with a type discriminator and result" in {

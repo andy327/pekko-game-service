@@ -14,16 +14,21 @@ sealed trait PlayerEvent
 
 object PlayerEvent {
 
-  /** The lobby the player is in has changed — a player joined, left, or the status updated. */
-  final case class LobbyUpdated(metadata: LobbyMetadata) extends PlayerEvent
+  /** The lobby the player is in has changed — a player joined, left, or the status updated.
+    *
+    * @param spectatorCount connected subscribers who are not seated in `metadata.players` — i.e. watching but not
+    *                       playing
+    */
+  final case class LobbyUpdated(metadata: LobbyMetadata, spectatorCount: Int) extends PlayerEvent
 
   /** The game state changed after a move — carries the full updated board state.
     *
     * @param roomId the room this update belongs to; lets a client routing several rooms dispatch the push to the right
     *               one (a room hosts at most one live match at a time)
     * @param state the full updated board state, rendered for the receiving subscriber
+    * @param spectatorCount connected subscribers who are not one of the match's seated players
     */
-  final case class GameStateUpdated(roomId: RoomId, state: GameState) extends PlayerEvent
+  final case class GameStateUpdated(roomId: RoomId, state: GameState, spectatorCount: Int) extends PlayerEvent
 
   /** The game has ended.
     *

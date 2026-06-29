@@ -25,7 +25,7 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
         winner = None,
         draw = false
       )
-      val event = PlayerEvent.GameStateUpdated(UUID.randomUUID(), dummyState)
+      val event = PlayerEvent.GameStateUpdated(UUID.randomUUID(), dummyState, spectatorCount = 0)
 
       actor ! PlayerActor.SendEvent(event)
       sessionProbe.expectMessage(PlayerActor.SessionEvent(event))

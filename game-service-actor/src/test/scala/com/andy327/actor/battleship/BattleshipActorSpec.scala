@@ -40,7 +40,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
   /** Receives the next pushed event and asserts it is a GameStateUpdated carrying a BattleshipState. */
   private def stateFrom(probe: TestProbe[PlayerActor.Command]): BattleshipState =
     probe.expectMessageType[PlayerActor.SendEvent].event match {
-      case PlayerEvent.GameStateUpdated(_, s: BattleshipState) => s
+      case PlayerEvent.GameStateUpdated(_, s: BattleshipState, _) => s
       case other => fail(s"expected GameStateUpdated(BattleshipState), got $other")
     }
 
