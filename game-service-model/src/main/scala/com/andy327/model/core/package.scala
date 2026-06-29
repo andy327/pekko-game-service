@@ -12,11 +12,6 @@ package object core {
     */
   type MatchId = UUID
 
-  /** Unique identifier for a game instance. Transitional: prefer [[RoomId]] or [[MatchId]], which distinguish the
-    * durable room from a single match.
-    */
-  type GameId = UUID
-
   /** Unique identifier for a player. */
   type PlayerId = UUID
 }

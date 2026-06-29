@@ -143,7 +143,7 @@ object JsonProtocol extends CirceSupport {
     *   - `{"type":"LobbyUpdated",     "metadata":{...}}`
     *   - `{"type":"GameStateUpdated", "roomId":..., "state":{...}}`
     *   - `{"type":"GameEnded",        "result":"Completed"}`
-    *   - `{"type":"ChatMessage",      "gameId":..., "senderId":..., "senderName":..., "text":..., "sentAt":...}`
+    *   - `{"type":"ChatMessage",      "roomId":..., "senderId":..., "senderName":..., "text":..., "sentAt":...}`
     */
   implicit val playerEventEncoder: Encoder[PlayerEvent] = Encoder.instance {
     case PlayerEvent.LobbyUpdated(metadata) =>
@@ -152,10 +152,10 @@ object JsonProtocol extends CirceSupport {
       Json.obj("type" -> "GameStateUpdated".asJson, "roomId" -> roomId.asJson, "state" -> state.asJson)
     case PlayerEvent.GameEnded(result) =>
       Json.obj("type" -> "GameEnded".asJson, "result" -> (result: GameLifecycleStatus).asJson)
-    case PlayerEvent.ChatMessage(gameId, senderId, senderName, text, sentAt) =>
+    case PlayerEvent.ChatMessage(roomId, senderId, senderName, text, sentAt) =>
       Json.obj(
         "type" -> "ChatMessage".asJson,
-        "gameId" -> gameId.asJson,
+        "roomId" -> roomId.asJson,
         "senderId" -> senderId.asJson,
         "senderName" -> senderName.asJson,
         "text" -> text.asJson,

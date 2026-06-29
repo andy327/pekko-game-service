@@ -204,7 +204,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     context.log.info(s"Match $matchId updated:\n$nextState")
 
     persist ! PersistenceProtocol.SaveSnapshot(
-      gameId = matchId,
+      matchId = matchId,
       gameType = gameType,
       game = nextState,
       // pass the real save outcome through so a failed snapshot is logged by the SnapshotSaved handler

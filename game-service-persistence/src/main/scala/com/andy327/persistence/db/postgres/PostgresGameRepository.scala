@@ -10,7 +10,7 @@ import cats.implicits._
 import doobie._
 import doobie.implicits._
 
-import com.andy327.model.core.{Game, GameId, GameType}
+import com.andy327.model.core.{Game, GameType, MatchId}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -31,27 +31,27 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
       )
     """.update.run.transact(xa).void
 
-  /** Saves the current state of a game of the given gameType into the database. If the gameId already exists, the
+  /** Saves the current state of a game of the given gameType into the database. If the matchId already exists, the
     * existing row is updated.
     */
-  override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
+  override def saveGame(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
     val jsonStr = GameTypeCodecs.serializeGame(gameType, game)
     val gameTypeStr = gameType.toString
 
     sql"""
       INSERT INTO games (game_id, game_type, game_state)
-      VALUES (${gameId.toString}, $gameTypeStr, $jsonStr)
+      VALUES (${matchId.toString}, $gameTypeStr, $jsonStr)
       ON CONFLICT (game_id) DO UPDATE
       SET game_type = EXCLUDED.game_type,
           game_state = EXCLUDED.game_state
     """.update.run.transact(xa).void
   }
 
-  /** Loads the game state for a given gameId and gameType. If the game exists, it is deserialized from JSON into the
+  /** Loads the game state for a given matchId and gameType. If the game exists, it is deserialized from JSON into the
     * game model for its GameType.
     */
-  override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-    sql"SELECT game_state FROM games WHERE game_id = ${gameId.toString}"
+  override def loadGame(matchId: MatchId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    sql"SELECT game_state FROM games WHERE game_id = ${matchId.toString}"
       .query[String]
       .option
       .transact(xa)
@@ -60,16 +60,16 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
           IO.fromEither(GameTypeCodecs.deserializeGame(gameType, jsonStr))
             .map(Some(_))
             .handleErrorWith { err =>
-              logger.warn(s"Failed to decode $gameType game ${gameId.toString}: ${err.getMessage}")
+              logger.warn(s"Failed to decode $gameType game ${matchId.toString}: ${err.getMessage}")
               IO.pure(None)
             }
         case None => IO.pure(None)
       }
 
-  /** Loads all games stored in the database and returns them as a Map from gameId to game state. If any games fail to
+  /** Loads all games stored in the database and returns them as a Map from matchId to game state. If any games fail to
     * decode from JSON, their errors are logged and we proceed with loading.
     */
-  override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
+  override def loadAllGames(): IO[Map[MatchId, (GameType, Game[_, _, _, _, _])]] =
     sql"SELECT game_id, game_type, game_state FROM games"
       .query[(String, String, String)]
       .to[List]
@@ -80,9 +80,9 @@ class PostgresGameRepository(xa: Transactor[IO]) extends GameRepository {
           val maybeGameType = GameType.fromString(gameTypeStr).toRight(new Exception(s"Unknown GameType: $gameTypeStr"))
 
           (maybeId, maybeGameType) match {
-            case (Right(gameId), Right(gameType)) =>
+            case (Right(matchId), Right(gameType)) =>
               GameTypeCodecs.deserializeGame(gameType, jsonStr) match {
-                case Right(game) => IO.pure(List(gameId -> (gameType, game)))
+                case Right(game) => IO.pure(List(matchId -> (gameType, game)))
                 case Left(err)   =>
                   IO {
                     logger.warn(s"Skipping corrupted $gameType game $idStr: ${err.getMessage}")

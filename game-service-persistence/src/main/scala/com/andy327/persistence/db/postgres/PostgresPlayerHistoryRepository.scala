@@ -12,7 +12,7 @@ import doobie._
 import doobie.implicits._
 import doobie.postgres.implicits._
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.{PlayerGameRecord, PlayerHistoryRepository}
 
@@ -47,14 +47,14 @@ class PostgresPlayerHistoryRepository(xa: Transactor[IO]) extends PlayerHistoryR
     */
   override def record(
       playerId: PlayerId,
-      gameId: GameId,
+      matchId: MatchId,
       gameType: GameType,
       result: GameResult,
       forfeit: Boolean
   ): IO[Unit] =
     sql"""
       INSERT INTO player_games (player_id, game_id, game_type, result, forfeit)
-      VALUES (${playerId.toString}, ${gameId.toString}, ${gameType.toString}, ${result.label}, $forfeit)
+      VALUES (${playerId.toString}, ${matchId.toString}, ${gameType.toString}, ${result.label}, $forfeit)
       ON CONFLICT (player_id, game_id) DO NOTHING
     """.update.run.transact(xa).void
 
@@ -72,12 +72,12 @@ class PostgresPlayerHistoryRepository(xa: Transactor[IO]) extends PlayerHistoryR
       .to[List]
       .transact(xa)
       .map { rows =>
-        rows.flatMap { case (gameIdStr, gameTypeStr, resultStr, forfeit, finishedAt) =>
+        rows.flatMap { case (matchIdStr, gameTypeStr, resultStr, forfeit, finishedAt) =>
           val record = for {
-            gameId <- Either.catchOnly[IllegalArgumentException](UUID.fromString(gameIdStr))
+            matchId <- Either.catchOnly[IllegalArgumentException](UUID.fromString(matchIdStr))
             gameType <- GameType.fromString(gameTypeStr).toRight(new Exception(s"Unknown GameType: $gameTypeStr"))
             result <- GameResult.fromLabel(resultStr).toRight(new Exception(s"Unknown GameResult: $resultStr"))
-          } yield PlayerGameRecord(gameId, gameType, result, forfeit, finishedAt)
+          } yield PlayerGameRecord(matchId, gameType, result, forfeit, finishedAt)
 
           record match {
             case Right(rec) => List(rec)

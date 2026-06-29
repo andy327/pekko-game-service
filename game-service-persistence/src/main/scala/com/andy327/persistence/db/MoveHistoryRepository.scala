@@ -6,7 +6,7 @@ import cats.effect.IO
 
 import io.circe.Json
 
-import com.andy327.model.core.{GameId, PlayerId}
+import com.andy327.model.core.{MatchId, PlayerId}
 
 /** A single recorded move in a game's history.
   *
@@ -32,9 +32,9 @@ trait MoveHistoryRepository {
   /** Runs any needed initialization, such as creating the move-history table. */
   def initialize(): IO[Unit]
 
-  /** Append a single move to `gameId`'s log at ordinal `seq`. Fire-and-forget from the caller's perspective. */
-  def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit]
+  /** Append a single move to `matchId`'s log at ordinal `seq`. Fire-and-forget from the caller's perspective. */
+  def appendMove(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit]
 
-  /** Load all recorded moves for `gameId`, ordered by ascending `seq`. Empty if the game has no recorded moves. */
-  def loadMoves(gameId: GameId): IO[List[MoveRecord]]
+  /** Load all recorded moves for `matchId`, ordered by ascending `seq`. Empty if the game has no recorded moves. */
+  def loadMoves(matchId: MatchId): IO[List[MoveRecord]]
 }

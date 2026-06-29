@@ -4,7 +4,7 @@ import java.time.Instant
 
 import com.andy327.actor.game.GameState
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata}
-import com.andy327.model.core.{GameId, PlayerId, RoomId}
+import com.andy327.model.core.{PlayerId, RoomId}
 
 /** Events pushed from the server to a connected player over WebSocket.
   *
@@ -34,12 +34,12 @@ object PlayerEvent {
 
   /** A chat message in a match's thread, pushed to everyone watching that game (in lobby or in progress).
     *
-    * @param gameId the match the message belongs to
+    * @param roomId the room the message belongs to
     * @param senderId the authenticated player who sent it
     * @param senderName the sender's display name, denormalized so clients can render without a lookup
     * @param text the message body
     * @param sentAt server timestamp when the message was accepted
     */
-  final case class ChatMessage(gameId: GameId, senderId: PlayerId, senderName: String, text: String, sentAt: Instant)
+  final case class ChatMessage(roomId: RoomId, senderId: PlayerId, senderName: String, text: String, sentAt: Instant)
       extends PlayerEvent
 }

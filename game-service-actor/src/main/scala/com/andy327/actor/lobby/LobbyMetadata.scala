@@ -3,7 +3,7 @@ package com.andy327.actor.lobby
 import java.time.Instant
 import java.util.UUID
 
-import com.andy327.model.core.{GameId, GameType, MatchId, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId, RoomId}
 
 object LobbyMetadata {
 
@@ -17,10 +17,10 @@ object LobbyMetadata {
     * @return a new LobbyMetadata instance representing the initialized lobby
     */
   def newLobby(gameType: GameType, host: Player): LobbyMetadata = {
-    val gameId = UUID.randomUUID()
+    val roomId = UUID.randomUUID()
     val players = Map(host.id -> host)
     val now = Instant.now()
-    LobbyMetadata(gameId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, now, lastActivityAt = now)
+    LobbyMetadata(roomId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, now, lastActivityAt = now)
   }
 }
 
@@ -28,7 +28,7 @@ object LobbyMetadata {
   *
   * This includes the game type, participating players, host identity, game ID, and current lifecycle status.
   *
-  * @param gameId unique UUID for the lobby/game
+  * @param roomId unique UUID for the lobby/game
   * @param gameType type of game being played (e.g., TicTacToe)
   * @param players map of player UUIDs to Player objects (includes host and any joined players)
   * @param hostId UUID of the player who created and controls the lobby
@@ -42,7 +42,7 @@ object LobbyMetadata {
   *                       idle post-game (Finished) rooms
   */
 case class LobbyMetadata(
-    gameId: GameId,
+    roomId: RoomId,
     gameType: GameType,
     players: Map[PlayerId, Player], // includes the host
     hostId: PlayerId,

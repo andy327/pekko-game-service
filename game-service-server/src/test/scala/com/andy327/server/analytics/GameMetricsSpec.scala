@@ -32,10 +32,10 @@ class GameMetricsSpec extends AnyWordSpec with Matchers {
 
     "count moves and record the per-game move distribution on completion" in {
       val (registry, metrics) = fixture
-      val gameId = UUID.randomUUID()
-      metrics.record(MoveMade(gameId, GameType.TicTacToe, UUID.randomUUID(), 0))
-      metrics.record(MoveMade(gameId, GameType.TicTacToe, UUID.randomUUID(), 1))
-      metrics.record(GameCompleted(gameId, GameType.TicTacToe, Outcome.Won, 9))
+      val matchId = UUID.randomUUID()
+      metrics.record(MoveMade(matchId, GameType.TicTacToe, UUID.randomUUID(), 0))
+      metrics.record(MoveMade(matchId, GameType.TicTacToe, UUID.randomUUID(), 1))
+      metrics.record(GameCompleted(matchId, GameType.TicTacToe, Outcome.Won, 9))
 
       sample(registry, "moves_total", Array("game_type"), Array("tictactoe")) shouldBe Some(2.0)
       sample(registry, "game_moves_count", Array("game_type"), Array("tictactoe")) shouldBe Some(1.0)

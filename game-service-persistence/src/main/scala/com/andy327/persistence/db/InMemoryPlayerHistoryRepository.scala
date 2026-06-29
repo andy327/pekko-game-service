@@ -5,7 +5,7 @@ import java.time.Instant
 import cats.effect.IO
 import cats.effect.kernel.Ref
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 /** A [[PlayerHistoryRepository]] that keeps history in memory, with the same semantics as the Postgres implementation
@@ -17,21 +17,21 @@ import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
   */
 class InMemoryPlayerHistoryRepository extends PlayerHistoryRepository {
 
-  /** Append-ordered rows; `(playerId, gameId)` uniqueness is enforced in [[record]]. */
+  /** Append-ordered rows; `(playerId, matchId)` uniqueness is enforced in [[record]]. */
   private val rows: Ref[IO, Vector[(PlayerId, PlayerGameRecord)]] = Ref.unsafe(Vector.empty)
 
   override def initialize(): IO[Unit] = IO.unit
 
   override def record(
       playerId: PlayerId,
-      gameId: GameId,
+      matchId: MatchId,
       gameType: GameType,
       result: GameResult,
       forfeit: Boolean
   ): IO[Unit] =
     rows.update { current =>
-      if (current.exists { case (pid, rec) => pid == playerId && rec.gameId == gameId }) current
-      else current :+ (playerId -> PlayerGameRecord(gameId, gameType, result, forfeit, Instant.now()))
+      if (current.exists { case (pid, rec) => pid == playerId && rec.matchId == matchId }) current
+      else current :+ (playerId -> PlayerGameRecord(matchId, gameType, result, forfeit, Instant.now()))
     }
 
   override def findByPlayer(playerId: PlayerId): IO[List[PlayerGameRecord]] =

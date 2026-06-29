@@ -5,7 +5,7 @@ import io.circe.{Decoder, Encoder, Json}
 
 import com.andy327.actor.events.GameEvent
 import com.andy327.actor.events.GameEvent._
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 
 /** Circe codecs for `GameEvent` and its `GameEvent.Outcome`, used only at the edge: to put events
@@ -24,33 +24,33 @@ object GameEventCodecs {
     * [[com.andy327.server.http.json.JsonProtocol.playerEventEncoder]].
     */
   implicit val encoder: Encoder[GameEvent] = Encoder.instance {
-    case GameStarted(gameId, gameType, playerCount) =>
+    case GameStarted(matchId, gameType, playerCount) =>
       Json.obj(
         "type" -> "GameStarted".asJson,
-        "gameId" -> gameId.asJson,
+        "matchId" -> matchId.asJson,
         "gameType" -> gameType.asJson,
         "playerCount" -> playerCount.asJson
       )
-    case MoveMade(gameId, gameType, playerId, seq) =>
+    case MoveMade(matchId, gameType, playerId, seq) =>
       Json.obj(
         "type" -> "MoveMade".asJson,
-        "gameId" -> gameId.asJson,
+        "matchId" -> matchId.asJson,
         "gameType" -> gameType.asJson,
         "playerId" -> playerId.asJson,
         "seq" -> seq.asJson
       )
-    case GameCompleted(gameId, gameType, outcome, moveCount) =>
+    case GameCompleted(matchId, gameType, outcome, moveCount) =>
       Json.obj(
         "type" -> "GameCompleted".asJson,
-        "gameId" -> gameId.asJson,
+        "matchId" -> matchId.asJson,
         "gameType" -> gameType.asJson,
         "outcome" -> outcome.asJson,
         "moveCount" -> moveCount.asJson
       )
-    case ChatSent(gameId, gameType) =>
+    case ChatSent(roomId, gameType) =>
       Json.obj(
         "type" -> "ChatSent".asJson,
-        "gameId" -> gameId.asJson,
+        "roomId" -> roomId.asJson,
         "gameType" -> gameType.asJson
       )
   }
@@ -59,29 +59,29 @@ object GameEventCodecs {
     c.get[String]("type").flatMap {
       case "GameStarted" =>
         for {
-          gameId <- c.get[GameId]("gameId")
+          matchId <- c.get[MatchId]("matchId")
           gameType <- c.get[GameType]("gameType")
           playerCount <- c.get[Int]("playerCount")
-        } yield GameStarted(gameId, gameType, playerCount)
+        } yield GameStarted(matchId, gameType, playerCount)
       case "MoveMade" =>
         for {
-          gameId <- c.get[GameId]("gameId")
+          matchId <- c.get[MatchId]("matchId")
           gameType <- c.get[GameType]("gameType")
           playerId <- c.get[PlayerId]("playerId")
           seq <- c.get[Int]("seq")
-        } yield MoveMade(gameId, gameType, playerId, seq)
+        } yield MoveMade(matchId, gameType, playerId, seq)
       case "GameCompleted" =>
         for {
-          gameId <- c.get[GameId]("gameId")
+          matchId <- c.get[MatchId]("matchId")
           gameType <- c.get[GameType]("gameType")
           outcome <- c.get[Outcome]("outcome")
           moveCount <- c.get[Int]("moveCount")
-        } yield GameCompleted(gameId, gameType, outcome, moveCount)
+        } yield GameCompleted(matchId, gameType, outcome, moveCount)
       case "ChatSent" =>
         for {
-          gameId <- c.get[GameId]("gameId")
+          roomId <- c.get[RoomId]("roomId")
           gameType <- c.get[Option[GameType]]("gameType")
-        } yield ChatSent(gameId, gameType)
+        } yield ChatSent(roomId, gameType)
       case other =>
         Left(io.circe.DecodingFailure(s"Unknown GameEvent type: $other", c.history))
     }

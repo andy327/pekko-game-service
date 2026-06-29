@@ -7,7 +7,7 @@ import cats.implicits._
 
 import dev.profunktor.redis4cats.RedisCommands
 
-import com.andy327.model.core.{Game, GameId, GameType}
+import com.andy327.model.core.{Game, GameType, MatchId}
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -19,7 +19,7 @@ import com.andy327.persistence.db.schema.GameTypeCodecs
   * [[loadGame]], the Redis cache is checked first; on a miss the game is fetched from Postgres and the cache is warmed.
   * On startup, [[loadAllGames]] reads the authoritative state from Postgres and populates Redis in bulk.
   *
-  * Cache keys use the scheme `game:{gameId}`. Values are the JSON strings Postgres also stores in `game_state`.
+  * Cache keys use the scheme `game:{matchId}`. Values are the JSON strings Postgres also stores in `game_state`.
   *
   * @param gameRepo underlying [[GameRepository]] used as the source of truth for all reads and writes; in production
   *                 this is the Postgres repository, but any [[GameRepository]] implementation may be supplied
@@ -32,38 +32,38 @@ class RedisGameRepository(
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private def cacheKey(gameId: GameId): String = s"game:$gameId"
+  private def cacheKey(matchId: MatchId): String = s"game:$matchId"
 
   override def initialize(): IO[Unit] = gameRepo.initialize()
 
-  override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
+  override def saveGame(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = {
     val json = GameTypeCodecs.serializeGame(gameType, game)
-    gameRepo.saveGame(gameId, gameType, game) *> redis.set(cacheKey(gameId), json)
+    gameRepo.saveGame(matchId, gameType, game) *> redis.set(cacheKey(matchId), json)
   }
 
-  override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-    redis.get(cacheKey(gameId)).flatMap {
+  override def loadGame(matchId: MatchId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    redis.get(cacheKey(matchId)).flatMap {
       case Some(json) =>
         IO.fromEither(GameTypeCodecs.deserializeGame(gameType, json))
           .map(Some(_))
           .handleErrorWith { err =>
-            IO(logger.warn(s"Corrupt cache entry for $gameId, falling back to Postgres: ${err.getMessage}")) *>
-              loadFromPostgresAndWarm(gameId, gameType)
+            IO(logger.warn(s"Corrupt cache entry for $matchId, falling back to Postgres: ${err.getMessage}")) *>
+              loadFromPostgresAndWarm(matchId, gameType)
           }
       case None =>
-        loadFromPostgresAndWarm(gameId, gameType)
+        loadFromPostgresAndWarm(matchId, gameType)
     }
 
-  override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
+  override def loadAllGames(): IO[Map[MatchId, (GameType, Game[_, _, _, _, _])]] =
     gameRepo.loadAllGames().flatTap { games =>
-      games.toList.traverse_ { case (gameId, (gameType, game)) =>
-        redis.set(cacheKey(gameId), GameTypeCodecs.serializeGame(gameType, game))
+      games.toList.traverse_ { case (matchId, (gameType, game)) =>
+        redis.set(cacheKey(matchId), GameTypeCodecs.serializeGame(gameType, game))
       }
     }
 
-  private def loadFromPostgresAndWarm(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-    gameRepo.loadGame(gameId, gameType).flatTap {
-      case Some(game) => redis.set(cacheKey(gameId), GameTypeCodecs.serializeGame(gameType, game))
+  private def loadFromPostgresAndWarm(matchId: MatchId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+    gameRepo.loadGame(matchId, gameType).flatTap {
+      case Some(game) => redis.set(cacheKey(matchId), GameTypeCodecs.serializeGame(gameType, game))
       case None       => IO.unit
     }
 }

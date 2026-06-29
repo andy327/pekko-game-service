@@ -13,7 +13,7 @@ import doobie.postgres.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with ForAllTestContainer {
@@ -37,14 +37,14 @@ class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with
   "PostgresPlayerHistoryRepository" should {
     "record a completed game and return it with its fields intact" in {
       val player: PlayerId = UUID.randomUUID()
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
 
-      repo.record(player, gameId, GameType.ConnectFour, GameResult.Loss, forfeit = true).unsafeRunSync()
+      repo.record(player, matchId, GameType.ConnectFour, GameResult.Loss, forfeit = true).unsafeRunSync()
 
       val records = repo.findByPlayer(player).unsafeRunSync()
       records should have size 1
       val record = records.head
-      record.gameId shouldBe gameId
+      record.matchId shouldBe matchId
       record.gameType shouldBe GameType.ConnectFour
       record.result shouldBe GameResult.Loss
       record.forfeit shouldBe true
@@ -54,10 +54,10 @@ class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with
     "record both participants of the same game under their own ids" in {
       val winner: PlayerId = UUID.randomUUID()
       val loser: PlayerId = UUID.randomUUID()
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
 
-      repo.record(winner, gameId, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
-      repo.record(loser, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = false).unsafeRunSync()
+      repo.record(winner, matchId, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
+      repo.record(loser, matchId, GameType.TicTacToe, GameResult.Loss, forfeit = false).unsafeRunSync()
 
       repo.findByPlayer(winner).unsafeRunSync().map(_.result) shouldBe List(GameResult.Win)
       repo.findByPlayer(loser).unsafeRunSync().map(_.result) shouldBe List(GameResult.Loss)
@@ -65,31 +65,31 @@ class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with
 
     "order a player's games by most recently finished first" in {
       val player: PlayerId = UUID.randomUUID()
-      val older: GameId = UUID.randomUUID()
-      val newer: GameId = UUID.randomUUID()
+      val older: MatchId = UUID.randomUUID()
+      val newer: MatchId = UUID.randomUUID()
 
       // insert directly with controlled finished_at so the ordering assertion is deterministic
       insertAt(player, older, Instant.parse("2026-01-01T00:00:00Z"))
       insertAt(player, newer, Instant.parse("2026-06-01T00:00:00Z"))
 
-      repo.findByPlayer(player).unsafeRunSync().map(_.gameId) shouldBe List(newer, older)
+      repo.findByPlayer(player).unsafeRunSync().map(_.matchId) shouldBe List(newer, older)
     }
 
-    "ignore a re-recorded (playerId, gameId) outcome rather than failing or overwriting" in {
+    "ignore a re-recorded (playerId, matchId) outcome rather than failing or overwriting" in {
       val player: PlayerId = UUID.randomUUID()
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
 
-      repo.record(player, gameId, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
-      repo.record(player, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = false).unsafeRunSync()
+      repo.record(player, matchId, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
+      repo.record(player, matchId, GameType.TicTacToe, GameResult.Loss, forfeit = false).unsafeRunSync()
 
       repo.findByPlayer(player).unsafeRunSync().map(_.result) shouldBe List(GameResult.Win) // first write wins
     }
 
     "skip rows whose stored game type or result cannot be parsed" in {
       val player: PlayerId = UUID.randomUUID()
-      val good: GameId = UUID.randomUUID()
-      val badType: GameId = UUID.randomUUID()
-      val badResult: GameId = UUID.randomUUID()
+      val good: MatchId = UUID.randomUUID()
+      val badType: MatchId = UUID.randomUUID()
+      val badResult: MatchId = UUID.randomUUID()
 
       repo.record(player, good, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
       // corrupt rows inserted directly, bypassing record (which always writes valid labels)
@@ -102,7 +102,7 @@ class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with
         VALUES (${player.toString}, ${badResult.toString}, 'TicTacToe', 'maybe', false)
       """.update.run.transact(xa).unsafeRunSync()
 
-      repo.findByPlayer(player).unsafeRunSync().map(_.gameId) shouldBe List(good) // only the parseable row survives
+      repo.findByPlayer(player).unsafeRunSync().map(_.matchId) shouldBe List(good) // only the parseable row survives
     }
 
     "isolate history by playerId" in {
@@ -122,9 +122,9 @@ class PostgresPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers with
   }
 
   /** Inserts a row with an explicit `finished_at`, bypassing `record`'s `now()` default, for deterministic ordering. */
-  private def insertAt(playerId: PlayerId, gameId: GameId, finishedAt: Instant): Unit =
+  private def insertAt(playerId: PlayerId, matchId: MatchId, finishedAt: Instant): Unit =
     sql"""
       INSERT INTO player_games (player_id, game_id, game_type, result, forfeit, finished_at)
-      VALUES (${playerId.toString}, ${gameId.toString}, 'TicTacToe', 'win', false, $finishedAt)
+      VALUES (${playerId.toString}, ${matchId.toString}, 'TicTacToe', 'win', false, $finishedAt)
     """.update.run.transact(xa).unsafeRunSync()
 }

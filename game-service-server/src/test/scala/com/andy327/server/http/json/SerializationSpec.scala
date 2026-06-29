@@ -45,11 +45,11 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
-      val gameId = UUID.randomUUID()
+      val roomId = UUID.randomUUID()
       val lobby = LobbyJoined(
-        gameId = gameId,
+        roomId = roomId,
         metadata = LobbyMetadata(
-          gameId = gameId,
+          roomId = roomId,
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),
           hostId = host.id,
@@ -132,7 +132,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "encode LobbyUpdated with a type discriminator and metadata" in {
       val host = Player("host")
       val metadata = LobbyMetadata(
-        gameId = UUID.randomUUID(),
+        roomId = UUID.randomUUID(),
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host),
         hostId = host.id,
@@ -178,9 +178,9 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "ClientMessage decoder" should {
     "decode a ChatSend frame" in {
-      val gameId = UUID.randomUUID()
-      val json = s"""{"type":"ChatSend","gameId":"$gameId","text":"hello"}"""
-      io.circe.parser.decode[ClientMessage](json) shouldBe Right(ClientMessage.ChatSend(gameId, "hello"))
+      val roomId = UUID.randomUUID()
+      val json = s"""{"type":"ChatSend","roomId":"$roomId","text":"hello"}"""
+      io.circe.parser.decode[ClientMessage](json) shouldBe Right(ClientMessage.ChatSend(roomId, "hello"))
     }
 
     "reject an unknown message type with an explanatory error" in {

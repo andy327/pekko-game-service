@@ -18,7 +18,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
-import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameType, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
@@ -29,23 +29,23 @@ class GameServerSpec extends AnyWordSpec with Matchers {
 
   private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
     override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
-    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def deleteLobby(roomId: RoomId): IO[Unit] = IO.unit
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
   private val noOpMoveRepo: MoveHistoryRepository = new MoveHistoryRepository {
     override def initialize(): IO[Unit] = IO.unit
-    override def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] = IO.unit
-    override def loadMoves(gameId: GameId): IO[List[MoveRecord]] = IO.pure(Nil)
+    override def appendMove(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] = IO.unit
+    override def loadMoves(matchId: MatchId): IO[List[MoveRecord]] = IO.pure(Nil)
   }
 
   "GameServer" should {
     "start and respond to /tictactoe" in {
       val dummyRepo = new GameRepository {
         def initialize(): IO[Unit] = IO.unit
-        def loadGame(gameId: GameId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-        def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
-        def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
+        def loadGame(matchId: MatchId, tpe: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+        def saveGame(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.unit
+        def loadAllGames(): IO[Map[MatchId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
       }
 
       val (system, binding) =
@@ -66,13 +66,13 @@ class GameServerSpec extends AnyWordSpec with Matchers {
           uri = s"http://localhost:$actualPort/lobby/create/tictactoe"
         ).withHeaders(player1Header)
         val createLobbyResp = Await.result(Http()(classicSystem).singleRequest(createLobbyReq), 2.seconds)
-        val gameId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).gameId
+        val roomId = Await.result(Unmarshal(createLobbyResp.entity).to[GameManager.LobbyCreated], 2.seconds).roomId
         createLobbyResp.status shouldBe StatusCodes.OK
 
         // Join lobby with player 2
         val joinLobbyReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:$actualPort/lobby/$gameId/join"
+          uri = s"http://localhost:$actualPort/lobby/$roomId/join"
         ).withHeaders(player2Header)
         val joinLobbyResp = Await.result(Http()(classicSystem).singleRequest(joinLobbyReq), 2.seconds)
         joinLobbyResp.status shouldBe StatusCodes.OK
@@ -80,13 +80,13 @@ class GameServerSpec extends AnyWordSpec with Matchers {
         // Start the game from the lobby (initiated by the host)
         val startGameReq = HttpRequest(
           method = HttpMethods.POST,
-          uri = s"http://localhost:$actualPort/lobby/$gameId/start"
+          uri = s"http://localhost:$actualPort/lobby/$roomId/start"
         ).withHeaders(player1Header)
         val startResp = Await.result(Http()(classicSystem).singleRequest(startGameReq), 2.seconds)
         startResp.status shouldBe StatusCodes.OK
 
         val startGameResp = Await.result(Unmarshal(startResp.entity).to[GameManager.GameStarted], 2.seconds)
-        startGameResp.gameId shouldBe gameId
+        startGameResp.roomId shouldBe roomId
       } finally {
         Await.result(binding.unbind(), 5.seconds)
         system.terminate()

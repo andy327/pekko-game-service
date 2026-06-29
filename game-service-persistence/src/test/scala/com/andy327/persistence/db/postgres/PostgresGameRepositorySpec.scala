@@ -12,7 +12,7 @@ import doobie.implicits._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.schema.GameTypeCodecs
 
@@ -41,13 +41,13 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
   "PostgresGameRepository" should {
     "save then load a TicTacToe game" in {
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
       val alice: PlayerId = UUID.randomUUID()
       val bob: PlayerId = UUID.randomUUID()
       val game = TicTacToe.empty(alice, bob)
 
-      gameRepo.saveGame(gameId, GameType.TicTacToe, game).unsafeRunSync()
-      gameRepo.loadGame(gameId, GameType.TicTacToe).unsafeRunSync() shouldBe Some(game)
+      gameRepo.saveGame(matchId, GameType.TicTacToe, game).unsafeRunSync()
+      gameRepo.loadGame(matchId, GameType.TicTacToe).unsafeRunSync() shouldBe Some(game)
     }
 
     "return None for a missing game" in {
@@ -56,34 +56,34 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
 
     "return None for a game with invalid JSON" in {
       val invalidJson = "invalid-json"
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
       val insert = sql"""
         INSERT INTO games (game_id, game_type, game_state)
-        VALUES (${gameId.toString}, 'TicTacToe', $invalidJson)
+        VALUES (${matchId.toString}, 'TicTacToe', $invalidJson)
       """.update.run.transact(xa)
 
       insert.unsafeRunSync()
 
-      gameRepo.loadGame(gameId, GameType.TicTacToe).unsafeRunSync() shouldBe None
+      gameRepo.loadGame(matchId, GameType.TicTacToe).unsafeRunSync() shouldBe None
     }
 
     "list all saved games" in {
       val alice: PlayerId = UUID.randomUUID()
       val bob: PlayerId = UUID.randomUUID()
-      val gameId1 = UUID.randomUUID()
-      val gameId2 = UUID.randomUUID()
-      gameRepo.saveGame(gameId1, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
-      gameRepo.saveGame(gameId2, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
+      val matchId1 = UUID.randomUUID()
+      val matchId2 = UUID.randomUUID()
+      gameRepo.saveGame(matchId1, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
+      gameRepo.saveGame(matchId2, GameType.TicTacToe, TicTacToe.empty(alice, bob)).unsafeRunSync()
 
       val all = gameRepo.loadAllGames().unsafeRunSync()
-      (all.keySet should contain).allOf(gameId1, gameId2)
+      (all.keySet should contain).allOf(matchId1, matchId2)
     }
 
     "skip corrupted or unknown game types when loading all games" in {
-      val badTypeGameId: GameId = UUID.randomUUID()
-      val invalidGameId: String = "abc"
-      val corruptedGameId: GameId = UUID.randomUUID()
-      val validGameId: GameId = UUID.randomUUID()
+      val badTypeMatchId: MatchId = UUID.randomUUID()
+      val invalidMatchId: String = "abc"
+      val corruptedMatchId: MatchId = UUID.randomUUID()
+      val validMatchId: MatchId = UUID.randomUUID()
       val x: PlayerId = UUID.randomUUID()
       val y: PlayerId = UUID.randomUUID()
       val validGame = TicTacToe.empty(x, y)
@@ -91,22 +91,22 @@ class PostgresGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTe
       // Insert valid, corrupted, and unknown-type rows
       val insertAll = List(
         sql"""INSERT INTO games (game_id, game_type, game_state)
-              VALUES (${badTypeGameId.toString}, 'UnknownGame', '{}')""",
+              VALUES (${badTypeMatchId.toString}, 'UnknownGame', '{}')""",
         sql"""INSERT INTO games (game_id, game_type, game_state)
-              VALUES (${invalidGameId}, 'TicTacToe', ${validGame.asJson.noSpaces})""",
+              VALUES (${invalidMatchId}, 'TicTacToe', ${validGame.asJson.noSpaces})""",
         sql"""INSERT INTO games (game_id, game_type, game_state)
-              VALUES (${corruptedGameId.toString}, 'TicTacToe', 'corrupted-json')""",
+              VALUES (${corruptedMatchId.toString}, 'TicTacToe', 'corrupted-json')""",
         sql"""INSERT INTO games (game_id, game_type, game_state)
-              VALUES (${validGameId.toString}, 'TicTacToe', ${validGame.asJson.noSpaces})"""
+              VALUES (${validMatchId.toString}, 'TicTacToe', ${validGame.asJson.noSpaces})"""
       ).traverse_(_.update.run).transact(xa)
 
       insertAll.unsafeRunSync()
 
       val result = gameRepo.loadAllGames().unsafeRunSync()
-      result.keySet should contain(validGameId)
-      result.keySet should not contain badTypeGameId
-      result.keySet should not contain invalidGameId
-      result.keySet should not contain corruptedGameId
+      result.keySet should contain(validMatchId)
+      result.keySet should not contain badTypeMatchId
+      result.keySet should not contain invalidMatchId
+      result.keySet should not contain corruptedMatchId
     }
   }
 }

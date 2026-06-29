@@ -15,7 +15,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
-import com.andy327.model.core.{GameId, GameType, PlayerId, RoomId}
+import com.andy327.model.core.{GameType, PlayerId, RoomId}
 
 /** A child actor of GameManager that owns all lobby lifecycle state.
   *
@@ -55,25 +55,25 @@ object LobbyManager {
       extends Command
 
   /** Add `player` to an existing joinable lobby; replies with [[GameManager.LobbyJoined]] or an error. */
-  final case class JoinLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
+  final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   /** Remove `player` from a lobby. If the host leaves, the host role migrates to a remaining member and the lobby
     * survives; it is cancelled only when the host was the last player. Rejected with
     * [[lobby.LobbyError.GameInProgress]] once the game has started.
     */
-  final case class LeaveLobby(gameId: GameId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
+  final case class LeaveLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   /** Cancel a pre-game lobby on behalf of its host, moving it to the recently-ended cache and notifying subscribers.
     * Replies with [[GameManager.LobbyLeft]] on success, [[GameManager.LobbyErrorResponse]] if the caller is not the
     * host or the lobby is unknown.
     */
-  final case class CancelLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+  final case class CancelLobby(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   /** Validate the start request and, if valid, ask GameManager to spawn the game actor via a `SpawnGame` message. */
-  final case class StartGame(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+  final case class StartGame(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   /** Return a paginated, optionally filtered list of joinable lobbies; replies with [[LobbiesListed]]. */
@@ -92,35 +92,35 @@ object LobbyManager {
       extends Command
 
   /** Return full metadata for one lobby (active or recently ended); replies with [[GameManager.LobbyInfo]]. */
-  final case class GetLobbyInfo(gameId: GameId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
+  final case class GetLobbyInfo(roomId: RoomId, replyTo: ActorRef[GameManager.GameResponse]) extends Command
 
-  /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `gameId`.
+  /** Register `playerRef` to receive [[PlayerEvent.LobbyUpdated]] push events for `roomId`.
     *
     * Rejects with [[GameManager.LobbyErrorResponse]](`LobbyError.GameAlreadyStarted`) if the game is already
     * in progress; the caller should use the game subscribe endpoint instead. Pass `context.system.ignoreRef` for
     * `replyTo` on auto-subscribe paths where no acknowledgment is needed.
     */
   final case class SubscribeToLobby(
-      gameId: GameId,
+      roomId: RoomId,
       playerId: PlayerId,
       playerRef: ActorRef[PlayerActor.Command],
       replyTo: ActorRef[GameManager.GameResponse]
   ) extends Command
 
-  /** Deregister `playerId` from `gameId`'s push events. Idempotent: replies with
+  /** Deregister `playerId` from `roomId`'s push events. Idempotent: replies with
     * [[GameManager.UnsubscribeAcknowledged]] even if the player was not subscribed or the lobby is unknown.
     */
-  final case class UnsubscribeFromLobby(gameId: GameId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
+  final case class UnsubscribeFromLobby(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
   // --- Internal commands (sent by GameManager, not reachable from HTTP) ---
 
-  /** A match in `gameId`'s room has ended. Move the room to [[GameLifecycleStatus.Finished]] and re-own the match's
+  /** A match in `roomId`'s room has ended. Move the room to [[GameLifecycleStatus.Finished]] and re-own the match's
     * `subscribers` (handed back from the game actor) so the room can keep fanning out chat and the post-game state.
     * The room survives in memory for chat and rematch; its now-stale in-progress record is dropped from Redis.
     */
   final private[core] case class MatchEnded(
-      gameId: RoomId,
+      roomId: RoomId,
       subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]]
   ) extends Command
 
@@ -128,7 +128,7 @@ object LobbyManager {
   final private[core] case class RestoreLobbies(lobbies: List[LobbyMetadata]) extends Command
 
   /** Fan `event` (a chat message) out to the lobby's subscribers, used while the match is still in its lobby phase. */
-  final private[core] case class BroadcastChat(gameId: GameId, event: PlayerEvent) extends Command
+  final private[core] case class BroadcastChat(roomId: RoomId, event: PlayerEvent) extends Command
 
   /** Periodic self-tick that tears down post-game (Finished) rooms idle past [[finishedRoomTtl]], or empty (no
     * connected subscribers) for at least [[emptyRoomGrace]].
@@ -178,9 +178,9 @@ object LobbyManager {
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withTimers { timers =>
       timers.startTimerWithFixedDelay(EvictIdleRooms, evictInterval)
-      val recentlyEnded: Cache[GameId, LobbyMetadata] = Scaffeine()
+      val recentlyEnded: Cache[RoomId, LobbyMetadata] = Scaffeine()
         .expireAfterWrite(recentlyEndedTtl)
-        .build[GameId, LobbyMetadata]()
+        .build[RoomId, LobbyMetadata]()
       running(Map.empty, recentlyEnded, Map.empty, gameManager, lobbyRepo, emptyRoomGrace)
     }
 
@@ -190,11 +190,11 @@ object LobbyManager {
     * players receive the update without the caller needing to know which actors are subscribed.
     */
   private def fanOut(
-      subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
-      gameId: GameId,
+      subscribers: Map[RoomId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
+      roomId: RoomId,
       event: PlayerEvent
   ): Unit =
-    subscribers.getOrElse(gameId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
+    subscribers.getOrElse(roomId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
 
   /** Seat order for a match: the host first, then the remaining players ordered by id, rotated left by the room's
     * match count. Rotation makes the first-move seat (seat 0) alternate across rematches; the first match (count 0)
@@ -218,9 +218,9 @@ object LobbyManager {
     *                       it down; see [[emptyRoomGrace]]
     */
   private def running(
-      lobbies: Map[GameId, LobbyMetadata],
-      recentlyEnded: Cache[GameId, LobbyMetadata],
-      subscribers: Map[GameId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
+      lobbies: Map[RoomId, LobbyMetadata],
+      recentlyEnded: Cache[RoomId, LobbyMetadata],
+      subscribers: Map[RoomId, Map[PlayerId, ActorRef[PlayerActor.Command]]],
       gameManager: ActorRef[GameManager.Command],
       lobbyRepo: LobbyRepository,
       emptyRoomGrace: FiniteDuration
@@ -231,18 +231,18 @@ object LobbyManager {
         // (WaitingForPlayers/ReadyToStart) are dead across a restart — their players' sessions are gone — so drop and
         // delete them from Redis rather than leaving stale, un-rejoinable lobbies advertised in the list.
         val (keep, drop) = restored.partition(_.status == GameLifecycleStatus.InProgress)
-        val restoredMap = keep.map(m => m.gameId -> m).toMap
+        val restoredMap = keep.map(m => m.roomId -> m).toMap
         context.log.info(s"Restoring ${restoredMap.size} in-progress lobbies; deleting ${drop.size} dead pre-game ones")
-        drop.foreach(m => persist(lobbyRepo.deleteLobby(m.gameId)))
+        drop.foreach(m => persist(lobbyRepo.deleteLobby(m.roomId)))
         running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)
 
-      case BroadcastChat(gameId, event) =>
-        fanOut(subscribers, gameId, event)
+      case BroadcastChat(roomId, event) =>
+        fanOut(subscribers, roomId, event)
         // chat keeps a post-game room alive: bump its activity so eviction doesn't close it mid-conversation
-        lobbies.get(gameId) match {
+        lobbies.get(roomId) match {
           case Some(m) =>
             running(
-              lobbies + (gameId -> m.copy(lastActivityAt = Instant.now())),
+              lobbies + (roomId -> m.copy(lastActivityAt = Instant.now())),
               recentlyEnded,
               subscribers,
               gameManager,
@@ -255,18 +255,18 @@ object LobbyManager {
       case CreateLobby(gameType, host, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
         val lobby = LobbyMetadata.newLobby(gameType, host)
-        replyTo ! GameManager.LobbyCreated(lobby.gameId, host)
+        replyTo ! GameManager.LobbyCreated(lobby.roomId, host)
         persist(lobbyRepo.saveLobby(lobby))
-        running(lobbies + (lobby.gameId -> lobby), recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)
+        running(lobbies + (lobby.roomId -> lobby), recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)
 
-      case JoinLobby(gameId, player, replyTo) =>
-        lobbies.get(gameId) match {
+      case JoinLobby(roomId, player, replyTo) =>
+        lobbies.get(roomId) match {
           case Some(metadata) if metadata.status.isJoinable =>
             if (metadata.players.contains(player.id)) {
-              replyTo ! GameManager.LobbyErrorResponse(LobbyError.AlreadyInLobby(gameId))
+              replyTo ! GameManager.LobbyErrorResponse(LobbyError.AlreadyInLobby(roomId))
               Behaviors.same
             } else if (metadata.players.size >= metadata.gameType.maxPlayers) {
-              replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyFull(gameId))
+              replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyFull(roomId))
               Behaviors.same
             } else {
               val updatedPlayers = metadata.players + (player.id -> player)
@@ -274,11 +274,11 @@ object LobbyManager {
                 if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
                 else GameLifecycleStatus.WaitingForPlayers
               val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
-              replyTo ! GameManager.LobbyJoined(gameId, updatedMetadata, player)
-              fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(updatedMetadata))
+              replyTo ! GameManager.LobbyJoined(roomId, updatedMetadata, player)
+              fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(updatedMetadata))
               persist(lobbyRepo.saveLobby(updatedMetadata))
               running(
-                lobbies + (gameId -> updatedMetadata),
+                lobbies + (roomId -> updatedMetadata),
                 recentlyEnded,
                 subscribers,
                 gameManager,
@@ -288,21 +288,21 @@ object LobbyManager {
             }
 
           case Some(_) =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotJoinable(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotJoinable(roomId))
             Behaviors.same
 
           case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
         }
 
-      case LeaveLobby(gameId, player, replyTo) =>
-        lobbies.get(gameId) match {
+      case LeaveLobby(roomId, player, replyTo) =>
+        lobbies.get(roomId) match {
           // Leaving an in-progress game is a forfeit, handled by the game actor; GameManager routes those directly and
           // never forwards them here. This branch only guards the edge case where a lobby still shows InProgress but no
           // live game actor exists (e.g. mid-restore) — reject so the lobby cannot revert to a joinable status.
           case Some(metadata) if metadata.status == GameLifecycleStatus.InProgress =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameInProgress(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameInProgress(roomId))
             Behaviors.same
 
           case Some(metadata) =>
@@ -313,34 +313,34 @@ object LobbyManager {
             val newMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
 
             if (!metadata.players.contains(player.id)) {
-              context.log.info(s"Player ${player.name} already absent from lobby $gameId")
-              replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} already absent from lobby $gameId")
+              context.log.info(s"Player ${player.name} already absent from lobby $roomId")
+              replyTo ! GameManager.LobbyLeft(roomId, s"${player.name} already absent from lobby $roomId")
               Behaviors.same
             } else if (player.id == metadata.hostId) {
               updatedPlayers.headOption match {
                 case None =>
                   // host was the last player remaining — disband the lobby
-                  context.log.info(s"Host (${player.name}) left lobby $gameId with no players left. Cancelling game...")
+                  context.log.info(s"Host (${player.name}) left lobby $roomId with no players left. Cancelling game...")
                   val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
-                  recentlyEnded.put(gameId, cancelled)
-                  fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
-                  replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId ended - host left")
-                  persist(lobbyRepo.deleteLobby(gameId))
+                  recentlyEnded.put(roomId, cancelled)
+                  fanOut(subscribers, roomId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+                  replyTo ! GameManager.LobbyLeft(roomId, s"Lobby $roomId ended - host left")
+                  persist(lobbyRepo.deleteLobby(roomId))
                   // a no-op if this room never completed a match (e.g. a pre-game lobby), but lets GameManager drop a
                   // stale completedMatch entry if it had
-                  gameManager ! GameManager.RoomClosed(gameId)
-                  running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo, emptyRoomGrace)
+                  gameManager ! GameManager.RoomClosed(roomId)
+                  running(lobbies - roomId, recentlyEnded, subscribers - roomId, gameManager, lobbyRepo, emptyRoomGrace)
                 case Some((newHostId, newHost)) =>
                   // promote a remaining member to host so the lobby survives the host leaving (host migration)
-                  context.log.info(s"Host (${player.name}) left lobby $gameId; transferring host to ${newHost.name}")
+                  context.log.info(s"Host (${player.name}) left lobby $roomId; transferring host to ${newHost.name}")
                   val migrated = newMetadata.copy(hostId = newHostId)
-                  val msg = s"${player.name} left lobby $gameId; host transferred to ${newHost.name}"
-                  replyTo ! GameManager.LobbyLeft(gameId, msg)
-                  fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(migrated))
-                  val updatedSubscribers = subscribers.updatedWith(gameId)(_.map(_ - player.id))
+                  val msg = s"${player.name} left lobby $roomId; host transferred to ${newHost.name}"
+                  replyTo ! GameManager.LobbyLeft(roomId, msg)
+                  fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(migrated))
+                  val updatedSubscribers = subscribers.updatedWith(roomId)(_.map(_ - player.id))
                   persist(lobbyRepo.saveLobby(migrated))
                   running(
-                    lobbies + (gameId -> migrated),
+                    lobbies + (roomId -> migrated),
                     recentlyEnded,
                     updatedSubscribers,
                     gameManager,
@@ -349,13 +349,13 @@ object LobbyManager {
                   )
               }
             } else {
-              context.log.info(s"Player ${player.name} left lobby $gameId")
-              replyTo ! GameManager.LobbyLeft(gameId, s"${player.name} left lobby $gameId")
-              fanOut(subscribers, gameId, PlayerEvent.LobbyUpdated(newMetadata))
-              val updatedSubscribers = subscribers.updatedWith(gameId)(_.map(_ - player.id))
+              context.log.info(s"Player ${player.name} left lobby $roomId")
+              replyTo ! GameManager.LobbyLeft(roomId, s"${player.name} left lobby $roomId")
+              fanOut(subscribers, roomId, PlayerEvent.LobbyUpdated(newMetadata))
+              val updatedSubscribers = subscribers.updatedWith(roomId)(_.map(_ - player.id))
               persist(lobbyRepo.saveLobby(newMetadata))
               running(
-                lobbies + (gameId -> newMetadata),
+                lobbies + (roomId -> newMetadata),
                 recentlyEnded,
                 updatedSubscribers,
                 gameManager,
@@ -365,49 +365,49 @@ object LobbyManager {
             }
 
           case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
         }
 
-      case CancelLobby(gameId, playerId, replyTo) =>
-        lobbies.get(gameId) match {
+      case CancelLobby(roomId, playerId, replyTo) =>
+        lobbies.get(roomId) match {
           case Some(metadata) if metadata.hostId == playerId =>
-            context.log.info(s"Host cancelled lobby $gameId")
+            context.log.info(s"Host cancelled lobby $roomId")
             val cancelled = metadata.copy(status = GameLifecycleStatus.Cancelled)
-            recentlyEnded.put(gameId, cancelled)
-            fanOut(subscribers, gameId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
-            replyTo ! GameManager.LobbyLeft(gameId, s"Lobby $gameId cancelled by host")
-            persist(lobbyRepo.deleteLobby(gameId))
+            recentlyEnded.put(roomId, cancelled)
+            fanOut(subscribers, roomId, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
+            replyTo ! GameManager.LobbyLeft(roomId, s"Lobby $roomId cancelled by host")
+            persist(lobbyRepo.deleteLobby(roomId))
             // a no-op unless this was a post-game room (a host can cancel a Finished room directly, ahead of eviction)
-            gameManager ! GameManager.RoomClosed(gameId)
-            running(lobbies - gameId, recentlyEnded, subscribers - gameId, gameManager, lobbyRepo, emptyRoomGrace)
+            gameManager ! GameManager.RoomClosed(roomId)
+            running(lobbies - roomId, recentlyEnded, subscribers - roomId, gameManager, lobbyRepo, emptyRoomGrace)
           case Some(_) =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(roomId))
             Behaviors.same
           case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
         }
 
-      case StartGame(gameId, playerId, replyTo) =>
+      case StartGame(roomId, playerId, replyTo) =>
         // a host may start a ready pre-game lobby, or start a rematch from a finished room (same roster)
         def startable(status: GameLifecycleStatus): Boolean =
           status == GameLifecycleStatus.ReadyToStart || status == GameLifecycleStatus.Finished
-        lobbies.get(gameId) match {
+        lobbies.get(roomId) match {
           case Some(metadata) if metadata.hostId == playerId && startable(metadata.status) =>
             val rematch = metadata.status == GameLifecycleStatus.Finished
             val newStatus = if (rematch) "rematch" else "start"
-            context.log.info(s"Lobby $gameId validated for $newStatus — delegating to GM")
-            // mint a fresh match id for this playthrough; the room id (gameId) stays stable across rematches
+            context.log.info(s"Lobby $roomId validated for $newStatus — delegating to GM")
+            // mint a fresh match id for this playthrough; the room id (roomId) stays stable across rematches
             val matchId = UUID.randomUUID()
             val updatedMetadata = metadata.copy(
               status = GameLifecycleStatus.InProgress,
               currentMatchId = Some(matchId),
               matchCount = metadata.matchCount + 1
             )
-            val lobbySubscribers = subscribers.getOrElse(gameId, Map.empty)
+            val lobbySubscribers = subscribers.getOrElse(roomId, Map.empty)
             gameManager ! GameManager.SpawnGame(
-              gameId,
+              roomId,
               matchId,
               metadata.gameType,
               seatOrder(metadata),
@@ -416,24 +416,24 @@ object LobbyManager {
             )
             persist(lobbyRepo.saveLobby(updatedMetadata))
             running(
-              lobbies + (gameId -> updatedMetadata),
+              lobbies + (roomId -> updatedMetadata),
               recentlyEnded,
-              subscribers - gameId,
+              subscribers - roomId,
               gameManager,
               lobbyRepo,
               emptyRoomGrace
             )
 
           case Some(metadata) if metadata.hostId != playerId =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(roomId))
             Behaviors.same
 
           case Some(_) =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotReady(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotReady(roomId))
             Behaviors.same
 
           case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
         }
 
@@ -456,62 +456,62 @@ object LobbyManager {
         replyTo ! LobbyManager.PlayerLobbies(mine)
         Behaviors.same
 
-      case GetLobbyInfo(gameId, replyTo) =>
-        context.log.info(s"Getting lobby metadata for game $gameId")
-        lobbies.get(gameId).orElse(recentlyEnded.getIfPresent(gameId)) match {
+      case GetLobbyInfo(roomId, replyTo) =>
+        context.log.info(s"Getting lobby metadata for game $roomId")
+        lobbies.get(roomId).orElse(recentlyEnded.getIfPresent(roomId)) match {
           case Some(metadata) => replyTo ! GameManager.LobbyInfo(metadata)
-          case None           => replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+          case None           => replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
         }
         Behaviors.same
 
-      case SubscribeToLobby(gameId, playerId, playerRef, replyTo) =>
-        lobbies.get(gameId) match {
+      case SubscribeToLobby(roomId, playerId, playerRef, replyTo) =>
+        lobbies.get(roomId) match {
           case Some(metadata) if metadata.status == GameLifecycleStatus.InProgress =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameAlreadyStarted(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.GameAlreadyStarted(roomId))
             Behaviors.same
           case Some(metadata) =>
             // watch the subscriber so a disconnect (its PlayerActor stopping) drops it from the map automatically,
             // mirroring TurnBasedGameActor; without this a dead ref would linger and receive dead-letter fan-out
             context.watch(playerRef)
-            val updated = subscribers.getOrElse(gameId, Map.empty) + (playerId -> playerRef)
+            val updated = subscribers.getOrElse(roomId, Map.empty) + (playerId -> playerRef)
             playerRef ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(metadata))
-            replyTo ! GameManager.SubscribeAcknowledged(gameId)
-            running(lobbies, recentlyEnded, subscribers + (gameId -> updated), gameManager, lobbyRepo, emptyRoomGrace)
+            replyTo ! GameManager.SubscribeAcknowledged(roomId)
+            running(lobbies, recentlyEnded, subscribers + (roomId -> updated), gameManager, lobbyRepo, emptyRoomGrace)
           case None =>
-            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(gameId))
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
         }
 
-      case UnsubscribeFromLobby(gameId, playerId, replyTo) =>
+      case UnsubscribeFromLobby(roomId, playerId, replyTo) =>
         // idempotent: unwatch and drop the player's ref if present, otherwise a harmless no-op; either way ack
-        subscribers.getOrElse(gameId, Map.empty).get(playerId).foreach(context.unwatch)
-        val updated = subscribers.updatedWith(gameId)(_.map(_ - playerId).filter(_.nonEmpty))
-        replyTo ! GameManager.UnsubscribeAcknowledged(gameId)
+        subscribers.getOrElse(roomId, Map.empty).get(playerId).foreach(context.unwatch)
+        val updated = subscribers.updatedWith(roomId)(_.map(_ - playerId).filter(_.nonEmpty))
+        replyTo ! GameManager.UnsubscribeAcknowledged(roomId)
         running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo, emptyRoomGrace)
 
-      case MatchEnded(gameId, returnedSubscribers) =>
-        lobbies.get(gameId) match {
+      case MatchEnded(roomId, returnedSubscribers) =>
+        lobbies.get(roomId) match {
           case Some(metadata) =>
-            context.log.info(s"Match in room $gameId ended; returning ${returnedSubscribers.size} players to the room")
+            context.log.info(s"Match in room $roomId ended; returning ${returnedSubscribers.size} players to the room")
             val finished = metadata.copy(status = GameLifecycleStatus.Finished, lastActivityAt = Instant.now())
             // re-own the match's subscribers (the game actor already sent them GameEnded before handing them back) and
             // watch each so a later disconnect drops it, mirroring SubscribeToLobby
             returnedSubscribers.values.foreach(context.watch)
-            val merged = subscribers.getOrElse(gameId, Map.empty) ++ returnedSubscribers
+            val merged = subscribers.getOrElse(roomId, Map.empty) ++ returnedSubscribers
             // tell everyone in the room it is now in its post-game state (drives the rematch process)
             merged.values.foreach(_ ! PlayerActor.SendEvent(PlayerEvent.LobbyUpdated(finished)))
             // the post-game room lives in memory only; drop the stale in-progress record so a restart won't revive it
-            persist(lobbyRepo.deleteLobby(gameId))
+            persist(lobbyRepo.deleteLobby(roomId))
             running(
-              lobbies + (gameId -> finished),
+              lobbies + (roomId -> finished),
               recentlyEnded,
-              subscribers + (gameId -> merged),
+              subscribers + (roomId -> merged),
               gameManager,
               lobbyRepo,
               emptyRoomGrace
             )
           case None =>
-            context.log.info(s"MatchEnded for $gameId: no lobby entry (orphan match); dropping returned subscribers")
+            context.log.info(s"MatchEnded for $roomId: no lobby entry (orphan match); dropping returned subscribers")
             Behaviors.same
         }
 

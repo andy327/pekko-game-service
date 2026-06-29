@@ -20,7 +20,7 @@ import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameState, GridGameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{Game, GameError, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId}
 import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
@@ -34,15 +34,15 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
   private val dummyGameManager: ActorRef[GameManager.Command] = createTestProbe[GameManager.Command]().ref
 
   /** Spawn a fresh game actor backed by a new persist probe.
-    * Optionally override the GameManager ref or supply a specific gameId.
+    * Optionally override the GameManager ref or supply a specific matchId.
     */
   private def newActor(
       gmRef: ActorRef[GameManager.Command] = dummyGameManager,
-      gameId: GameId = UUID.randomUUID()
+      matchId: MatchId = UUID.randomUUID()
   ): (ActorRef[TicTacToeActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
     val (_, behavior) =
-      TicTacToeActor.create(gameId, gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
+      TicTacToeActor.create(matchId, matchId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -128,7 +128,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     }
 
     "notify GameManager and stop when restored from a completed snapshot" in {
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val completedGame = TicTacToe(
         playerX = alice,
@@ -146,8 +146,8 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val actor = spawn(
         TicTacToeActor.fromSnapshot(
-          gameId,
-          gameId,
+          matchId,
+          matchId,
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
@@ -155,7 +155,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         )
       )
 
-      gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, gameId, GameLifecycleStatus.Completed))
+      gameManagerProbe.expectMessage(GameManager.GameCompleted(matchId, matchId, GameLifecycleStatus.Completed))
       persistProbe.expectTerminated(actor)
     }
 
@@ -475,8 +475,8 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "notify the GameManager when a game completes" in {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val gameId: GameId = UUID.randomUUID()
-      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
+      val matchId: MatchId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       xWinsMoves.foreach { case (player, loc) =>
@@ -486,16 +486,16 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(
-        gameId,
-        gameId,
+        matchId,
+        matchId,
         GameLifecycleStatus.Completed
       )
     }
 
     "forfeit the game to the opponent when a player leaves, appending no move but recording the result" in {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val gameId: GameId = UUID.randomUUID()
-      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
+      val matchId: MatchId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -511,10 +511,10 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       // appends nothing to the history log
       persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Win, forfeit = true)
+        PersistenceProtocol.RecordGameResult(alice, matchId, GameType.TicTacToe, GameResult.Win, forfeit = true)
       )
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = true)
+        PersistenceProtocol.RecordGameResult(bob, matchId, GameType.TicTacToe, GameResult.Loss, forfeit = true)
       )
       persistProbe.expectNoMessage()
 
@@ -524,16 +524,16 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
         PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
       gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(
-        gameId,
-        gameId,
+        matchId,
+        matchId,
         GameLifecycleStatus.Completed,
         Map(alice -> subscriberProbe.ref)
       )
     }
 
     "record a Win for the winner and a Loss for the loser when the game completes" in {
-      val gameId: GameId = UUID.randomUUID()
-      val (actor, persistProbe) = newActor(gameId = gameId)
+      val matchId: MatchId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(matchId = matchId)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       xWinsMoves.foreach { case (player, loc) =>
@@ -544,16 +544,16 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       // the winning transition records each participant's outcome in seat order: X (alice) won, O (bob) lost
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Win, forfeit = false)
+        PersistenceProtocol.RecordGameResult(alice, matchId, GameType.TicTacToe, GameResult.Win, forfeit = false)
       )
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Loss, forfeit = false)
+        PersistenceProtocol.RecordGameResult(bob, matchId, GameType.TicTacToe, GameResult.Loss, forfeit = false)
       )
     }
 
     "record a Draw for both players when the game ends in a draw" in {
-      val gameId: GameId = UUID.randomUUID()
-      val (actor, persistProbe) = newActor(gameId = gameId)
+      val matchId: MatchId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(matchId = matchId)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       drawMoves.foreach { case (player, loc) =>
@@ -563,10 +563,10 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       }
 
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
+        PersistenceProtocol.RecordGameResult(alice, matchId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
       )
       persistProbe.expectMessage(
-        PersistenceProtocol.RecordGameResult(bob, gameId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
+        PersistenceProtocol.RecordGameResult(bob, matchId, GameType.TicTacToe, GameResult.Draw, forfeit = false)
       )
     }
 
@@ -584,10 +584,10 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val capturing = new EventPublisher {
         def publish(event: GameEvent): Unit = { published.add(event); () }
       }
-      val gameId: GameId = UUID.randomUUID()
+      val matchId: MatchId = UUID.randomUUID()
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val (_, behavior) =
-        TicTacToeActor.create(gameId, gameId, Seq(alice, bob), persistProbe.ref, dummyGameManager, capturing)
+        TicTacToeActor.create(matchId, matchId, Seq(alice, bob), persistProbe.ref, dummyGameManager, capturing)
       val actor = spawn(behavior)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -600,7 +600,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       createTestProbe[Any]().awaitAssert {
         val completed = published.iterator().asScala.collect { case c: GameEvent.GameCompleted => c }.toList
         completed.map(_.outcome) shouldBe List(GameEvent.Outcome.Draw)
-        completed.head.gameId shouldBe gameId
+        completed.head.matchId shouldBe matchId
         completed.head.moveCount shouldBe 9
       }
     }

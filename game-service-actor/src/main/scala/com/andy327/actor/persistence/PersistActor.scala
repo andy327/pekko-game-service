@@ -9,7 +9,7 @@ import io.circe.Json
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
-import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameType, MatchId, PlayerId}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 object PersistActor {
@@ -20,10 +20,10 @@ object PersistActor {
   final case class Saved(replyTo: ActorRef[SnapshotSaved], result: Either[Throwable, Unit]) extends Command
 
   /** Internal wrapper for a finished move-append; logged but never replied to (append is fire-and-forget). */
-  final case class MoveAppended(gameId: GameId, seq: Int, result: Either[Throwable, Unit]) extends Command
+  final case class MoveAppended(matchId: MatchId, seq: Int, result: Either[Throwable, Unit]) extends Command
 
   /** Internal wrapper for a finished game-result record; logged but never replied to (recording is fire-and-forget). */
-  final case class GameResultRecorded(gameId: GameId, playerId: PlayerId, result: Either[Throwable, Unit])
+  final case class GameResultRecorded(matchId: MatchId, playerId: PlayerId, result: Either[Throwable, Unit])
       extends Command
 }
 
@@ -38,15 +38,15 @@ trait PersistActor {
   import PersistActor._
 
   /** Persist the current game snapshot, overwriting any previously saved state for the same ID. */
-  def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
+  def saveToStore(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit]
 
   /** Append a single move to the game's history log. */
-  def appendMoveToStore(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit]
+  def appendMoveToStore(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit]
 
   /** Record one participant's outcome for a completed game in their durable history. */
   def recordGameResultToStore(
       playerId: PlayerId,
-      gameId: GameId,
+      matchId: MatchId,
       gameType: GameType,
       result: GameResult,
       forfeit: Boolean
@@ -55,17 +55,17 @@ trait PersistActor {
   final def behavior(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.setup { context =>
       Behaviors.receiveMessage {
-        case SaveSnapshot(gameId, gameType, game, replyTo) =>
-          context.pipeToSelf(saveToStore(gameId, gameType, game).unsafeToFuture()) {
+        case SaveSnapshot(matchId, gameType, game, replyTo) =>
+          context.pipeToSelf(saveToStore(matchId, gameType, game).unsafeToFuture()) {
             case Success(value) => Saved(replyTo, Right(value))
             case Failure(ex)    => Saved(replyTo, Left(ex))
           }
           Behaviors.same
 
-        case AppendMove(gameId, seq, playerId, move) =>
-          context.pipeToSelf(appendMoveToStore(gameId, seq, playerId, move).unsafeToFuture()) {
-            case Success(value) => MoveAppended(gameId, seq, Right(value))
-            case Failure(ex)    => MoveAppended(gameId, seq, Left(ex))
+        case AppendMove(matchId, seq, playerId, move) =>
+          context.pipeToSelf(appendMoveToStore(matchId, seq, playerId, move).unsafeToFuture()) {
+            case Success(value) => MoveAppended(matchId, seq, Right(value))
+            case Failure(ex)    => MoveAppended(matchId, seq, Left(ex))
           }
           Behaviors.same
 
@@ -73,20 +73,22 @@ trait PersistActor {
           replyTo ! SnapshotSaved(result)
           Behaviors.same
 
-        case MoveAppended(gameId, seq, result) =>
-          result.left.foreach(ex => context.log.warn(s"Move append failed for game $gameId seq $seq: ${ex.getMessage}"))
+        case MoveAppended(matchId, seq, result) =>
+          result.left.foreach(ex =>
+            context.log.warn(s"Move append failed for game $matchId seq $seq: ${ex.getMessage}")
+          )
           Behaviors.same
 
-        case RecordGameResult(playerId, gameId, gameType, result, forfeit) =>
-          context.pipeToSelf(recordGameResultToStore(playerId, gameId, gameType, result, forfeit).unsafeToFuture()) {
-            case Success(value) => GameResultRecorded(gameId, playerId, Right(value))
-            case Failure(ex)    => GameResultRecorded(gameId, playerId, Left(ex))
+        case RecordGameResult(playerId, matchId, gameType, result, forfeit) =>
+          context.pipeToSelf(recordGameResultToStore(playerId, matchId, gameType, result, forfeit).unsafeToFuture()) {
+            case Success(value) => GameResultRecorded(matchId, playerId, Right(value))
+            case Failure(ex)    => GameResultRecorded(matchId, playerId, Left(ex))
           }
           Behaviors.same
 
-        case GameResultRecorded(gameId, playerId, result) =>
+        case GameResultRecorded(matchId, playerId, result) =>
           result.left.foreach(ex =>
-            context.log.warn(s"Game-result record failed for game $gameId player $playerId: ${ex.getMessage}")
+            context.log.warn(s"Game-result record failed for game $matchId player $playerId: ${ex.getMessage}")
           )
           Behaviors.same
       }

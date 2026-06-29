@@ -13,11 +13,11 @@ class NoOpMoveHistoryRepositorySpec extends AnyWordSpec with Matchers {
   "NoOpMoveHistoryRepository" should {
     "do nothing on initialize and appendMove, and return no history" in {
       val repo = NoOpMoveHistoryRepository
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
 
       repo.initialize().unsafeRunSync() shouldBe (())
-      repo.appendMove(gameId, 0, UUID.randomUUID(), Json.obj()).unsafeRunSync() shouldBe (())
-      repo.loadMoves(gameId).unsafeRunSync() shouldBe empty
+      repo.appendMove(matchId, 0, UUID.randomUUID(), Json.obj()).unsafeRunSync() shouldBe (())
+      repo.loadMoves(matchId).unsafeRunSync() shouldBe empty
     }
   }
 }

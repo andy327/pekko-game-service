@@ -20,7 +20,7 @@ class InMemoryPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers {
       val player = UUID.randomUUID()
       val game = UUID.randomUUID()
       repo.record(player, game, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
-      repo.findByPlayer(player).unsafeRunSync().map(_.gameId) shouldBe List(game)
+      repo.findByPlayer(player).unsafeRunSync().map(_.matchId) shouldBe List(game)
     }
 
     "record a completed game and return it with its fields intact" in {
@@ -33,7 +33,7 @@ class InMemoryPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers {
       val records = repo.findByPlayer(player).unsafeRunSync()
       records should have size 1
       val record = records.head
-      record.gameId shouldBe game
+      record.matchId shouldBe game
       record.gameType shouldBe GameType.ConnectFour
       record.result shouldBe GameResult.Loss
       record.forfeit shouldBe true
@@ -62,7 +62,7 @@ class InMemoryPlayerHistoryRepositorySpec extends AnyWordSpec with Matchers {
       repo.record(player, older, GameType.TicTacToe, GameResult.Win, forfeit = false).unsafeRunSync()
       repo.record(player, newer, GameType.TicTacToe, GameResult.Draw, forfeit = false).unsafeRunSync()
 
-      repo.findByPlayer(player).unsafeRunSync().map(_.gameId) shouldBe List(newer, older)
+      repo.findByPlayer(player).unsafeRunSync().map(_.matchId) shouldBe List(newer, older)
     }
 
     "ignore a re-recorded (player, game) outcome rather than duplicating it" in {

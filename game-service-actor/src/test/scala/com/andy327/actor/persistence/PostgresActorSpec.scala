@@ -14,7 +14,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameType, MatchId, PlayerId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.{
@@ -30,32 +30,32 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
 
   class DummyRepo(saveResult: Either[Throwable, Unit] = Right(())) extends GameRepository {
     def initialize(): IO[Unit] = IO.unit
-    def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
-    def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
-    def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
+    def loadGame(matchId: MatchId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] = IO.pure(None)
+    def saveGame(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] = IO.fromEither(saveResult)
+    def loadAllGames(): IO[Map[MatchId, (GameType, Game[_, _, _, _, _])]] = IO.pure(Map.empty)
   }
 
   /** Records each appended move; `appendResult` lets a test force the append IO to fail. */
   class RecordingMoveRepo(appendResult: Either[Throwable, Unit] = Right(())) extends MoveHistoryRepository {
-    val appended = new ConcurrentLinkedQueue[(GameId, Int, PlayerId, Json)]()
+    val appended = new ConcurrentLinkedQueue[(MatchId, Int, PlayerId, Json)]()
     def initialize(): IO[Unit] = IO.unit
-    def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
-      IO(appended.add((gameId, seq, playerId, move))) *> IO.fromEither(appendResult)
-    def loadMoves(gameId: GameId): IO[List[MoveRecord]] = IO.pure(Nil)
+    def appendMove(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
+      IO(appended.add((matchId, seq, playerId, move))) *> IO.fromEither(appendResult)
+    def loadMoves(matchId: MatchId): IO[List[MoveRecord]] = IO.pure(Nil)
   }
 
   /** Records each game-result write; `recordResult` lets a test force the record IO to fail. */
   class RecordingPlayerHistoryRepo(recordResult: Either[Throwable, Unit] = Right(())) extends PlayerHistoryRepository {
-    val recorded = new ConcurrentLinkedQueue[(PlayerId, GameId, GameType, GameResult, Boolean)]()
+    val recorded = new ConcurrentLinkedQueue[(PlayerId, MatchId, GameType, GameResult, Boolean)]()
     def initialize(): IO[Unit] = IO.unit
     def record(
         playerId: PlayerId,
-        gameId: GameId,
+        matchId: MatchId,
         gameType: GameType,
         result: GameResult,
         forfeit: Boolean
     ): IO[Unit] =
-      IO(recorded.add((playerId, gameId, gameType, result, forfeit))) *> IO.fromEither(recordResult)
+      IO(recorded.add((playerId, matchId, gameType, result, forfeit))) *> IO.fromEither(recordResult)
     def findByPlayer(playerId: PlayerId): IO[List[PlayerGameRecord]] = IO.pure(Nil)
   }
 
@@ -90,13 +90,13 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
     "append a move to the move repository on AppendMove" in {
       val moveRepo = new RecordingMoveRepo
       val persistActor = spawn(PostgresActor(new DummyRepo(), moveRepo))
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
       val move = Json.obj("col" -> 3.asJson)
 
-      persistActor ! PersistenceProtocol.AppendMove(gameId, 0, alice, move)
+      persistActor ! PersistenceProtocol.AppendMove(matchId, 0, alice, move)
 
       createTestProbe().awaitAssert(moveRepo.appended should have size 1)
-      moveRepo.appended.peek() shouldBe ((gameId, 0, alice, move))
+      moveRepo.appended.peek() shouldBe ((matchId, 0, alice, move))
     }
 
     "stay alive when a move append fails" in {
@@ -113,12 +113,12 @@ class PostgresActorSpec extends ScalaTestWithActorTestKit with AnyWordSpecLike w
     "record a game result to the player-history repository on RecordGameResult" in {
       val historyRepo = new RecordingPlayerHistoryRepo
       val persistActor = spawn(PostgresActor(new DummyRepo(), new RecordingMoveRepo, historyRepo))
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
 
-      persistActor ! PersistenceProtocol.RecordGameResult(alice, gameId, GameType.TicTacToe, GameResult.Win, false)
+      persistActor ! PersistenceProtocol.RecordGameResult(alice, matchId, GameType.TicTacToe, GameResult.Win, false)
 
       createTestProbe().awaitAssert(historyRepo.recorded should have size 1)
-      historyRepo.recorded.peek() shouldBe ((alice, gameId, GameType.TicTacToe, GameResult.Win, false))
+      historyRepo.recorded.peek() shouldBe ((alice, matchId, GameType.TicTacToe, GameResult.Win, false))
     }
 
     "stay alive when a game-result record fails" in {

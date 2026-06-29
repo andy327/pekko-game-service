@@ -14,7 +14,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.actor.core.{GameManager, InMemRepo}
 import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{GameId, GameType}
+import com.andy327.model.core.{GameType, RoomId}
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -22,7 +22,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
   private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
     override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
-    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def deleteLobby(roomId: RoomId): IO[Unit] = IO.unit
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
@@ -68,7 +68,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
       // a lobby alice can subscribe to once her WebSocket session is registered
       typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val gameId = responseProbe.expectMessageType[GameManager.LobbyCreated].gameId
+      val roomId = responseProbe.expectMessageType[GameManager.LobbyCreated].roomId
 
       val wsClient = WSProbe()
       WS("/ws", wsClient.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
@@ -76,7 +76,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
         // registration happens asynchronously after connect, so retry the subscribe until it lands
         responseProbe.awaitAssert {
-          typedSystem ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+          typedSystem ! GameManager.SubscribePlayerToLobby(roomId, alice.id, responseProbe.ref)
           responseProbe.receiveMessage() shouldBe a[GameManager.SubscribeAcknowledged]
         }
 
@@ -98,7 +98,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val responseProbe = typedKit.createTestProbe[GameManager.GameResponse]()
 
       typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
-      val gameId = responseProbe.expectMessageType[GameManager.LobbyCreated].gameId
+      val roomId = responseProbe.expectMessageType[GameManager.LobbyCreated].roomId
 
       val wsClient = WSProbe()
       WS("/ws", wsClient.flow) ~> addHeader(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
@@ -106,7 +106,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
 
         // subscribe alice to the lobby once her session is registered (registration is async)
         responseProbe.awaitAssert {
-          typedSystem ! GameManager.SubscribePlayerToLobby(gameId, alice.id, responseProbe.ref)
+          typedSystem ! GameManager.SubscribePlayerToLobby(roomId, alice.id, responseProbe.ref)
           responseProbe.receiveMessage() shouldBe a[GameManager.SubscribeAcknowledged]
         }
         wsClient.expectMessage().asTextMessage.getStrictText should include("LobbyUpdated") // initial state
@@ -115,7 +115,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         wsClient.sendMessage("not even json")
 
         // the next valid chat frame is still routed: inbound decode -> SendChat -> lobby fan-out -> back to her socket
-        wsClient.sendMessage(s"""{"type":"ChatSend","gameId":"$gameId","text":"hello all"}""")
+        wsClient.sendMessage(s"""{"type":"ChatSend","roomId":"$roomId","text":"hello all"}""")
         val frame = wsClient.expectMessage().asTextMessage.getStrictText
         frame should include("ChatMessage")
         frame should include("hello all")

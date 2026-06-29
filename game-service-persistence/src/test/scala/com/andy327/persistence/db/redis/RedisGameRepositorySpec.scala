@@ -12,7 +12,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.testcontainers.containers.wait.strategy.Wait
 
-import com.andy327.model.core.{Game, GameId, GameType}
+import com.andy327.model.core.{Game, GameType, MatchId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.GameRepository
 import com.andy327.persistence.db.schema.GameTypeCodecs
@@ -42,12 +42,12 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
       f(new RedisGameRepository(stub, redis), redis)
     }.unsafeRunSync()
 
-  private def newGame(): (GameId, TicTacToe) =
+  private def newGame(): (MatchId, TicTacToe) =
     UUID.randomUUID() -> TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID())
 
   // Stub GameRepository backed by an in-memory map with call counters
   private class StubGameRepository(
-      private var games: Map[GameId, (GameType, Game[_, _, _, _, _])] = Map.empty
+      private var games: Map[MatchId, (GameType, Game[_, _, _, _, _])] = Map.empty
   ) extends GameRepository {
     var initializeCallCount: Int = 0
     var loadGameCallCount: Int = 0
@@ -55,13 +55,13 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
 
     override def initialize(): IO[Unit] = IO(initializeCallCount += 1)
 
-    override def saveGame(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
-      IO { saveGameCallCount += 1; games = games + (gameId -> (gameType, game)) }
+    override def saveGame(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
+      IO { saveGameCallCount += 1; games = games + (matchId -> (gameType, game)) }
 
-    override def loadGame(gameId: GameId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
-      IO { loadGameCallCount += 1; games.get(gameId).map(_._2) }
+    override def loadGame(matchId: MatchId, gameType: GameType): IO[Option[Game[_, _, _, _, _]]] =
+      IO { loadGameCallCount += 1; games.get(matchId).map(_._2) }
 
-    override def loadAllGames(): IO[Map[GameId, (GameType, Game[_, _, _, _, _])]] =
+    override def loadAllGames(): IO[Map[MatchId, (GameType, Game[_, _, _, _, _])]] =
       IO.pure(games)
   }
 
@@ -76,13 +76,13 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
 
   "RedisGameRepository.saveGame" should {
     "write the serialized game state to Redis and delegate to Postgres" in {
-      val (gameId, game) = newGame()
+      val (matchId, game) = newGame()
       val stub = new StubGameRepository()
 
       withResources(stub) { (repo, redis) =>
         for {
-          _ <- repo.saveGame(gameId, GameType.TicTacToe, game)
-          cached <- redis.get(s"game:$gameId")
+          _ <- repo.saveGame(matchId, GameType.TicTacToe, game)
+          cached <- redis.get(s"game:$matchId")
         } yield {
           cached shouldBe Some(GameTypeCodecs.serializeGame(GameType.TicTacToe, game))
           stub.saveGameCallCount shouldBe 1
@@ -93,13 +93,13 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
 
   "RedisGameRepository.loadGame" should {
     "return the cached value without calling Postgres on a cache hit" in {
-      val (gameId, game) = newGame()
+      val (matchId, game) = newGame()
       val stub = new StubGameRepository() // loadGame would return None
 
       withResources(stub) { (repo, redis) =>
         for {
-          _ <- redis.set(s"game:$gameId", GameTypeCodecs.serializeGame(GameType.TicTacToe, game))
-          result <- repo.loadGame(gameId, GameType.TicTacToe)
+          _ <- redis.set(s"game:$matchId", GameTypeCodecs.serializeGame(GameType.TicTacToe, game))
+          result <- repo.loadGame(matchId, GameType.TicTacToe)
         } yield {
           result shouldBe Some(game)
           stub.loadGameCallCount shouldBe 0
@@ -108,13 +108,13 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
     }
 
     "fall back to Postgres and warm the cache on a cache miss" in {
-      val (gameId, game) = newGame()
-      val stub = new StubGameRepository(Map(gameId -> (GameType.TicTacToe, game)))
+      val (matchId, game) = newGame()
+      val stub = new StubGameRepository(Map(matchId -> (GameType.TicTacToe, game)))
 
       withResources(stub) { (repo, redis) =>
         for {
-          result <- repo.loadGame(gameId, GameType.TicTacToe)
-          cached <- redis.get(s"game:$gameId")
+          result <- repo.loadGame(matchId, GameType.TicTacToe)
+          cached <- redis.get(s"game:$matchId")
         } yield {
           result shouldBe Some(game)
           stub.loadGameCallCount shouldBe 1
@@ -124,13 +124,13 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
     }
 
     "return None and leave the cache empty when the game is not found in Postgres" in {
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
       val stub = new StubGameRepository() // no games — loadGame returns None
 
       withResources(stub) { (repo, redis) =>
         for {
-          result <- repo.loadGame(gameId, GameType.TicTacToe)
-          cached <- redis.get(s"game:$gameId")
+          result <- repo.loadGame(matchId, GameType.TicTacToe)
+          cached <- redis.get(s"game:$matchId")
         } yield {
           result shouldBe None
           cached shouldBe None
@@ -139,14 +139,14 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
     }
 
     "fall back to Postgres and re-warm the cache when the cached value is corrupt" in {
-      val (gameId, game) = newGame()
-      val stub = new StubGameRepository(Map(gameId -> (GameType.TicTacToe, game)))
+      val (matchId, game) = newGame()
+      val stub = new StubGameRepository(Map(matchId -> (GameType.TicTacToe, game)))
 
       withResources(stub) { (repo, redis) =>
         for {
-          _ <- redis.set(s"game:$gameId", "not-valid-json")
-          result <- repo.loadGame(gameId, GameType.TicTacToe)
-          cached <- redis.get(s"game:$gameId")
+          _ <- redis.set(s"game:$matchId", "not-valid-json")
+          result <- repo.loadGame(matchId, GameType.TicTacToe)
+          cached <- redis.get(s"game:$matchId")
         } yield {
           result shouldBe Some(game)
           stub.loadGameCallCount shouldBe 1
@@ -158,15 +158,15 @@ class RedisGameRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
 
   "RedisGameRepository.loadAllGames" should {
     "load all games from Postgres and warm the Redis cache" in {
-      val (gameId, game) = newGame()
-      val stub = new StubGameRepository(Map(gameId -> (GameType.TicTacToe, game)))
+      val (matchId, game) = newGame()
+      val stub = new StubGameRepository(Map(matchId -> (GameType.TicTacToe, game)))
 
       withResources(stub) { (repo, redis) =>
         for {
           result <- repo.loadAllGames()
-          cached <- redis.get(s"game:$gameId")
+          cached <- redis.get(s"game:$matchId")
         } yield {
-          result.get(gameId) shouldBe Some((GameType.TicTacToe, game))
+          result.get(matchId) shouldBe Some((GameType.TicTacToe, game))
           cached shouldBe Some(GameTypeCodecs.serializeGame(GameType.TicTacToe, game))
         }
       }

@@ -47,7 +47,7 @@ class RedisLobbyRepositorySpec extends AnyWordSpec with Matchers with ForAllTest
         for {
           _ <- repo.saveLobby(lobby)
           lobbies <- repo.loadAllLobbies()
-        } yield lobbies.map(_.gameId) should contain(lobby.gameId)
+        } yield lobbies.map(_.roomId) should contain(lobby.roomId)
       }
     }
 
@@ -60,7 +60,7 @@ class RedisLobbyRepositorySpec extends AnyWordSpec with Matchers with ForAllTest
           _ <- repo.saveLobby(updated)
           lobbies <- repo.loadAllLobbies()
         } yield {
-          val found = lobbies.find(_.gameId == lobby.gameId)
+          val found = lobbies.find(_.roomId == lobby.roomId)
           found.map(_.status) shouldBe Some(GameLifecycleStatus.ReadyToStart)
         }
       }
@@ -73,9 +73,9 @@ class RedisLobbyRepositorySpec extends AnyWordSpec with Matchers with ForAllTest
       withRepo { repo =>
         for {
           _ <- repo.saveLobby(lobby)
-          _ <- repo.deleteLobby(lobby.gameId)
+          _ <- repo.deleteLobby(lobby.roomId)
           lobbies <- repo.loadAllLobbies()
-        } yield lobbies.map(_.gameId) should not contain lobby.gameId
+        } yield lobbies.map(_.roomId) should not contain lobby.roomId
       }
     }
   }
@@ -89,7 +89,7 @@ class RedisLobbyRepositorySpec extends AnyWordSpec with Matchers with ForAllTest
           _ <- repo.saveLobby(lobby1)
           _ <- repo.saveLobby(lobby2)
           lobbies <- repo.loadAllLobbies()
-        } yield (lobbies.map(_.gameId) should contain).allOf(lobby1.gameId, lobby2.gameId)
+        } yield (lobbies.map(_.roomId) should contain).allOf(lobby1.roomId, lobby2.roomId)
       }
     }
 

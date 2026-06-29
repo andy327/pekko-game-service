@@ -139,7 +139,7 @@ $ http POST :8080/auth/register username=bob   email=bob@example.com   password=
 { "token": "eyJhbGciOi..." }   // save Alice's as $ALICE and Bob's as $BOB
 ```
 
-Alice creates a Tic-Tac-Toe lobby (she becomes the host); the response carries the new `gameId`:
+Alice creates a Tic-Tac-Toe lobby (she becomes the host); the response carries the new `roomId`:
 
 ```
 $ http POST :8080/lobby/create/tictactoe "Authorization: Bearer $ALICE"
@@ -148,14 +148,14 @@ $ http POST :8080/lobby/create/tictactoe "Authorization: Bearer $ALICE"
 Bob joins it, then Alice — the host — starts the match:
 
 ```
-$ http POST :8080/lobby/$GAME_ID/join  "Authorization: Bearer $BOB"
-$ http POST :8080/lobby/$GAME_ID/start "Authorization: Bearer $ALICE"
+$ http POST :8080/lobby/$ROOM_ID/join  "Authorization: Bearer $BOB"
+$ http POST :8080/lobby/$ROOM_ID/start "Authorization: Bearer $ALICE"
 ```
 
 Now play. Moves are game-specific JSON; for Tic-Tac-Toe that's a zero-based `(row, col)`, with `(0,0)` at the top-left. Alice (X) takes the center:
 
 ```
-$ http POST :8080/tictactoe/$GAME_ID/move "Authorization: Bearer $ALICE" row:=1 col:=1
+$ http POST :8080/tictactoe/$ROOM_ID/move "Authorization: Bearer $ALICE" row:=1 col:=1
 ```
 
 The response is the updated board, and every connected participant is pushed the new state over their WebSocket in real time (see [API reference](#api-reference) for the `/ws` protocol). Bob can reply with his own `move`, and so on until someone wins or the board fills.
@@ -179,22 +179,22 @@ All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a 
 |--------|------|-------------|
 | `POST`   | `/lobby/create/{gameType}` | Create a lobby for a game type; the caller becomes host |
 | `GET`    | `/lobby/list` | List all open lobbies |
-| `GET`    | `/lobby/{gameId}` | Fetch metadata for one lobby |
-| `POST`   | `/lobby/{gameId}/join` | Join an open lobby |
-| `POST`   | `/lobby/{gameId}/leave` | Leave a lobby (or forfeit an in-progress game) |
-| `POST`   | `/lobby/{gameId}/start` | Start the match (host only); also doubles as the rematch call when the room is in its post-game `Finished` state |
-| `DELETE` | `/lobby/{gameId}` | Cancel a pre-game lobby (host only) |
-| `POST` / `DELETE` | `/lobby/{gameId}/subscribe` | Start / stop spectating a lobby's push events |
+| `GET`    | `/lobby/{roomId}` | Fetch metadata for one lobby |
+| `POST`   | `/lobby/{roomId}/join` | Join an open lobby |
+| `POST`   | `/lobby/{roomId}/leave` | Leave a lobby (or forfeit an in-progress game) |
+| `POST`   | `/lobby/{roomId}/start` | Start the match (host only); also doubles as the rematch call when the room is in its post-game `Finished` state |
+| `DELETE` | `/lobby/{roomId}` | Cancel a pre-game lobby (host only) |
+| `POST` / `DELETE` | `/lobby/{roomId}/subscribe` | Start / stop spectating a lobby's push events |
 
 ### Gameplay
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST`   | `/{gameType}/{gameId}/move` | Submit a move; payload shape is game-specific (e.g. `{ "row": 1, "col": 1 }` for Tic-Tac-Toe) |
-| `GET`    | `/{gameType}/{gameId}/status` | Fetch current game state (your view) |
-| `GET`    | `/{gameType}/{gameId}/history` | Fetch the ordered move log |
-| `GET`    | `/{gameType}/{gameId}/chat` | Fetch recent chat backscroll |
-| `POST` / `DELETE` | `/{gameType}/{gameId}/subscribe` | Start / stop spectating a game's push events |
+| `POST`   | `/{gameType}/{roomId}/move` | Submit a move; payload shape is game-specific (e.g. `{ "row": 1, "col": 1 }` for Tic-Tac-Toe) |
+| `GET`    | `/{gameType}/{roomId}/status` | Fetch current game state (your view) |
+| `GET`    | `/{gameType}/{roomId}/history` | Fetch the ordered move log |
+| `GET`    | `/{gameType}/{roomId}/chat` | Fetch recent chat backscroll |
+| `POST` / `DELETE` | `/{gameType}/{roomId}/subscribe` | Start / stop spectating a game's push events |
 
 ### Player & metrics
 
@@ -215,12 +215,12 @@ After authenticating, a client opens a single WebSocket to `GET /ws` (Bearer tok
 | `LobbyUpdated` | lobby `metadata` | A player joins/leaves or the lobby's status changes, including the room turning `Finished` after a match ends, or `InProgress` again on rematch |
 | `GameStateUpdated` | the viewer's `state` | A move is applied — each recipient gets their own per-viewer projection |
 | `GameEnded` | final `result` | The game reaches a win or draw, or a post-game room is evicted for sitting idle/empty |
-| `ChatMessage` | `gameId`, `senderId`, `senderName`, `text`, `sentAt` | Anyone watching that match posts chat |
+| `ChatMessage` | `roomId`, `senderId`, `senderName`, `text`, `sentAt` | Anyone watching that match posts chat |
 
 **Client → server** frames are likewise tagged by `type`. Today the sole inbound message is chat; unrecognized or malformed frames are logged and dropped:
 
 ```jsonc
-{ "type": "ChatSend", "gameId": "<uuid>", "text": "good luck!" }
+{ "type": "ChatSend", "roomId": "<uuid>", "text": "good luck!" }
 ```
 
 REST actions (joining, starting, moving) and WebSocket pushes work together: you `POST` a move over HTTP and receive the resulting state both in the HTTP response and as a `GameStateUpdated` push to every participant.
@@ -247,7 +247,7 @@ Each game actor is the single source of truth for one match. Because an actor pr
 
 ### The move lifecycle
 
-A move is server-authoritative end to end. The client POSTs it; the route hands it to `GameManager`, which routes it by `gameId` to the right game actor; the actor asks the pure game model to validate and apply it. Only if the model accepts the move does anything change.
+A move is server-authoritative end to end. The client POSTs it; the route hands it to `GameManager`, which routes it by `roomId` to the right game actor; the actor asks the pure game model to validate and apply it. Only if the model accepts the move does anything change.
 
 ```mermaid
 sequenceDiagram
@@ -260,7 +260,7 @@ sequenceDiagram
 
     Client->>Routes: POST /{type}/{id}/move (JWT)
     Routes->>GameManager: RunGameOperation(MakeMove)
-    GameManager->>Game: MakeMove (routed by gameId)
+    GameManager->>Game: MakeMove (routed by roomId)
     Note over Game: game model validates turn + legality
     Game--)Postgres: SaveSnapshot (fire-and-forget)
     Game-->>GameManager: Right(acting player's view)
