@@ -124,6 +124,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 #lobby-list .meta,
 #my-sessions .meta { color: var(--muted); font-size: 0.9rem; }
 
+/* Groups a lobby row's action buttons (Join, Spectate) so they sit together at a consistent spot regardless of how
+   many are present, rather than each being spread out individually by the row's space-between. */
+#lobby-list .actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+
 /* Board: a grid of square cells sized from the --cols custom property. */
 #board {
   display: grid;

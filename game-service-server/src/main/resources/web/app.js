@@ -264,19 +264,27 @@ async function refreshLobbies() {
 
     li.appendChild(meta);
 
+    // grouped so Join (when present) and Spectate always sit together at a consistent spot, rather than each being
+    // spread out individually by the row's space-between; Spectate first, Join last so Join always lands at the
+    // rightmost edge
+    const actions = document.createElement("span");
+    actions.className = "actions";
+
+    const spectate = document.createElement("button");
+    spectate.textContent = "Spectate";
+    spectate.onclick = () => spectateGame(lobby.roomId, type, lobby.status);
+    actions.appendChild(spectate);
+
     if (joinable) {
       const full = count >= max;
       const join = document.createElement("button");
       join.textContent = full ? "Full" : "Join";
       join.disabled = full;
       if (!full) join.onclick = () => joinGame(lobby.roomId, type);
-      li.appendChild(join);
+      actions.appendChild(join);
     }
 
-    const spectate = document.createElement("button");
-    spectate.textContent = "Spectate";
-    spectate.onclick = () => spectateGame(lobby.roomId, type, lobby.status);
-    li.appendChild(spectate);
+    li.appendChild(actions);
 
     list.appendChild(li);
   }
@@ -299,9 +307,16 @@ function prepareGameView({ roomId, gameType, isHost, isSpectator = false, isLive
   clearTimeout(copyLinkTimer);
   $("copy-link").textContent = COPY_LINK_LABEL;
   $("chat-log").innerHTML = "";
-  $("chat-form").classList.toggle("hidden", isSpectator); // spectators get read-only chat
-  $("leave-game").textContent = isSpectator ? "Stop spectating" : "Leave";
+  $("join-as-player").classList.add("hidden"); // shown only once onLobbyUpdated confirms a joinable, open seat
+  applySpectatorUi(isSpectator);
   showPanel("game");
+}
+
+// Toggle the read-only affordances that depend on whether we're spectating: a spectator gets no chat-send box and a
+// "Stop spectating" label instead of "Leave" (both call the same leaveGame, which routes to the right unsubscribe).
+function applySpectatorUi(isSpectator) {
+  $("chat-form").classList.toggle("hidden", isSpectator);
+  $("leave-game").textContent = isSpectator ? "Stop spectating" : "Leave";
 }
 
 // Watch a lobby or live game without taking a seat. Subscribes via the lobby endpoint for a pre-game room (the same
@@ -398,13 +413,22 @@ async function resumeGame({ roomId, gameType }) {
 // A pre-game lobby changed: refresh the player count, surface the host, and (for the host) enable Start when ready.
 function onLobbyUpdated(metadata) {
   if (!session.game || metadata.roomId !== session.game.roomId) return;
+
+  // Membership in metadata.players is the source of truth for whether we're seated or just watching — re-derive it on
+  // every update so a spectator who clicks "Join this game" picks up their new seat as soon as this push arrives.
+  const isSpectator = !(session.me && metadata.players[session.me.id]);
+  session.game.isSpectator = isSpectator;
+  applySpectatorUi(isSpectator);
+
   if (metadata.status === "InProgress") {
     $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    $("join-as-player").classList.add("hidden"); // too late to join — the match already started
     $("post-game-bar").classList.add("hidden"); // a rematch just began; the next GameStateUpdated takes over
     $("rematch-btn").classList.add("hidden");
     return; // game state pushes take over from here
   }
   if (metadata.status === "Finished") {
+    $("join-as-player").classList.add("hidden"); // a finished room's roster is fixed; no new seats to join
     onMatchFinished(metadata);
     return;
   }
@@ -417,15 +441,30 @@ function onLobbyUpdated(metadata) {
   session.game.isHost = youHost;
 
   const max = GAMES[session.game.gameType].maxPlayers;
+  $("join-as-player").classList.toggle("hidden", !isSpectator || count >= max);
   if (youHost) {
     const ready = metadata.status === "ReadyToStart";
     $("start-game").classList.remove("hidden");
     $("start-game").disabled = !ready;
     setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/${max})`);
+  } else if (isSpectator) {
+    setStatus(`Hosted by ${hostName} — spectating (${count}/${max})`);
   } else {
     $("start-game").classList.add("hidden");
     setStatus(`Hosted by ${hostName} — waiting for them to start… (${count}/${max})`);
   }
+}
+
+// A spectator takes a seat in the still-open lobby they're already watching. Reuses the normal join endpoint — a
+// spectator is just a subscriber with no seat, so joining is exactly what a fresh joiner does. No resubscribe needed:
+// we're already registered for push events, and the resulting LobbyUpdated (fanned out to every subscriber) is what
+// flips session.game.isSpectator and refreshes the UI above.
+async function joinAsPlayer() {
+  const game = session.game;
+  if (!game) return;
+  setError("game-error", "");
+  const res = await api(`/lobby/${game.roomId}/join`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not join the game");
 }
 
 // The room's match has ended but the room survives: keep the final board on screen, surface a rematch bar, and let
@@ -709,6 +748,7 @@ $("refresh-lobbies").addEventListener("click", () => {
 });
 $("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
+$("join-as-player").addEventListener("click", joinAsPlayer);
 $("rematch-btn").addEventListener("click", rematch);
 $("back-to-lobby").addEventListener("click", enterLobby); // browse the lobby without leaving the current game
 $("leave-game").addEventListener("click", leaveGame);
