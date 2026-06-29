@@ -1,5 +1,7 @@
 package com.andy327.actor.core
 
+import java.util.UUID
+
 import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -23,7 +25,7 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
         winner = None,
         draw = false
       )
-      val event = PlayerEvent.GameStateUpdated(dummyState)
+      val event = PlayerEvent.GameStateUpdated(UUID.randomUUID(), dummyState)
 
       actor ! PlayerActor.SendEvent(event)
       sessionProbe.expectMessage(PlayerActor.SessionEvent(event))

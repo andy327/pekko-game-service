@@ -59,8 +59,8 @@ class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
   /** Decode one inbound client frame and act on it; malformed frames are logged and ignored. */
   private def handleInbound(player: Player)(text: String): Unit =
     decode[ClientMessage](text) match {
-      case Right(ClientMessage.ChatSend(gameId, body)) =>
-        gameManager ! GameManager.SendChat(gameId, player, body)
+      case Right(ClientMessage.ChatSend(roomId, body)) =>
+        gameManager ! GameManager.SendChat(roomId, player, body)
       case Left(err) =>
         logger.warn(s"Ignoring unparseable client message from ${player.id}: ${err.getMessage}")
     }

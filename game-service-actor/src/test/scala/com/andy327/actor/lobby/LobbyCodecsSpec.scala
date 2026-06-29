@@ -25,6 +25,11 @@ class LobbyCodecsSpec extends AnyWordSpec with Matchers {
       LobbyCodecs.deserialize(LobbyCodecs.serialize(lobby)) shouldBe Right(lobby)
     }
 
+    "round-trip a lobby with Finished status" in {
+      val lobby = baseLobby.copy(status = GameLifecycleStatus.Finished)
+      LobbyCodecs.deserialize(LobbyCodecs.serialize(lobby)) shouldBe Right(lobby)
+    }
+
     "round-trip a lobby with Completed status" in {
       val lobby = baseLobby.copy(status = GameLifecycleStatus.Completed)
       LobbyCodecs.deserialize(LobbyCodecs.serialize(lobby)) shouldBe Right(lobby)

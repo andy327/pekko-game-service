@@ -28,7 +28,7 @@ import com.andy327.actor.core.{GameManager, InMemChatRepo, InMemMoveRepo, InMemR
 import com.andy327.actor.game.GridGameState
 import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{GameId, GameType}
+import com.andy327.model.core.{GameType, RoomId}
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
@@ -41,7 +41,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
     override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
-    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def deleteLobby(roomId: RoomId): IO[Unit] = IO.unit
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
@@ -69,21 +69,21 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   "GameRoutes" when {
     "handling TicTacToe" should {
       "submit a move to a valid game" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
-        Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
           val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.board(0)(0) shouldBe "X"
@@ -99,43 +99,43 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 409 when a move is rejected by the game" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"row":0,"col":0}""")
 
-        Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         // alice moves again out of turn — rejected with 409, not 404
-        Post(s"/tictactoe/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.Conflict
           responseAs[String] should include("not your turn")
         }
       }
 
       "fetch game status" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Get(s"/tictactoe/$gameId/status") ~> routes ~> check {
+        Get(s"/tictactoe/$roomId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
           val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.currentPlayer shouldBe "X"
@@ -150,7 +150,7 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return the recorded move history" in {
-        val gameId = UUID.randomUUID()
+        val roomId = UUID.randomUUID()
         val moves = List(
           MoveRecord(0, aliceId, Json.obj("row" -> 0.asJson, "col" -> 0.asJson), Instant.EPOCH),
           MoveRecord(1, bobId, Json.obj("row" -> 1.asJson, "col" -> 1.asJson), Instant.EPOCH)
@@ -160,58 +160,58 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
             persistProbe.ref,
             new InMemRepo,
             noOpLobbyRepo,
-            moveRepo = new InMemMoveRepo(Map(gameId -> moves))
+            moveRepo = new InMemMoveRepo(Map(roomId -> moves))
           ),
           "GameRoutesHistorySystem"
         )
         val histRoutes = new GameRoutes(GameType.TicTacToe, histSystem).routes
 
-        Get(s"/tictactoe/$gameId/history") ~> histRoutes ~> check {
+        Get(s"/tictactoe/$roomId/history") ~> histRoutes ~> check {
           status shouldBe StatusCodes.OK
           val history = responseAs[GameManager.MoveHistory]
-          history.gameId shouldBe gameId
+          history.roomId shouldBe roomId
           history.moves.map(_.seq) shouldBe List(0, 1)
           history.moves.map(_.move) shouldBe moves.map(_.move)
         }
       }
 
       "return an empty move history for a game with no moves" in {
-        val gameId = UUID.randomUUID()
-        Get(s"/tictactoe/$gameId/history") ~> routes ~> check {
+        val roomId = UUID.randomUUID()
+        Get(s"/tictactoe/$roomId/history") ~> routes ~> check {
           status shouldBe StatusCodes.OK
           responseAs[GameManager.MoveHistory].moves shouldBe empty
         }
       }
 
       "return the recorded chat history" in {
-        val gameId = UUID.randomUUID()
+        val roomId = UUID.randomUUID()
         val messages = List(
-          PlayerEvent.ChatMessage(gameId, aliceId, "alice", "hi", Instant.EPOCH),
-          PlayerEvent.ChatMessage(gameId, bobId, "bob", "hey", Instant.EPOCH)
+          PlayerEvent.ChatMessage(roomId, aliceId, "alice", "hi", Instant.EPOCH),
+          PlayerEvent.ChatMessage(roomId, bobId, "bob", "hey", Instant.EPOCH)
         )
         val chatSystem = ActorSystem(
           GameManager(
             persistProbe.ref,
             new InMemRepo,
             noOpLobbyRepo,
-            chatRepo = new InMemChatRepo(Map(gameId -> messages))
+            chatRepo = new InMemChatRepo(Map(roomId -> messages))
           ),
           "GameRoutesChatSystem"
         )
         val chatRoutes = new GameRoutes(GameType.TicTacToe, chatSystem).routes
 
-        Get(s"/tictactoe/$gameId/chat") ~> chatRoutes ~> check {
+        Get(s"/tictactoe/$roomId/chat") ~> chatRoutes ~> check {
           status shouldBe StatusCodes.OK
           val history = responseAs[GameManager.ChatHistory]
-          history.gameId shouldBe gameId
+          history.roomId shouldBe roomId
           history.messages.map(_.text) shouldBe List("hi", "hey")
           history.messages.map(_.senderName) shouldBe List("alice", "bob")
         }
       }
 
       "return an empty chat history for a game with no messages" in {
-        val gameId = UUID.randomUUID()
-        Get(s"/tictactoe/$gameId/chat") ~> routes ~> check {
+        val roomId = UUID.randomUUID()
+        Get(s"/tictactoe/$roomId/chat") ~> routes ~> check {
           status shouldBe StatusCodes.OK
           responseAs[GameManager.ChatHistory].messages shouldBe empty
         }
@@ -226,22 +226,22 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 400 for invalid JSON structure on move" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         val invalidJson = """{ "x": 0, "y": 1 }"""
         val entity = HttpEntity(ContentTypes.`application/json`, invalidJson)
 
-        Post(s"/tictactoe/$gameId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
           responseAs[String] should include("Invalid JSON")
         }
@@ -363,13 +363,13 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 200 when subscribing to an active game with a WebSocket connection" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
@@ -379,22 +379,22 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           3.seconds
         )
 
-        Post(s"/tictactoe/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+          responseAs[GameManager.SubscribeAcknowledged].roomId shouldBe roomId
         }
 
         typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
       }
 
       "return 200 (idempotent) when unsubscribing from a game" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
         // DELETE is idempotent — it succeeds even with no prior subscription and no active game actor
-        Delete(s"/tictactoe/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        Delete(s"/tictactoe/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          responseAs[GameManager.UnsubscribeAcknowledged].gameId shouldBe gameId
+          responseAs[GameManager.UnsubscribeAcknowledged].roomId shouldBe roomId
         }
       }
 
@@ -404,25 +404,25 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
         }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
-        Post("/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check(())
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check(())
+        Post("/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check(())
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check(())
 
         // Alice has no WebSocket connection registered, so the subscribe will fail
-        Post(s"/tictactoe/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
           responseAs[String] should include("not connected")
         }
       }
 
       "return 401 when subscribing to a game without authentication" in {
-        val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/tictactoe/$gameId/subscribe") ~> routes ~> check {
+        Post(s"/tictactoe/$roomId/subscribe") ~> routes ~> check {
           status shouldBe StatusCodes.Unauthorized
         }
       }
@@ -430,21 +430,21 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
     "handling ConnectFour" should {
       "submit a move to a valid game" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         val moveEntity = HttpEntity(ContentTypes.`application/json`, """{"col":3}""")
 
-        Post(s"/connectfour/$gameId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/connectfour/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
           val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.board(5)(3) shouldBe "R"
@@ -460,19 +460,19 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "fetch game status" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Get(s"/connectfour/$gameId/status") ~> routes ~> check {
+        Get(s"/connectfour/$roomId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
           val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
           gameState.currentPlayer shouldBe "R"
@@ -495,22 +495,22 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 400 for invalid JSON structure on move" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
         val invalidJson = """{ "row": 0, "column": 3 }"""
         val entity = HttpEntity(ContentTypes.`application/json`, invalidJson)
 
-        Post(s"/connectfour/$gameId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/connectfour/$roomId/move", entity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
           responseAs[String] should include("Invalid JSON")
         }
@@ -558,13 +558,13 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       }
 
       "return 200 when subscribing to an active game with a WebSocket connection" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
-        Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
         }
 
@@ -574,33 +574,33 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
           3.seconds
         )
 
-        Post(s"/connectfour/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/connectfour/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+          responseAs[GameManager.SubscribeAcknowledged].roomId shouldBe roomId
         }
 
         typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
       }
 
       "return 400 when subscribing to a game without an active WebSocket connection" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
-        Post("/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check(())
-        Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check(())
+        Post("/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check(())
+        Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check(())
 
-        Post(s"/connectfour/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+        Post(s"/connectfour/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.BadRequest
           responseAs[String] should include("not connected")
         }
       }
 
       "return 401 when subscribing to a game without authentication" in {
-        val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-          responseAs[GameManager.LobbyCreated].gameId
+        val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+          responseAs[GameManager.LobbyCreated].roomId
         }
 
-        Post(s"/connectfour/$gameId/subscribe") ~> routes ~> check {
+        Post(s"/connectfour/$roomId/subscribe") ~> routes ~> check {
           status shouldBe StatusCodes.Unauthorized
         }
       }

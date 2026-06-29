@@ -3,7 +3,7 @@ package com.andy327.actor.chat
 import cats.effect.IO
 
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.model.core.GameId
+import com.andy327.model.core.RoomId
 
 /** Repository for a bounded, recent-message history of each match's chat thread.
   *
@@ -17,6 +17,6 @@ trait ChatRepository {
   /** Append a chat message to its game's history, evicting the oldest once the buffer is full. */
   def append(message: PlayerEvent.ChatMessage): IO[Unit]
 
-  /** Load the recent chat history for `gameId`, oldest first. Empty if the game has no recorded messages. */
-  def recent(gameId: GameId): IO[List[PlayerEvent.ChatMessage]]
+  /** Load the recent chat history for `roomId`, oldest first. Empty if the game has no recorded messages. */
+  def recent(roomId: RoomId): IO[List[PlayerEvent.ChatMessage]]
 }

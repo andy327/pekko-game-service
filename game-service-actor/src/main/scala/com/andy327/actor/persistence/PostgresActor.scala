@@ -6,7 +6,7 @@ import cats.effect.unsafe.IORuntime
 import io.circe.Json
 import org.apache.pekko.actor.typed.Behavior
 
-import com.andy327.model.core.{Game, GameId, GameType, PlayerId}
+import com.andy327.model.core.{Game, GameType, MatchId, PlayerId}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.{
   GameRepository,
@@ -39,19 +39,19 @@ object PostgresActor {
       moveRepo: MoveHistoryRepository,
       playerHistoryRepo: PlayerHistoryRepository
   ) extends PersistActor {
-    def saveToStore(gameId: GameId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
-      gameRepo.saveGame(gameId, gameType, game)
+    def saveToStore(matchId: MatchId, gameType: GameType, game: Game[_, _, _, _, _]): IO[Unit] =
+      gameRepo.saveGame(matchId, gameType, game)
 
-    def appendMoveToStore(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
-      moveRepo.appendMove(gameId, seq, playerId, move)
+    def appendMoveToStore(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
+      moveRepo.appendMove(matchId, seq, playerId, move)
 
     def recordGameResultToStore(
         playerId: PlayerId,
-        gameId: GameId,
+        matchId: MatchId,
         gameType: GameType,
         result: GameResult,
         forfeit: Boolean
     ): IO[Unit] =
-      playerHistoryRepo.record(playerId, gameId, gameType, result, forfeit)
+      playerHistoryRepo.record(playerId, matchId, gameType, result, forfeit)
   }
 }

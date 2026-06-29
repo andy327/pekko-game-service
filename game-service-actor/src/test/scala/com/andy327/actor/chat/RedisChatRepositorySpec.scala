@@ -15,7 +15,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import org.testcontainers.containers.wait.strategy.Wait
 
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.model.core.GameId
+import com.andy327.model.core.RoomId
 import com.andy327.persistence.db.redis.RedisClientResource
 
 class RedisChatRepositorySpec extends AnyWordSpec with Matchers with ForAllTestContainer {
@@ -41,18 +41,18 @@ class RedisChatRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
       redis.flushAll *> f(new RedisChatRepository(redis, maxMessages))
     }.unsafeRunSync()
 
-  private def message(gameId: GameId, text: String): PlayerEvent.ChatMessage =
-    PlayerEvent.ChatMessage(gameId, UUID.randomUUID(), "alice", text, Instant.now())
+  private def message(roomId: RoomId, text: String): PlayerEvent.ChatMessage =
+    PlayerEvent.ChatMessage(roomId, UUID.randomUUID(), "alice", text, Instant.now())
 
   "RedisChatRepository.recent" should {
     "return appended messages in oldest-first order" in {
-      val gameId = UUID.randomUUID()
+      val roomId = UUID.randomUUID()
       withRepo() { repo =>
         for {
-          _ <- repo.append(message(gameId, "first"))
-          _ <- repo.append(message(gameId, "second"))
-          _ <- repo.append(message(gameId, "third"))
-          recent <- repo.recent(gameId)
+          _ <- repo.append(message(roomId, "first"))
+          _ <- repo.append(message(roomId, "second"))
+          _ <- repo.append(message(roomId, "third"))
+          recent <- repo.recent(roomId)
         } yield recent.map(_.text) shouldBe List("first", "second", "third")
       }
     }
@@ -75,13 +75,13 @@ class RedisChatRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
     }
 
     "skip corrupt entries rather than failing the whole read" in {
-      val gameId = UUID.randomUUID()
+      val roomId = UUID.randomUUID()
       RedisClientResource(redisConfig).use { redis =>
         val repo = new RedisChatRepository(redis)
         redis.flushAll *> (for {
-          _ <- repo.append(message(gameId, "good"))
-          _ <- redis.lPush(s"chat:$gameId", "{not valid json") // a non-JSON entry slipped into the buffer
-          recent <- repo.recent(gameId)
+          _ <- repo.append(message(roomId, "good"))
+          _ <- redis.lPush(s"chat:$roomId", "{not valid json") // a non-JSON entry slipped into the buffer
+          recent <- repo.recent(roomId)
         } yield recent.map(_.text) shouldBe List("good"))
       }.unsafeRunSync()
     }
@@ -89,11 +89,11 @@ class RedisChatRepositorySpec extends AnyWordSpec with Matchers with ForAllTestC
 
   "RedisChatRepository.append" should {
     "retain only the most recent messages once the buffer is full" in {
-      val gameId = UUID.randomUUID()
+      val roomId = UUID.randomUUID()
       withRepo(maxMessages = 3) { repo =>
         for {
-          _ <- List("m1", "m2", "m3", "m4", "m5").traverse_(t => repo.append(message(gameId, t)))
-          recent <- repo.recent(gameId)
+          _ <- List("m1", "m2", "m3", "m4", "m5").traverse_(t => repo.append(message(roomId, t)))
+          recent <- repo.recent(roomId)
         } yield recent.map(_.text) shouldBe List("m3", "m4", "m5")
       }
     }

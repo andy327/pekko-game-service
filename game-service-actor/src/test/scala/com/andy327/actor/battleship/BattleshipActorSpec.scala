@@ -28,6 +28,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
     val (_, behavior) =
       BattleshipActor.create(
         UUID.randomUUID(),
+        UUID.randomUUID(),
         Seq(alice, bob),
         persistProbe.ref,
         dummyGameManager,
@@ -39,7 +40,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
   /** Receives the next pushed event and asserts it is a GameStateUpdated carrying a BattleshipState. */
   private def stateFrom(probe: TestProbe[PlayerActor.Command]): BattleshipState =
     probe.expectMessageType[PlayerActor.SendEvent].event match {
-      case PlayerEvent.GameStateUpdated(s: BattleshipState) => s
+      case PlayerEvent.GameStateUpdated(_, s: BattleshipState) => s
       case other => fail(s"expected GameStateUpdated(BattleshipState), got $other")
     }
 

@@ -39,13 +39,13 @@ import com.andy327.server.http.routes.RouteDirectives._
   * Route Summary:
   *   - POST /lobby/create/{gameType} - Create a new lobby for a specific game type
   *   - GET /lobby/list - List all available open lobbies
-  *   - GET /lobby/{gameId} - Fetch metadata for a specific lobby
-  *   - POST /lobby/{gameId}/join - Join an existing lobby
-  *   - POST /lobby/{gameId}/leave - Leave a lobby (or forfeit an in-progress game)
-  *   - POST /lobby/{gameId}/start - Start a game from a lobby (host only)
-  *   - DELETE /lobby/{gameId} - Cancel a pre-game lobby (host only)
-  *   - POST /lobby/{gameId}/subscribe - Start spectating a lobby (push events over the player's WebSocket)
-  *   - DELETE /lobby/{gameId}/subscribe - Stop spectating a lobby
+  *   - GET /lobby/{roomId} - Fetch metadata for a specific lobby
+  *   - POST /lobby/{roomId}/join - Join an existing lobby
+  *   - POST /lobby/{roomId}/leave - Leave a lobby (or forfeit an in-progress game)
+  *   - POST /lobby/{roomId}/start - Start a game from a lobby (host only)
+  *   - DELETE /lobby/{roomId} - Cancel a pre-game lobby (host only)
+  *   - POST /lobby/{roomId}/subscribe - Start spectating a lobby (push events over the player's WebSocket)
+  *   - DELETE /lobby/{roomId}/subscribe - Stop spectating a lobby
   */
 class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
   implicit val timeout: Timeout = 3.seconds
@@ -111,11 +111,11 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         }
       }
     } ~
-    pathPrefix(Segment) { gameIdStr =>
-      parseGameId(gameIdStr) { gameId =>
+    pathPrefix(Segment) { roomIdStr =>
+      parseRoomId(roomIdStr) { roomId =>
         /** Fetches metadata for a specific lobby.
           *
-          * - Path: `gameId` — the UUID of the lobby to retrieve
+          * - Path: `roomId` — the UUID of the lobby to retrieve
           * - 200: `LobbyMetadata` for the specified lobby
           * - 400: invalid UUID format
           * - 404: lobby not found
@@ -123,7 +123,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           */
         pathEndOrSingleSlash {
           get {
-            onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(gameId, replyTo))) {
+            onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(roomId, replyTo))) {
               case LobbyInfo(metadata)       => complete(metadata)
               case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
               case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -133,7 +133,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             * receive a `GameEnded(Cancelled)` push). This is the explicit counterpart to a host leaving via `/leave`.
             *
             * - Auth: Bearer token required
-            * - Path: `gameId` — the UUID of the lobby to cancel
+            * - Path: `roomId` — the UUID of the lobby to cancel
             * - 200: `LobbyLeft` with the game ID and a status message
             * - 400: invalid UUID format
             * - 401: missing or invalid token
@@ -144,7 +144,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             */
           delete {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](replyTo => GameManager.CancelLobby(gameId, player.id, replyTo))) {
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.CancelLobby(roomId, player.id, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -155,7 +155,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         /** Joins an existing lobby using the authenticated player.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the lobby to join
+          * - Path: `roomId` — the UUID of the lobby to join
           * - 200: `LobbyJoined` with metadata for the joined lobby
           * - 400: invalid UUID format
           * - 401: missing or invalid token
@@ -166,7 +166,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         path("join") {
           post {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(gameId, player, replyTo))) {
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(roomId, player, replyTo))) {
                 case joined: LobbyJoined       => complete(joined)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -178,10 +178,10 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           *
           * If the host leaves a pre-game lobby with other members present, the host role migrates to a remaining member
           * and the lobby stays open; it is cancelled only if the host was the last player. To deliberately end a lobby,
-          * the host uses `DELETE /lobby/{gameId}` instead.
+          * the host uses `DELETE /lobby/{roomId}` instead.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the lobby to leave
+          * - Path: `roomId` — the UUID of the lobby to leave
           * - 200: `LobbyLeft` (pre-game leave) with the game ID and a status message, or the leaver's final game
           *   state if the game was in progress (leaving forfeits it — the opponent wins)
           * - 400: invalid UUID format
@@ -193,7 +193,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         path("leave") {
           post {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(gameId, player, replyTo))) {
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(roomId, player, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case GameForfeited(_, state)   => complete(state)
                 case MoveRejected(msg)         => complete(StatusCodes.Conflict -> msg)
@@ -206,7 +206,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         /** Starts the game from the given lobby. Only the host may call this endpoint.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the lobby to start
+          * - Path: `roomId` — the UUID of the lobby to start
           * - 200: `GameStarted` with the game ID
           * - 400: invalid UUID format
           * - 401: missing or invalid token
@@ -218,7 +218,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
         path("start") {
           post {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(gameId, player.id, replyTo))) {
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(roomId, player.id, replyTo))) {
                 case gs @ GameStarted(_)       => complete(gs)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -231,7 +231,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           * The player must have an active WebSocket connection established before calling this endpoint.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the lobby to observe
+          * - Path: `roomId` — the UUID of the lobby to observe
           * - 200: `SubscribeAcknowledged` confirming the subscription was registered
           * - 400: invalid UUID format, or player has no active WebSocket connection
           * - 401: missing or invalid token
@@ -243,7 +243,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           post {
             authenticatePlayer { player =>
               onSuccess(
-                system.ask[GameResponse](replyTo => GameManager.SubscribePlayerToLobby(gameId, player.id, replyTo))
+                system.ask[GameResponse](replyTo => GameManager.SubscribePlayerToLobby(roomId, player.id, replyTo))
               ) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
@@ -257,7 +257,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             * Idempotent — succeeds whether or not the player was subscribed.
             *
             * - Auth: Bearer token required
-            * - Path: `gameId` — the UUID of the lobby to stop observing
+            * - Path: `roomId` — the UUID of the lobby to stop observing
             * - 200: `UnsubscribeAcknowledged` confirming the subscription was removed
             * - 400: invalid UUID format
             * - 401: missing or invalid token
@@ -266,7 +266,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           delete {
             authenticatePlayer { player =>
               onSuccess(
-                system.ask[GameResponse](replyTo => GameManager.UnsubscribePlayerFromLobby(gameId, player.id, replyTo))
+                system.ask[GameResponse](replyTo => GameManager.UnsubscribePlayerFromLobby(roomId, player.id, replyTo))
               ) {
                 case ack: UnsubscribeAcknowledged => complete(ack)
                 case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")

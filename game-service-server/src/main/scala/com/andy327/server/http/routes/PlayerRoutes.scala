@@ -72,7 +72,7 @@ class PlayerRoutes(
       get {
         authenticatePlayer { player =>
           onSuccess(playerHistoryRepo.findByPlayer(player.id).unsafeToFuture()) { records =>
-            val games = records.map(r => PlayerGameSummary(r.gameId, r.gameType, r.result, r.forfeit, r.finishedAt))
+            val games = records.map(r => PlayerGameSummary(r.matchId, r.gameType, r.result, r.forfeit, r.finishedAt))
             complete(PlayerHistory(games))
           }
         }

@@ -22,7 +22,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.actor.core.{GameManager, InMemRepo}
 import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{GameId, GameType}
+import com.andy327.model.core.{GameType, RoomId}
 import com.andy327.persistence.db.InMemoryPlayerHistoryRepository
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.server.http.auth.PlayerHistory
@@ -37,7 +37,7 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
 
   private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
     override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
-    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def deleteLobby(roomId: RoomId): IO[Unit] = IO.unit
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
@@ -87,10 +87,10 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       Get("/players/me/sessions").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val sessions = responseAs[GameManager.PlayerSessions]
-        sessions.lobbies.map(_.gameId) should contain(lobbyA)
-        sessions.lobbies.map(_.gameId) should not contain gameB
-        sessions.games.map(_.gameId) should contain(gameB)
-        sessions.games.find(_.gameId == gameB).map(_.gameType) shouldBe Some(GameType.TicTacToe)
+        sessions.lobbies.map(_.roomId) should contain(lobbyA)
+        sessions.lobbies.map(_.roomId) should not contain gameB
+        sessions.games.map(_.roomId) should contain(gameB)
+        sessions.games.find(_.roomId == gameB).map(_.gameType) shouldBe Some(GameType.TicTacToe)
       }
     }
 
@@ -124,14 +124,14 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       Get("/players/me/history").withHeaders(aliceHeader) ~> historyRoutes ~> check {
         status shouldBe StatusCodes.OK
         val games = responseAs[PlayerHistory].games
-        games.map(_.gameId) should contain theSameElementsAs List(won, lost)
+        games.map(_.matchId) should contain theSameElementsAs List(won, lost)
 
-        val winEntry = games.find(_.gameId == won).getOrElse(fail("missing win entry"))
+        val winEntry = games.find(_.matchId == won).getOrElse(fail("missing win entry"))
         winEntry.gameType shouldBe GameType.TicTacToe
         winEntry.result shouldBe GameResult.Win
         winEntry.forfeit shouldBe false
 
-        val lossEntry = games.find(_.gameId == lost).getOrElse(fail("missing loss entry"))
+        val lossEntry = games.find(_.matchId == lost).getOrElse(fail("missing loss entry"))
         lossEntry.gameType shouldBe GameType.ConnectFour
         lossEntry.result shouldBe GameResult.Loss
         lossEntry.forfeit shouldBe true

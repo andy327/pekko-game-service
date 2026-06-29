@@ -4,7 +4,7 @@ import java.time.Instant
 
 import cats.effect.IO
 
-import com.andy327.model.core.{GameId, GameType, PlayerId}
+import com.andy327.model.core.{GameType, MatchId, PlayerId}
 
 object PlayerHistoryRepository {
 
@@ -34,14 +34,14 @@ object PlayerHistoryRepository {
 /** One completed game from a single player's perspective, as returned by [[PlayerHistoryRepository.findByPlayer]]. The
   * player is the query key and so is not repeated here.
   *
-  * @param gameId the completed game
+  * @param matchId the completed game
   * @param gameType the kind of game played
   * @param result how the game turned out for this player
   * @param forfeit true when the result was reached by a player leaving an in-progress game rather than normal play
   * @param finishedAt server timestamp when the game completed
   */
 final case class PlayerGameRecord(
-    gameId: GameId,
+    matchId: MatchId,
     gameType: GameType,
     result: PlayerHistoryRepository.GameResult,
     forfeit: Boolean,
@@ -61,12 +61,12 @@ trait PlayerHistoryRepository {
   /** Runs any needed initialization, such as creating the player-history table. */
   def initialize(): IO[Unit]
 
-  /** Record `playerId`'s outcome for a completed `gameId`. One call per participant; fire-and-forget from the caller's
-    * perspective. Idempotent on `(playerId, gameId)`, so a re-delivered completion does not duplicate the row.
+  /** Record `playerId`'s outcome for a completed `matchId`. One call per participant; fire-and-forget from the caller's
+    * perspective. Idempotent on `(playerId, matchId)`, so a re-delivered completion does not duplicate the row.
     */
   def record(
       playerId: PlayerId,
-      gameId: GameId,
+      matchId: MatchId,
       gameType: GameType,
       result: PlayerHistoryRepository.GameResult,
       forfeit: Boolean

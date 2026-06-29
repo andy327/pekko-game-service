@@ -10,7 +10,18 @@ import com.andy327.actor.events.{EventPublisher, GameEvent}
 import com.andy327.actor.game.{GameState, GameStateView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{Draw, Game, GameError, GameId, GameStatus, GameTypeTag, InProgress, PlayerId, Won}
+import com.andy327.model.core.{
+  Draw,
+  Game,
+  GameError,
+  GameStatus,
+  GameTypeTag,
+  InProgress,
+  MatchId,
+  PlayerId,
+  RoomId,
+  Won
+}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 object TurnBasedGameActor {
@@ -106,9 +117,18 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     case _                     => None
   }
 
+  override protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameState]]] =
+    cmd match {
+      case MakeMove(_, _, replyTo) => Some(replyTo)
+      case PlayerLeft(_, replyTo)  => Some(replyTo)
+      case GetState(replyTo)       => Some(replyTo)
+      case _                       => None
+    }
+
   /** Initializes a new game actor with an empty game. */
   override def create(
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       players: Seq[PlayerId],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
@@ -116,8 +136,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
   ): (G, Behavior[Command]) = {
     val game = newGame(players)
     val behavior = Behaviors.setup[Command] { context =>
-      context.log.info(s"[$gameId] starting new game")
-      active(game, gameId, persist, gameManager, Map.empty, publisher)
+      context.log.info(s"[$matchId] starting new game")
+      active(game, matchId, roomId, persist, gameManager, Map.empty, publisher)
     }
     (game, behavior)
   }
@@ -129,7 +149,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     * behavior. Stops the actor if the snapshot type does not match `G`.
     */
   override def fromSnapshot(
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       snap: Game[_, _, _, _, _],
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
@@ -140,15 +161,15 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         case game: G =>
           game.gameStatus match {
             case InProgress =>
-              context.log.info(s"[$gameId] restored in-progress game")
-              active(game, gameId, persist, gameManager, Map.empty, publisher)
+              context.log.info(s"[$matchId] restored in-progress game")
+              active(game, matchId, roomId, persist, gameManager, Map.empty, publisher)
             case Won(_) | Draw =>
-              context.log.info(s"[$gameId] restored as already-completed game — notifying GameManager and stopping")
-              gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+              context.log.info(s"[$matchId] restored as already-completed game — notifying GameManager and stopping")
+              gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed)
               Behaviors.stopped
           }
         case _ =>
-          context.log.error(s"Unexpected snapshot type for game $gameId: $snap")
+          context.log.error(s"Unexpected snapshot type for game $matchId: $snap")
           Behaviors.stopped
       }
     }
@@ -171,7 +192,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       context: ActorContext[Command],
       nextState: G,
       viewerId: PlayerId,
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
@@ -179,10 +201,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       forfeit: Boolean,
       replyTo: ActorRef[Either[GameError, GameState]]
   )(appendMove: => Unit = ()): Behavior[Command] = {
-    context.log.info(s"Game $gameId updated:\n$nextState")
+    context.log.info(s"Match $matchId updated:\n$nextState")
 
     persist ! PersistenceProtocol.SaveSnapshot(
-      gameId = gameId,
+      matchId = matchId,
       gameType = gameType,
       game = nextState,
       // pass the real save outcome through so a failed snapshot is logged by the SnapshotSaved handler
@@ -194,12 +216,12 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     // reply to the acting player with their own view; fan out a per-viewer view to each subscriber
     replyTo ! Right(view.fromGame(nextState, Some(viewerId)))
     subscribers.foreach { case (ref, subscriberId) =>
-      ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(nextState, Some(subscriberId))))
+      ref ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(roomId, view.fromGame(nextState, Some(subscriberId))))
     }
 
     nextState.gameStatus match {
       case Won(_) | Draw =>
-        context.log.info(s"[$gameId] game completed with status: ${nextState.gameStatus}")
+        context.log.info(s"[$matchId] game completed with status: ${nextState.gameStatus}")
         val endEvent = PlayerEvent.GameEnded(GameLifecycleStatus.Completed)
         // GameEnded carries no board, so it is identical for every viewer
         subscribers.foreach { case (ref, _) => ref ! PlayerActor.SendEvent(endEvent) }
@@ -217,14 +239,17 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
             (nextState.players.map(_ -> GameResult.Draw), GameEvent.Outcome.Draw)
         }
         results.foreach { case (pid, result) =>
-          persist ! PersistenceProtocol.RecordGameResult(pid, gameId, gameType, result, forfeit)
+          persist ! PersistenceProtocol.RecordGameResult(pid, matchId, gameType, result, forfeit)
         }
-        publisher.publish(GameEvent.GameCompleted(gameId, gameType, outcome, nextState.moveCount))
-        gameManager ! GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
-        terminating(gameId)
+        publisher.publish(GameEvent.GameCompleted(matchId, gameType, outcome, nextState.moveCount))
+        // hand the subscriber set back to the room so it survives this match's actor stopping and can keep fanning out
+        // chat and the post-game state; re-key by playerId to match the GameCompleted/MatchEnded shape
+        val subscribersByPlayer = subscribers.map { case (ref, pid) => pid -> ref }
+        gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed, subscribersByPlayer)
+        terminating(matchId)
 
       case InProgress =>
-        active(nextState, gameId, persist, gameManager, subscribers, publisher)
+        active(nextState, matchId, roomId, persist, gameManager, subscribers, publisher)
     }
   }
 
@@ -237,7 +262,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     */
   private def active(
       game: G,
-      gameId: GameId,
+      matchId: MatchId,
+      roomId: RoomId,
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
@@ -254,7 +280,8 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   context,
                   nextState,
                   playerId,
-                  gameId,
+                  matchId,
+                  roomId,
                   persist,
                   gameManager,
                   subscribers,
@@ -263,18 +290,18 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   replyTo
                 ) {
                   // record the move in the append-only history log; seq is the pre-move count (0-based ordinal)
-                  persist ! PersistenceProtocol.AppendMove(gameId, game.moveCount, playerId, moveEncoder(move))
-                  publisher.publish(GameEvent.MoveMade(gameId, gameType, playerId, game.moveCount))
+                  persist ! PersistenceProtocol.AppendMove(matchId, game.moveCount, playerId, moveEncoder(move))
+                  publisher.publish(GameEvent.MoveMade(matchId, gameType, playerId, game.moveCount))
                 }
 
               case Left(err) =>
-                context.log.warn(s"[$gameId] move rejected: $err")
+                context.log.warn(s"[$matchId] move rejected: $err")
                 replyTo ! Left(err)
                 Behaviors.same
             }
 
           case None =>
-            context.log.warn(s"[$gameId] Player ID '$playerId' is not part of this game.")
+            context.log.warn(s"[$matchId] Player ID '$playerId' is not part of this game.")
             replyTo ! Left(GameError.InvalidPlayer(playerId))
             Behaviors.same
         }
@@ -283,12 +310,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         // forfeit/fold-out semantics live in the model; the resulting status drives completion exactly like a move
         game.playerLeft(playerId) match {
           case Right(nextState) =>
-            context.log.info(s"[$gameId] player $playerId left the game")
+            context.log.info(s"[$matchId] player $playerId left the game")
             applyTransition(
               context,
               nextState,
               playerId,
-              gameId,
+              matchId,
+              roomId,
               persist,
               gameManager,
               subscribers,
@@ -298,7 +326,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
             )()
 
           case Left(err) =>
-            context.log.warn(s"[$gameId] leave rejected: $err")
+            context.log.warn(s"[$matchId] leave rejected: $err")
             replyTo ! Left(err)
             Behaviors.same
         }
@@ -310,12 +338,12 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       case Subscribe(playerRef, playerId) =>
         // watch the subscriber so its termination (disconnect/reconnect) drops it from the map automatically
         context.watch(playerRef)
-        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(view.fromGame(game, Some(playerId))))
-        active(game, gameId, persist, gameManager, subscribers + (playerRef -> playerId), publisher)
+        playerRef ! PlayerActor.SendEvent(PlayerEvent.GameStateUpdated(roomId, view.fromGame(game, Some(playerId))))
+        active(game, matchId, roomId, persist, gameManager, subscribers + (playerRef -> playerId), publisher)
 
       case Unsubscribe(playerRef) =>
         context.unwatch(playerRef)
-        active(game, gameId, persist, gameManager, subscribers - playerRef, publisher)
+        active(game, matchId, roomId, persist, gameManager, subscribers - playerRef, publisher)
 
       case Broadcast(event) =>
         // chat and other broadcasts carry no hidden state, so every viewer gets the same event
@@ -324,14 +352,14 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
       case SnapshotSaved(result) =>
         result match {
-          case Left(e)  => context.log.error(s"[$gameId] snapshot failed", e)
-          case Right(_) => context.log.debug(s"[$gameId] snapshot saved successfully")
+          case Left(e)  => context.log.error(s"[$matchId] snapshot failed", e)
+          case Right(_) => context.log.debug(s"[$matchId] snapshot saved successfully")
         }
         Behaviors.same
     }
   }.receiveSignal { case (context, Terminated(ref)) =>
     // a subscribed PlayerActor stopped; drop its (now-dead) ref so we stop fanning events to it
-    context.log.debug(s"[$gameId] subscriber $ref terminated; removing from subscribers")
-    active(game, gameId, persist, gameManager, subscribers.filterNot { case (r, _) => r == ref }, publisher)
+    context.log.debug(s"[$matchId] subscriber $ref terminated; removing from subscribers")
+    active(game, matchId, roomId, persist, gameManager, subscribers.filterNot { case (r, _) => r == ref }, publisher)
   }
 }

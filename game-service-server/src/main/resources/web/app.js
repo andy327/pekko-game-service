@@ -15,7 +15,7 @@ const session = {
   token: null,
   me: null, // { id, name }
   ws: null,
-  game: null // { gameId, gameType, isHost }
+  game: null // { roomId, gameType, isHost }
 };
 
 // Per-game-type knowledge the rest of the client stays agnostic to: display label, how a click becomes a move, and
@@ -112,10 +112,10 @@ async function restoreSession() {
 
 // Land on the invite-link target if one is pending, otherwise the lobby.
 function routeAfterSignIn() {
-  if (pendingJoinGameId) {
-    const id = pendingJoinGameId;
-    pendingJoinGameId = null;
-    joinByGameId(id);
+  if (pendingJoinRoomId) {
+    const id = pendingJoinRoomId;
+    pendingJoinRoomId = null;
+    joinByRoomId(id);
   } else {
     enterLobby();
   }
@@ -213,14 +213,14 @@ async function createGame(gameType) {
   setError("lobby-error", "");
   const res = await api(`/lobby/create/${gameType}`, { method: "POST", body: {} });
   if (!res.ok) return flashError("lobby-error", res.data?.error || res.data || "Could not create game");
-  await enterGame({ gameId: res.data.gameId, gameType, isHost: true });
+  await enterGame({ roomId: res.data.roomId, gameType, isHost: true });
 }
 
-async function joinGame(gameId, gameType) {
+async function joinGame(roomId, gameType) {
   setError("lobby-error", "");
-  const res = await api(`/lobby/${gameId}/join`, { method: "POST", body: {} });
+  const res = await api(`/lobby/${roomId}/join`, { method: "POST", body: {} });
   if (!res.ok) return flashError("lobby-error", res.data?.error || res.data || "Could not join game");
-  await enterGame({ gameId, gameType, isHost: false });
+  await enterGame({ roomId, gameType, isHost: false });
 }
 
 async function refreshLobbies() {
@@ -259,7 +259,7 @@ async function refreshLobbies() {
     const join = document.createElement("button");
     join.textContent = full ? "Full" : "Join";
     join.disabled = full;
-    if (!full) join.onclick = () => joinGame(lobby.gameId, type);
+    if (!full) join.onclick = () => joinGame(lobby.roomId, type);
 
     li.append(meta, join);
     list.appendChild(li);
@@ -267,14 +267,16 @@ async function refreshLobbies() {
 }
 
 // Reset the game view to a clean slate for a given game/lobby and show it. The caller sets the status and subscribes.
-function prepareGameView({ gameId, gameType, isHost }) {
-  session.game = { gameId, gameType, isHost };
+function prepareGameView({ roomId, gameType, isHost }) {
+  session.game = { roomId, gameType, isHost };
   $("game-title").textContent = GAMES[gameType].label;
   $("board").innerHTML = "";
   $("column-controls").innerHTML = "";
   setError("game-error", "");
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
+  $("post-game-bar").classList.add("hidden");
+  $("rematch-btn").classList.add("hidden");
   clearTimeout(copyLinkTimer);
   $("copy-link").textContent = COPY_LINK_LABEL;
   $("chat-log").innerHTML = "";
@@ -310,15 +312,16 @@ function renderMySessions(data) {
   for (const g of games) {
     const type = g.gameType.toLowerCase();
     ul.appendChild(
-      sessionRow(`${GAMES[type].label} — in progress`, "Return", () => resumeGame({ gameId: g.gameId, gameType: type }))
+      sessionRow(`${GAMES[type].label} — in progress`, "Return", () => resumeGame({ roomId: g.roomId, gameType: type }))
     );
   }
   for (const l of lobbies) {
     const type = l.gameType.toLowerCase();
     const youHost = Boolean(session.me) && l.hostId === session.me.id;
     const count = Object.keys(l.players).length;
-    const label = `${GAMES[type].label} — lobby (${count}/${GAMES[type].maxPlayers})${youHost ? " · you host" : ""}`;
-    ul.appendChild(sessionRow(label, "Return", () => enterGame({ gameId: l.gameId, gameType: type, isHost: youHost })));
+    const phase = l.status === "Finished" ? "finished — chat/rematch" : `lobby (${count}/${GAMES[type].maxPlayers})`;
+    const label = `${GAMES[type].label} — ${phase}${youHost ? " · you host" : ""}`;
+    ul.appendChild(sessionRow(label, "Return", () => enterGame({ roomId: l.roomId, gameType: type, isHost: youHost })));
   }
 }
 
@@ -339,30 +342,36 @@ function sessionRow(text, btnText, onClick) {
 }
 
 // Enter the game view for a lobby we just created or joined, then subscribe to the lobby so we receive its push events.
-async function enterGame({ gameId, gameType, isHost }) {
-  prepareGameView({ gameId, gameType, isHost });
+async function enterGame({ roomId, gameType, isHost }) {
+  prepareGameView({ roomId, gameType, isHost });
   setStatus(isHost ? "Waiting for an opponent to join…" : "Joined. Waiting for the host to start…");
-  const res = await api(`/lobby/${gameId}/subscribe`, { method: "POST", body: {} });
+  const res = await api(`/lobby/${roomId}/subscribe`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not subscribe to the lobby");
-  loadChatHistory(gameId, gameType);
+  loadChatHistory(roomId, gameType);
 }
 
 // Return to a game already in progress (from the sessions list): subscribe to the game actor, which immediately pushes
 // the current board. Pre-game lobbies are returned to via enterGame instead (they subscribe to the lobby).
-async function resumeGame({ gameId, gameType }) {
-  prepareGameView({ gameId, gameType, isHost: false });
+async function resumeGame({ roomId, gameType }) {
+  prepareGameView({ roomId, gameType, isHost: false });
   setStatus("Returning to the game…");
-  const res = await api(`/${gameType}/${gameId}/subscribe`, { method: "POST", body: {} });
+  const res = await api(`/${gameType}/${roomId}/subscribe`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not return to the game");
-  loadChatHistory(gameId, gameType);
+  loadChatHistory(roomId, gameType);
 }
 
 // A pre-game lobby changed: refresh the player count, surface the host, and (for the host) enable Start when ready.
 function onLobbyUpdated(metadata) {
-  if (!session.game || metadata.gameId !== session.game.gameId) return;
+  if (!session.game || metadata.roomId !== session.game.roomId) return;
   if (metadata.status === "InProgress") {
     $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    $("post-game-bar").classList.add("hidden"); // a rematch just began; the next GameStateUpdated takes over
+    $("rematch-btn").classList.add("hidden");
     return; // game state pushes take over from here
+  }
+  if (metadata.status === "Finished") {
+    onMatchFinished(metadata);
+    return;
   }
 
   const count = Object.keys(metadata.players).length;
@@ -384,9 +393,30 @@ function onLobbyUpdated(metadata) {
   }
 }
 
+// The room's match has ended but the room survives: keep the final board on screen, surface a rematch bar, and let
+// the host start again. The guest sees a wait message; both keep chatting via the still-live ChatMessage stream.
+function onMatchFinished(metadata) {
+  const youHost = Boolean(session.me) && metadata.hostId === session.me.id;
+  session.game.isHost = youHost;
+
+  const series = metadata.matchCount > 1 ? ` (match ${metadata.matchCount})` : "";
+  $("post-game-status").textContent = youHost
+    ? `Game over${series}. Start a rematch when you're ready.`
+    : `Game over${series}. Waiting for the host to start a rematch…`;
+  $("rematch-btn").classList.toggle("hidden", !youHost);
+  $("post-game-bar").classList.remove("hidden");
+}
+
+async function rematch() {
+  setError("game-error", "");
+  const res = await api(`/lobby/${session.game.roomId}/start`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the rematch");
+  // On success a fresh GameStateUpdated arrives over the WebSocket and clears the post-game bar.
+}
+
 async function startGame() {
   setError("game-error", "");
-  const res = await api(`/lobby/${session.game.gameId}/start`, { method: "POST", body: {} });
+  const res = await api(`/lobby/${session.game.roomId}/start`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the game");
   // On success the game-state push arrives over the WebSocket and renders the board.
 }
@@ -398,7 +428,7 @@ function onGameEnded(result) {
 
 async function leaveGame() {
   const game = session.game;
-  if (game) await api(`/lobby/${game.gameId}/leave`, { method: "POST", body: {} });
+  if (game) await api(`/lobby/${game.roomId}/leave`, { method: "POST", body: {} });
   session.game = null;
   enterLobby();
 }
@@ -426,15 +456,15 @@ function appendChat(m) {
 }
 
 // Load the recent backscroll (oldest first) for a game/lobby; best-effort, so an empty or failed load is harmless.
-async function loadChatHistory(gameId, gameType) {
-  const res = await api(`/${gameType}/${gameId}/chat`);
+async function loadChatHistory(roomId, gameType) {
+  const res = await api(`/${gameType}/${roomId}/chat`);
   if (res.ok && res.data && Array.isArray(res.data.messages)) res.data.messages.forEach(appendChat);
 }
 
 // Send a chat frame over the WebSocket. Requires an open socket and an active game/lobby context.
 function sendChat(text) {
   if (!session.ws || session.ws.readyState !== WebSocket.OPEN || !session.game) return;
-  session.ws.send(JSON.stringify({ type: "ChatSend", gameId: session.game.gameId, text }));
+  session.ws.send(JSON.stringify({ type: "ChatSend", roomId: session.game.roomId, text }));
 }
 
 // --- Board rendering -------------------------------------------------------------------------------------------------
@@ -444,6 +474,8 @@ function sendChat(text) {
 function renderBoard(state) {
   const board = $("board");
   $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
+  $("post-game-bar").classList.add("hidden"); // a fresh board (e.g. a rematch) supersedes the prior match's post-game bar
+  $("rematch-btn").classList.add("hidden");
   setError("game-error", ""); // the state changed, so any prior move error (e.g. "not your turn") is now stale
   const rows = state.board;
   const cols = rows[0] ? rows[0].length : 0;
@@ -494,23 +526,23 @@ async function submitMove(row, col) {
   if (!game) return;
   setError("game-error", "");
   const payload = GAMES[game.gameType].move(row, col);
-  const res = await api(`/${game.gameType}/${game.gameId}/move`, { method: "POST", body: payload });
+  const res = await api(`/${game.gameType}/${game.roomId}/move`, { method: "POST", body: payload });
   // Successful moves redraw via the WebSocket push; only failures need surfacing here.
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Move rejected");
 }
 
 // --- Deep links ------------------------------------------------------------------------------------------------------
-// A shareable URL hash (#join/<gameId>) drops a visitor straight into a specific lobby. The hash keeps the request on
+// A shareable URL hash (#join/<roomId>) drops a visitor straight into a specific lobby. The hash keeps the request on
 // the static-served `/` route (a path like /lobby/<id> is a JSON API route). It is captured once at load and consumed
 // after the visitor signs in, since joining needs a token and an open WebSocket.
-// Parse a #join/<gameId> invite hash, or null. Captured at load and also watched live via hashchange below.
+// Parse a #join/<roomId> invite hash, or null. Captured at load and also watched live via hashchange below.
 function parseJoinHash() {
   return (location.hash.match(/^#join\/([0-9a-fA-F-]+)$/) || [])[1] || null;
 }
 
 // A pending invite to consume once the visitor is signed in. Set from the initial hash and from later hash changes.
-let pendingJoinGameId = parseJoinHash();
-if (pendingJoinGameId) history.replaceState(null, "", location.pathname + location.search);
+let pendingJoinRoomId = parseJoinHash();
+if (pendingJoinRoomId) history.replaceState(null, "", location.pathname + location.search);
 
 // Following an invite link while the page is already open changes only the hash (no reload). If we're already signed
 // in, join right away; otherwise hold it until sign-in. A link opened in a fresh tab is a full load, which — with the
@@ -519,18 +551,18 @@ window.addEventListener("hashchange", () => {
   const id = parseJoinHash();
   if (!id) return;
   history.replaceState(null, "", location.pathname + location.search);
-  if (session.me) joinByGameId(id);
-  else pendingJoinGameId = id;
+  if (session.me) joinByRoomId(id);
+  else pendingJoinRoomId = id;
 });
 
 // Join the lobby named by a deep link: look up its game type, then join — falling back to the lobby list on any issue.
-async function joinByGameId(gameId) {
+async function joinByRoomId(roomId) {
   enterLobby();
-  const res = await api(`/lobby/${gameId}`);
+  const res = await api(`/lobby/${roomId}`);
   if (!res.ok) return flashError("lobby-error", "That lobby is no longer available.");
   const type = res.data.gameType.toLowerCase();
   if (!GAMES[type]) return flashError("lobby-error", "That game isn't supported in the web UI yet.");
-  joinGame(gameId, type);
+  joinGame(roomId, type);
 }
 
 // Copy a shareable invite link for the current lobby/game to the clipboard, with a prompt() fallback. Briefly flips the
@@ -540,7 +572,7 @@ const COPY_LINK_LABEL = "Copy invite link";
 let copyLinkTimer;
 async function copyInviteLink() {
   if (!session.game) return;
-  const link = `${location.origin}/#join/${session.game.gameId}`;
+  const link = `${location.origin}/#join/${session.game.roomId}`;
   const btn = $("copy-link");
   try {
     await navigator.clipboard.writeText(link);
@@ -629,6 +661,7 @@ $("refresh-lobbies").addEventListener("click", () => {
 });
 $("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
+$("rematch-btn").addEventListener("click", rematch);
 $("back-to-lobby").addEventListener("click", enterLobby); // browse the lobby without leaving the current game
 $("leave-game").addEventListener("click", leaveGame);
 $("copy-link").addEventListener("click", copyInviteLink);

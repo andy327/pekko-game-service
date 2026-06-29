@@ -2,7 +2,7 @@ package com.andy327.server.http.json
 
 import io.circe.{Decoder, DecodingFailure}
 
-import com.andy327.model.core.GameId
+import com.andy327.model.core.RoomId
 
 /** A message a connected client sends to the server over the WebSocket.
   *
@@ -13,17 +13,17 @@ sealed trait ClientMessage
 
 object ClientMessage {
 
-  /** Post `text` to the chat thread of the match identified by `gameId`. */
-  final case class ChatSend(gameId: GameId, text: String) extends ClientMessage
+  /** Post `text` to the chat thread of the room identified by `roomId`. */
+  final case class ChatSend(roomId: RoomId, text: String) extends ClientMessage
 
   /** Decodes a client frame by its `type` field; fails for unknown or malformed frames. */
   implicit val decoder: Decoder[ClientMessage] = Decoder.instance { cursor =>
     cursor.get[String]("type").flatMap {
       case "ChatSend" =>
         for {
-          gameId <- cursor.get[GameId]("gameId")
+          roomId <- cursor.get[RoomId]("roomId")
           text <- cursor.get[String]("text")
-        } yield ChatSend(gameId, text)
+        } yield ChatSend(roomId, text)
       case other =>
         Left(DecodingFailure(s"Unknown client message type: $other", cursor.history))
     }

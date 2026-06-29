@@ -1,5 +1,6 @@
 package com.andy327.server.http.routes
 
+import java.time.Instant
 import java.util.UUID
 
 import scala.concurrent.Await
@@ -23,7 +24,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.actor.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.model.core.{GameId, GameType}
+import com.andy327.model.core.{GameType, RoomId}
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
@@ -35,7 +36,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
 
   private val noOpLobbyRepo: LobbyRepository = new LobbyRepository {
     override def saveLobby(metadata: LobbyMetadata): IO[Unit] = IO.unit
-    override def deleteLobby(gameId: GameId): IO[Unit] = IO.unit
+    override def deleteLobby(roomId: RoomId): IO[Unit] = IO.unit
     override def loadAllLobbies(): IO[List[LobbyMetadata]] = IO.pure(Nil)
   }
 
@@ -60,8 +61,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     "create a new lobby" in
       Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        val GameManager.LobbyCreated(gameId, host) = responseAs[GameManager.LobbyCreated]
-        gameId.toString.length should be > 0
+        val GameManager.LobbyCreated(roomId, host) = responseAs[GameManager.LobbyCreated]
+        roomId.toString.length should be > 0
         host.name shouldBe "alice"
         host.id shouldBe aliceId
       }
@@ -79,11 +80,11 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
 
     "join a lobby with a second player" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val GameManager.LobbyJoined(_, metadata, joinedPlayer) = responseAs[GameManager.LobbyJoined]
         metadata.players.values.toSet should contain only (alicePlayer, joinedPlayer)
@@ -91,53 +92,53 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "not allow too many players to join a lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(carlHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(carlHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Conflict
       }
     }
 
     "leave a lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
       // Bob leaves — lobby drops from ReadyToStart back to WaitingForPlayers
-      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/leave").withHeaders(bobHeader) ~> routes ~> check {
         val leftLobby = responseAs[GameManager.LobbyLeft]
-        leftLobby.gameId shouldBe gameId
+        leftLobby.roomId shouldBe roomId
       }
 
-      Get(s"/lobby/$gameId") ~> routes ~> check {
+      Get(s"/lobby/$roomId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[LobbyMetadata].status shouldBe GameLifecycleStatus.WaitingForPlayers
       }
 
       // Bob tries to leave again (OK)
-      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/leave").withHeaders(bobHeader) ~> routes ~> check {
         val leftLobby = responseAs[GameManager.LobbyLeft]
-        leftLobby.gameId shouldBe gameId
+        leftLobby.roomId shouldBe roomId
       }
 
       // Alice (host) leaves
-      Post(s"/lobby/$gameId/leave").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/leave").withHeaders(aliceHeader) ~> routes ~> check {
         val leftLobby = responseAs[GameManager.LobbyLeft]
-        leftLobby.gameId shouldBe gameId
+        leftLobby.roomId shouldBe roomId
       }
 
       // Game should be cancelled
-      Get(s"/lobby/$gameId") ~> routes ~> check {
+      Get(s"/lobby/$roomId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val response = responseAs[LobbyMetadata]
         response.status shouldBe GameLifecycleStatus.Cancelled
@@ -145,36 +146,36 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "forfeit an in-progress game when a player leaves it" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
       // Bob (O) leaves the live game: 200 with the finished game state, Alice (X) the winner
-      Post(s"/lobby/$gameId/leave").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/leave").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[String] should include(""""winner":"X"""")
       }
     }
 
     "reject a forfeit from a non-participant of an in-progress game" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
       // Carl is not seated in the game; leaving is rejected with 409 and the game stays live
-      Post(s"/lobby/$gameId/leave").withHeaders(carlHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/leave").withHeaders(carlHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Conflict
       }
     }
@@ -188,77 +189,82 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
-    "reject leaving a lobby if the gameId is not a valid UUID" in
+    "reject leaving a lobby if the roomId is not a valid UUID" in
       Post("/lobby/not-a-uuid/leave").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
-        responseAs[String] should include("Invalid UUID for game")
+        responseAs[String] should include("Invalid UUID for room")
       }
 
     "start a game after a lobby has enough players" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.GameStarted].gameId shouldBe gameId
+        responseAs[GameManager.GameStarted].roomId shouldBe roomId
       }
     }
 
     "reject starting a game if the requester is not the host" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      Post(s"/lobby/$gameId/start").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Forbidden
         responseAs[String] should include("Only the host can start")
       }
     }
 
     "reject starting a game with not enough players" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Conflict
         responseAs[String] should include("does not have enough players")
       }
     }
 
     "return metadata for a valid TicTacToe lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
       val expectedLobbyMetadata = LobbyMetadata(
-        gameId = gameId,
+        roomId = roomId,
         gameType = GameType.TicTacToe,
         players = Map(aliceId -> alicePlayer),
         hostId = aliceId,
-        status = GameLifecycleStatus.WaitingForPlayers
+        status = GameLifecycleStatus.WaitingForPlayers,
+        createdAt = Instant.EPOCH
       )
 
-      Get(s"/lobby/$gameId") ~> routes ~> check {
+      Get(s"/lobby/$roomId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val response = responseAs[LobbyMetadata]
-        response shouldBe expectedLobbyMetadata
+        // createdAt/lastActivityAt are stamped server-side, so compare the rest of the metadata against them
+        response shouldBe expectedLobbyMetadata.copy(
+          createdAt = response.createdAt,
+          lastActivityAt = response.lastActivityAt
+        )
       }
     }
 
-    "reject a lobby info request if the gameId is not a valid UUID" in
+    "reject a lobby info request if the roomId is not a valid UUID" in
       Get("/lobby/not-a-uuid") ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
-        responseAs[String] should include("Invalid UUID for game")
+        responseAs[String] should include("Invalid UUID for room")
       }
 
     "reject a lobby info request if the lobby does not exist" in {
@@ -271,14 +277,14 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "list all lobbies with pagination metadata" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
       Get("/lobby/list") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val result = responseAs[GameManager.LobbiesListed]
-        result.lobbies.map(_.gameId) should contain(gameId)
+        result.lobbies.map(_.roomId) should contain(roomId)
         result.page shouldBe 1
         result.limit shouldBe 20
         result.total should be >= 1
@@ -298,15 +304,15 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "return metadata for a valid ConnectFour lobby" in {
-      val gameId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/connectfour").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Get(s"/lobby/$gameId") ~> routes ~> check {
+      Get(s"/lobby/$roomId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val response = responseAs[LobbyMetadata]
         response.gameType shouldBe GameType.ConnectFour
-        response.gameId shouldBe gameId
+        response.roomId shouldBe roomId
       }
     }
 
@@ -409,8 +415,8 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "return 200 when subscribing to a lobby with an active WebSocket connection" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
       val wsProbe = testKit.createTestProbe[PlayerActor.SessionOutput]()
@@ -419,22 +425,22 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         3.seconds
       )
 
-      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.SubscribeAcknowledged].gameId shouldBe gameId
+        responseAs[GameManager.SubscribeAcknowledged].roomId shouldBe roomId
       }
 
       typedSystem ! GameManager.PlayerDisconnected(alicePlayer.id, aliceRef)
     }
 
     "return 409 when subscribing to a lobby whose game has already started" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
@@ -444,7 +450,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         3.seconds
       )
 
-      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Conflict
         responseAs[String] should include("already started")
       }
@@ -453,90 +459,90 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     }
 
     "return 400 when subscribing to a lobby without an active WebSocket connection" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
       // Alice has no WebSocket connection registered, so the subscribe will fail
-      Post(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.BadRequest
         responseAs[String] should include("not connected")
       }
     }
 
     "return 401 when subscribing to a lobby without authentication" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Post(s"/lobby/$gameId/subscribe") ~> routes ~> check {
+      Post(s"/lobby/$roomId/subscribe") ~> routes ~> check {
         status shouldBe StatusCodes.Unauthorized
       }
     }
 
     "return 200 (idempotent) when unsubscribing from a lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
       // DELETE is idempotent — it succeeds even with no prior subscription
-      Delete(s"/lobby/$gameId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
+      Delete(s"/lobby/$roomId/subscribe").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.UnsubscribeAcknowledged].gameId shouldBe gameId
+        responseAs[GameManager.UnsubscribeAcknowledged].roomId shouldBe roomId
       }
     }
 
     "let the host cancel a pre-game lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Delete(s"/lobby/$gameId").withHeaders(aliceHeader) ~> routes ~> check {
+      Delete(s"/lobby/$roomId").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.LobbyLeft].gameId shouldBe gameId
+        responseAs[GameManager.LobbyLeft].roomId shouldBe roomId
       }
 
       // the cancelled lobby is no longer joinable
       Get("/lobby/list") ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        responseAs[GameManager.LobbiesListed].lobbies.map(_.gameId) should not contain gameId
+        responseAs[GameManager.LobbiesListed].lobbies.map(_.roomId) should not contain roomId
       }
     }
 
     "return 403 when a non-host tries to cancel a lobby" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      Delete(s"/lobby/$gameId").withHeaders(bobHeader) ~> routes ~> check {
+      Delete(s"/lobby/$roomId").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Forbidden
       }
     }
 
     "return 409 when cancelling a lobby whose game has already started" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
-      Post(s"/lobby/$gameId/join").withHeaders(bobHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
-      Post(s"/lobby/$gameId/start").withHeaders(aliceHeader) ~> routes ~> check {
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
       }
 
-      Delete(s"/lobby/$gameId").withHeaders(aliceHeader) ~> routes ~> check {
+      Delete(s"/lobby/$roomId").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.Conflict
       }
     }
 
     "return 401 when cancelling a lobby without authentication" in {
-      val gameId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
-        responseAs[GameManager.LobbyCreated].gameId
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
       }
 
-      Delete(s"/lobby/$gameId") ~> routes ~> check {
+      Delete(s"/lobby/$roomId") ~> routes ~> check {
         status shouldBe StatusCodes.Unauthorized
       }
     }

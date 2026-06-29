@@ -17,7 +17,7 @@ import com.andy327.actor.game.{GameState, GridGameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.connectfour.{ConnectFour, Drop, InvalidColumn, Red, Yellow}
-import com.andy327.model.core.{Game, GameError, GameId, PlayerId}
+import com.andy327.model.core.{Game, GameError, MatchId, PlayerId}
 
 class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -31,11 +31,11 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   /** Spawn a fresh game actor backed by a new persist probe. */
   private def newActor(
       gmRef: ActorRef[GameManager.Command] = dummyGameManager,
-      gameId: GameId = UUID.randomUUID()
+      matchId: MatchId = UUID.randomUUID()
   ): (ActorRef[ConnectFourActor.Command], TestProbe[PersistenceProtocol.Command]) = {
     val persistProbe = createTestProbe[PersistenceProtocol.Command]()
     val (_, behavior) =
-      ConnectFourActor.create(gameId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
+      ConnectFourActor.create(matchId, matchId, Seq(alice, bob), persistProbe.ref, gmRef, NoOpEventPublisher)
     (spawn(behavior), persistProbe)
   }
 
@@ -89,6 +89,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val behavior = ConnectFourActor.fromSnapshot(
         UUID.randomUUID(),
+        UUID.randomUUID(),
         snapshot,
         persistProbe.ref,
         dummyGameManager,
@@ -107,14 +108,15 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
     }
 
     "notify GameManager and stop when restored from a completed snapshot" in {
-      val gameId = UUID.randomUUID()
+      val matchId = UUID.randomUUID()
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val completedGame = playMoves(ConnectFour.empty(alice, bob), redWinsMoves)
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val actor = spawn(
         ConnectFourActor.fromSnapshot(
-          gameId,
+          matchId,
+          matchId,
           completedGame,
           persistProbe.ref,
           gameManagerProbe.ref,
@@ -122,7 +124,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         )
       )
 
-      gameManagerProbe.expectMessage(GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed))
+      gameManagerProbe.expectMessage(GameManager.GameCompleted(matchId, matchId, GameLifecycleStatus.Completed))
       persistProbe.expectTerminated(actor)
     }
 
@@ -140,6 +142,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
       val persistProbe = createTestProbe[PersistenceProtocol.Command]()
       val behavior = ConnectFourActor.fromSnapshot(
+        UUID.randomUUID(),
         UUID.randomUUID(),
         dummyGame,
         persistProbe.ref,
@@ -311,7 +314,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       persistProbe.expectTerminated(actor)
     }
 
-    "ignore non-SnapshotSaved messages in terminating state" in {
+    "reject a GetState landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
@@ -321,9 +324,9 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      // GetState is ignored in terminating — no reply, actor stays alive
+      // a request landing in the terminating window gets a clean rejection rather than no reply at all
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      replyProbe.expectNoMessage()
+      replyProbe.expectMessage(Left(GameError.GameOver))
 
       // SnapshotSaved then stops the actor
       actor ! TurnBasedGameActor.SnapshotSaved(Right(()))
@@ -332,8 +335,8 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "notify the GameManager when a game completes" in {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
-      val gameId: GameId = UUID.randomUUID()
-      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, gameId = gameId)
+      val matchId: MatchId = UUID.randomUUID()
+      val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       redWinsMoves.foreach { case (playerId, col) =>
@@ -342,7 +345,11 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(gameId, GameLifecycleStatus.Completed)
+      gameManagerProbe.receiveMessage() shouldBe GameManager.GameCompleted(
+        matchId,
+        matchId,
+        GameLifecycleStatus.Completed
+      )
     }
   }
 }

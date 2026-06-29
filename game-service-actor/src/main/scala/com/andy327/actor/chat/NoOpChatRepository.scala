@@ -3,7 +3,7 @@ package com.andy327.actor.chat
 import cats.effect.IO
 
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.model.core.GameId
+import com.andy327.model.core.RoomId
 
 /** A [[ChatRepository]] that records nothing and returns no history.
   *
@@ -12,5 +12,5 @@ import com.andy327.model.core.GameId
   */
 object NoOpChatRepository extends ChatRepository {
   override def append(message: PlayerEvent.ChatMessage): IO[Unit] = IO.unit
-  override def recent(gameId: GameId): IO[List[PlayerEvent.ChatMessage]] = IO.pure(Nil)
+  override def recent(roomId: RoomId): IO[List[PlayerEvent.ChatMessage]] = IO.pure(Nil)
 }

@@ -2,7 +2,7 @@ package com.andy327.actor.lobby
 
 import cats.effect.IO
 
-import com.andy327.model.core.GameId
+import com.andy327.model.core.RoomId
 
 /** Repository interface for persisting and restoring lobby state across server restarts.
   *
@@ -15,7 +15,7 @@ trait LobbyRepository {
   def saveLobby(metadata: LobbyMetadata): IO[Unit]
 
   /** Remove a lobby from persistent storage. Called when a lobby reaches a terminal state. */
-  def deleteLobby(gameId: GameId): IO[Unit]
+  def deleteLobby(roomId: RoomId): IO[Unit]
 
   /** Load all persisted active lobbies. Used once at startup to restore the in-memory lobby map. */
   def loadAllLobbies(): IO[List[LobbyMetadata]]

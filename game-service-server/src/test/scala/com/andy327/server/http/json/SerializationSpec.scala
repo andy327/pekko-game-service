@@ -45,15 +45,16 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "round-trip serialize and deserialize" in {
       val host = Player("host")
       val joiner = Player("guest")
-      val gameId = UUID.randomUUID()
+      val roomId = UUID.randomUUID()
       val lobby = LobbyJoined(
-        gameId = gameId,
+        roomId = roomId,
         metadata = LobbyMetadata(
-          gameId = gameId,
+          roomId = roomId,
           gameType = GameType.TicTacToe,
           players = Map(host.id -> host, joiner.id -> joiner),
           hostId = host.id,
-          status = GameLifecycleStatus.InProgress
+          status = GameLifecycleStatus.InProgress,
+          createdAt = Instant.EPOCH
         ),
         joinedPlayer = joiner
       )
@@ -131,21 +132,24 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "encode LobbyUpdated with a type discriminator and metadata" in {
       val host = Player("host")
       val metadata = LobbyMetadata(
-        gameId = UUID.randomUUID(),
+        roomId = UUID.randomUUID(),
         gameType = GameType.TicTacToe,
         players = Map(host.id -> host),
         hostId = host.id,
-        status = GameLifecycleStatus.WaitingForPlayers
+        status = GameLifecycleStatus.WaitingForPlayers,
+        createdAt = Instant.EPOCH
       )
       val json = (PlayerEvent.LobbyUpdated(metadata): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("LobbyUpdated")
       json.asObject.flatMap(_("metadata")) should be(defined)
     }
 
-    "encode GameStateUpdated with a type discriminator and state" in {
+    "encode GameStateUpdated with a type discriminator, roomId, and state" in {
+      val roomId = UUID.randomUUID()
       val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
-      val json = (PlayerEvent.GameStateUpdated(state): PlayerEvent).asJson
+      val json = (PlayerEvent.GameStateUpdated(roomId, state): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
+      json.hcursor.get[UUID]("roomId") shouldBe Right(roomId)
       json.asObject.flatMap(_("state")) should be(defined)
     }
 
@@ -174,9 +178,9 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
   "ClientMessage decoder" should {
     "decode a ChatSend frame" in {
-      val gameId = UUID.randomUUID()
-      val json = s"""{"type":"ChatSend","gameId":"$gameId","text":"hello"}"""
-      io.circe.parser.decode[ClientMessage](json) shouldBe Right(ClientMessage.ChatSend(gameId, "hello"))
+      val roomId = UUID.randomUUID()
+      val json = s"""{"type":"ChatSend","roomId":"$roomId","text":"hello"}"""
+      io.circe.parser.decode[ClientMessage](json) shouldBe Right(ClientMessage.ChatSend(roomId, "hello"))
     }
 
     "reject an unknown message type with an explanatory error" in {

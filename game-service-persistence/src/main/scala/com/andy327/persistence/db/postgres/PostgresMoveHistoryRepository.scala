@@ -14,7 +14,7 @@ import doobie.postgres.implicits._
 import io.circe.Json
 import io.circe.parser.parse
 
-import com.andy327.model.core.{GameId, PlayerId}
+import com.andy327.model.core.{MatchId, PlayerId}
 import com.andy327.persistence.db.{MoveHistoryRepository, MoveRecord}
 
 /** [[MoveHistoryRepository]] backed by PostgreSQL via Doobie.
@@ -40,19 +40,19 @@ class PostgresMoveHistoryRepository(xa: Transactor[IO]) extends MoveHistoryRepos
     """.update.run.transact(xa).void
 
   /** Appends a move row. The `(game_id, seq)` primary key makes a duplicate ordinal a no-op rather than a duplicate. */
-  override def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
+  override def appendMove(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] =
     sql"""
       INSERT INTO game_moves (game_id, seq, player_id, move_json)
-      VALUES (${gameId.toString}, $seq, ${playerId.toString}, ${move.noSpaces})
+      VALUES (${matchId.toString}, $seq, ${playerId.toString}, ${move.noSpaces})
       ON CONFLICT (game_id, seq) DO NOTHING
     """.update.run.transact(xa).void
 
   /** Loads all moves for a game ordered by ascending seq. Rows that fail to parse are logged and skipped. */
-  override def loadMoves(gameId: GameId): IO[List[MoveRecord]] =
+  override def loadMoves(matchId: MatchId): IO[List[MoveRecord]] =
     sql"""
       SELECT seq, player_id, move_json, created_at
       FROM game_moves
-      WHERE game_id = ${gameId.toString}
+      WHERE game_id = ${matchId.toString}
       ORDER BY seq ASC
     """
       .query[(Int, String, String, Instant)]
@@ -68,7 +68,7 @@ class PostgresMoveHistoryRepository(xa: Transactor[IO]) extends MoveHistoryRepos
           record match {
             case Right(rec) => List(rec)
             case Left(err)  =>
-              logger.warn(s"Skipping unparseable move $seq for game ${gameId.toString}: ${err.getMessage}")
+              logger.warn(s"Skipping unparseable move $seq for game ${matchId.toString}: ${err.getMessage}")
               Nil
           }
         }

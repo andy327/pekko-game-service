@@ -42,12 +42,12 @@ import com.andy327.server.http.routes.RouteDirectives._
   * are dynamically decoded using the game-specific `MovePayload` decoder from the `GameRegistry`.
   *
   * Route Summary:
-  *   - POST /{gameType}/{gameId}/move - Submit a move to the specified game
-  *   - GET /{gameType}/{gameId}/status - Fetch the current state of a game
-  *   - GET /{gameType}/{gameId}/history - Fetch the ordered move history for a game
-  *   - GET /{gameType}/{gameId}/chat - Fetch the recent chat history (backscroll) for a game
-  *   - POST /{gameType}/{gameId}/subscribe - Start spectating a game (push events over the player's WebSocket)
-  *   - DELETE /{gameType}/{gameId}/subscribe - Stop spectating a game
+  *   - POST /{gameType}/{roomId}/move - Submit a move to the specified game
+  *   - GET /{gameType}/{roomId}/status - Fetch the current state of a game
+  *   - GET /{gameType}/{roomId}/history - Fetch the ordered move history for a game
+  *   - GET /{gameType}/{roomId}/chat - Fetch the recent chat history (backscroll) for a game
+  *   - POST /{gameType}/{roomId}/subscribe - Start spectating a game (push events over the player's WebSocket)
+  *   - DELETE /{gameType}/{roomId}/subscribe - Stop spectating a game
   */
 class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
   implicit val scheduler: Scheduler = system.scheduler
@@ -82,14 +82,14 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
 
   val routes: Route = pathPrefix(gameTypePrefix) {
 
-    pathPrefix(Segment) { gameIdStr =>
-      parseGameId(gameIdStr) { gameId =>
+    pathPrefix(Segment) { roomIdStr =>
+      parseRoomId(roomIdStr) { roomId =>
         /** Submits a move to the specified game using the authenticated player's ID.
           *
           * The move payload format is game-specific and decoded dynamically via the `GameRegistry`.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the active game
+          * - Path: `roomId` — the UUID of the active game
           * - Body: game-specific `MovePayload` JSON (structure depends on game type)
           * - 200: updated game state after the move is applied
           * - 400: invalid UUID format, or malformed/invalid JSON payload
@@ -105,9 +105,9 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
                 onSuccess(decodeJsonEntity(module.moveDecoder)(req)) {
                   case Right(move) =>
                     val op = GameOperation.MakeMove(player.id, move)
-                    onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, op, _))) {
+                    onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(roomId, op, _))) {
                       case GameStatus(state)  => complete(state)
-                      case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found with gameId $id")
+                      case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found for room $id")
                       case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
                       case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
                       case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
@@ -122,7 +122,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
         } ~
         /** Fetches the current state of the specified game.
           *
-          * - Path: `gameId` — the UUID of the game to check
+          * - Path: `roomId` — the UUID of the game to check
           * - 200: current game state
           * - 400: invalid UUID format
           * - 404: game not found
@@ -130,9 +130,9 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           */
         path("status") {
           get {
-            onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(gameId, GameOperation.GetState, _))) {
+            onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(roomId, GameOperation.GetState, _))) {
               case GameStatus(state)  => complete(state)
-              case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found with gameId $id")
+              case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found for room $id")
               case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
               case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
               case unknown            => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
@@ -144,14 +144,14 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           * Served from the move log, so it works for both active and finished games (and returns an empty list for a
           * game with no recorded moves).
           *
-          * - Path: `gameId` — the UUID of the game
+          * - Path: `roomId` — the UUID of the game
           * - 200: `MoveHistory` — the ordered list of moves played
           * - 400: invalid UUID format
           * - 500: unexpected error
           */
         path("history") {
           get {
-            onSuccess(system.ask[GameResponse](GameManager.GetMoveHistory(gameId, _))) {
+            onSuccess(system.ask[GameResponse](GameManager.GetMoveHistory(roomId, _))) {
               case history: MoveHistory => complete(history)
               case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
               case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
@@ -163,14 +163,14 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           * Served from the chat store, so it works for both active and finished games (and returns an empty list for a
           * game with no recorded messages). Live chat continues to arrive over the WebSocket.
           *
-          * - Path: `gameId` — the UUID of the game
+          * - Path: `roomId` — the UUID of the game
           * - 200: `ChatHistory` — the recent messages, oldest first
           * - 400: invalid UUID format
           * - 500: unexpected error
           */
         path("chat") {
           get {
-            onSuccess(system.ask[GameResponse](GameManager.GetChatHistory(gameId, _))) {
+            onSuccess(system.ask[GameResponse](GameManager.GetChatHistory(roomId, _))) {
               case history: ChatHistory => complete(history)
               case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
               case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
@@ -182,7 +182,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           * The player must have an active WebSocket connection established before calling this endpoint.
           *
           * - Auth: Bearer token required
-          * - Path: `gameId` — the UUID of the active game to observe
+          * - Path: `roomId` — the UUID of the active game to observe
           * - 200: `SubscribeAcknowledged` confirming the subscription was registered
           * - 400: invalid UUID format, player has no active WebSocket connection, or game is not active
           * - 401: missing or invalid token
@@ -191,7 +191,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
         path("subscribe") {
           post {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(gameId, player.id, _))) {
+              onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(roomId, player.id, _))) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
                 case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
@@ -204,7 +204,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
             * can call it without tracking its own subscription state.
             *
             * - Auth: Bearer token required
-            * - Path: `gameId` — the UUID of the game to stop observing
+            * - Path: `roomId` — the UUID of the game to stop observing
             * - 200: `UnsubscribeAcknowledged` confirming the subscription was removed
             * - 400: invalid UUID format
             * - 401: missing or invalid token
@@ -212,7 +212,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
             */
           delete {
             authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](GameManager.UnsubscribePlayerFromGame(gameId, player.id, _))) {
+              onSuccess(system.ask[GameResponse](GameManager.UnsubscribePlayerFromGame(roomId, player.id, _))) {
                 case ack: UnsubscribeAcknowledged => complete(ack)
                 case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
               }

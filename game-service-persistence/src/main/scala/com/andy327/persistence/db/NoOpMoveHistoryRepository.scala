@@ -4,7 +4,7 @@ import cats.effect.IO
 
 import io.circe.Json
 
-import com.andy327.model.core.{GameId, PlayerId}
+import com.andy327.model.core.{MatchId, PlayerId}
 
 /** A [[MoveHistoryRepository]] that records nothing and returns no history.
   *
@@ -13,6 +13,6 @@ import com.andy327.model.core.{GameId, PlayerId}
   */
 object NoOpMoveHistoryRepository extends MoveHistoryRepository {
   override def initialize(): IO[Unit] = IO.unit
-  override def appendMove(gameId: GameId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] = IO.unit
-  override def loadMoves(gameId: GameId): IO[List[MoveRecord]] = IO.pure(Nil)
+  override def appendMove(matchId: MatchId, seq: Int, playerId: PlayerId, move: Json): IO[Unit] = IO.unit
+  override def loadMoves(matchId: MatchId): IO[List[MoveRecord]] = IO.pure(Nil)
 }
