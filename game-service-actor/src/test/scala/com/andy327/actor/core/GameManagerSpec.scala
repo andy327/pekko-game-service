@@ -391,7 +391,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       gm ! GameManager.ListLobbies(None, 1, 20, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.LobbiesListed]
-      response.lobbies.map(_.roomId) should contain only (roomId2, roomId3)
+      response.lobbies.map(_.metadata.roomId) should contain only (roomId2, roomId3)
     }
 
     "report a player's joined lobbies and active games via GetPlayerSessions" in {

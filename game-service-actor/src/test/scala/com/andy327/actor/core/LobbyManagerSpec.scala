@@ -189,7 +189,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
 
       // a Finished room is not joinable, so it must not appear in ListLobbies
       f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
-      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.roomId) should not contain roomId
+      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.metadata.roomId) should not contain roomId
 
       // but the room survives in memory (for chat/rematch), so GetLobbyInfo still finds it
       f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
@@ -206,8 +206,8 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
 
       // the returned subscriber is told the room is now in its post-game (Finished) state
       sub.expectMessageType[PlayerActor.SendEvent].event match {
-        case PlayerEvent.LobbyUpdated(m) => m.status shouldBe GameLifecycleStatus.Finished
-        case other                       => fail(s"expected LobbyUpdated(Finished), got $other")
+        case PlayerEvent.LobbyUpdated(m, _) => m.status shouldBe GameLifecycleStatus.Finished
+        case other                          => fail(s"expected LobbyUpdated(Finished), got $other")
       }
 
       // and a chat broadcast to the room now reaches the returned subscriber (chat-after-end)
@@ -337,7 +337,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.responseProbe.expectMessageType[GameManager.LobbyLeft].message should include("host transferred")
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event match {
-        case PlayerEvent.LobbyUpdated(meta) =>
+        case PlayerEvent.LobbyUpdated(meta, _) =>
           meta.hostId shouldBe bob.id
           meta.players.keySet shouldBe Set(bob.id)
         case other => fail(s"expected LobbyUpdated, got $other")
@@ -543,7 +543,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
 
       lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
       val listed = listProbe.expectMessageType[LobbyManager.LobbiesListed]
-      listed.lobbies.map(l => l.players(l.hostId).name) shouldBe List("carol", "bob", "alice")
+      listed.lobbies.map(l => l.metadata.players(l.metadata.hostId).name) shouldBe List("carol", "bob", "alice")
     }
 
     "ignore MatchEnded for an unknown lobby" in {
@@ -595,7 +595,7 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       val result = listProbe.expectMessageType[LobbyManager.LobbiesListed]
       result.lobbies should have size 2
       result.total shouldBe 2
-      result.lobbies.foreach(_.gameType shouldBe GameType.TicTacToe)
+      result.lobbies.foreach(_.metadata.gameType shouldBe GameType.TicTacToe)
     }
 
     "list only the joinable lobbies a player has joined via ListLobbiesForPlayer" in {

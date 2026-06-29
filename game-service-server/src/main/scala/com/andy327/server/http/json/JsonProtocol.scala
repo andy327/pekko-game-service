@@ -20,6 +20,7 @@ import com.andy327.actor.core.GameManager.{
   SubscribeAcknowledged,
   UnsubscribeAcknowledged
 }
+import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{BattleshipState, GameState, GridGameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
@@ -63,6 +64,8 @@ object JsonProtocol extends CirceSupport {
   implicit val lobbyLeftCodec: Codec[LobbyLeft] = deriveCodec[LobbyLeft]
 
   implicit val gameStartedCodec: Codec[GameStarted] = deriveCodec[GameStarted]
+
+  implicit val lobbySummaryCodec: Codec[LobbySummary] = deriveCodec[LobbySummary]
 
   implicit val lobbiesListedCodec: Codec[LobbiesListed] = deriveCodec[LobbiesListed]
 
@@ -140,16 +143,25 @@ object JsonProtocol extends CirceSupport {
     *
     * Each variant is encoded as a JSON object with a `type` discriminator field so the client can dispatch on the event
     * kind without additional out-of-band information:
-    *   - `{"type":"LobbyUpdated",     "metadata":{...}}`
-    *   - `{"type":"GameStateUpdated", "roomId":..., "state":{...}}`
+    *   - `{"type":"LobbyUpdated",     "metadata":{...}, "spectatorCount":...}`
+    *   - `{"type":"GameStateUpdated", "roomId":..., "state":{...}, "spectatorCount":...}`
     *   - `{"type":"GameEnded",        "result":"Completed"}`
     *   - `{"type":"ChatMessage",      "roomId":..., "senderId":..., "senderName":..., "text":..., "sentAt":...}`
     */
   implicit val playerEventEncoder: Encoder[PlayerEvent] = Encoder.instance {
-    case PlayerEvent.LobbyUpdated(metadata) =>
-      Json.obj("type" -> "LobbyUpdated".asJson, "metadata" -> metadata.asJson)
-    case PlayerEvent.GameStateUpdated(roomId, state) =>
-      Json.obj("type" -> "GameStateUpdated".asJson, "roomId" -> roomId.asJson, "state" -> state.asJson)
+    case PlayerEvent.LobbyUpdated(metadata, spectatorCount) =>
+      Json.obj(
+        "type" -> "LobbyUpdated".asJson,
+        "metadata" -> metadata.asJson,
+        "spectatorCount" -> spectatorCount.asJson
+      )
+    case PlayerEvent.GameStateUpdated(roomId, state, spectatorCount) =>
+      Json.obj(
+        "type" -> "GameStateUpdated".asJson,
+        "roomId" -> roomId.asJson,
+        "state" -> state.asJson,
+        "spectatorCount" -> spectatorCount.asJson
+      )
     case PlayerEvent.GameEnded(result) =>
       Json.obj("type" -> "GameEnded".asJson, "result" -> (result: GameLifecycleStatus).asJson)
     case PlayerEvent.ChatMessage(roomId, senderId, senderName, text, sentAt) =>

@@ -286,7 +286,8 @@ object GameManager {
   final case class LobbyInfo(metadata: LobbyMetadata) extends GameResponse
 
   /** Paginated list of joinable lobbies. */
-  final case class LobbiesListed(lobbies: List[LobbyMetadata], page: Int, limit: Int, total: Int) extends GameResponse
+  final case class LobbiesListed(lobbies: List[LobbyManager.LobbySummary], page: Int, limit: Int, total: Int)
+      extends GameResponse
 
   /** A single live game the requesting player is seated in, carried by [[PlayerSessions]]. Deliberately minimal — just
     * the id and kind, enough to re-discover and reconnect to the match; full state is fetched via the game endpoint.
