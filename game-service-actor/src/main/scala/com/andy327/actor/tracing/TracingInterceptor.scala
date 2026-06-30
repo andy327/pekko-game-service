@@ -8,7 +8,8 @@ import org.apache.pekko.actor.typed.BehaviorInterceptor.{ReceiveTarget, SignalTa
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{Behavior, BehaviorInterceptor, Signal, TypedActorContext}
 
-/** A [[BehaviorInterceptor]] that emits a [[TraceEvent]] for each message received by the wrapped actor.
+/** A [[BehaviorInterceptor]] that passes every message received by the wrapped actor straight through, while
+  * emitting a [[TraceEvent]] for it (subject to `config.sampleRate`).
   *
   * Install via [[TracingInterceptor.wrap]]; that helper is a no-op when `config.enabled` is `false`, so disabled
   * tracing costs nothing after startup — no interceptor is instantiated, no events are allocated.
@@ -16,9 +17,9 @@ import org.apache.pekko.actor.typed.{Behavior, BehaviorInterceptor, Signal, Type
   * Because typed Pekko does not expose the sender on received messages, `TraceEvent.from` is always `None`. The `to`
   * field is the receiving actor's path, available via the interceptor context.
   *
-  * Uses `classOf[AnyRef]` as the `interceptMessageClass` so the interceptor fires for every received message
-  * regardless of the concrete command type. This avoids requiring a `ClassTag` at call sites where the actor's
-  * command type is a path-dependent abstract type member (e.g. `bundle.actor.Command` in [[GameManager]]).
+  * Passes `classOf[AnyRef]` (via an unchecked cast to `Class[T]`) as the `interceptMessageClass` constructor
+  * argument, so Pekko's runtime `isInstance` check accepts every message regardless of the concrete command type —
+  * safe because `aroundReceive` only ever receives messages the actor's own mailbox has already typed as `T`.
   *
   * `isSame` uses reference equality so that each interceptor instance is treated as distinct by Pekko's
   * interceptor-deduplication logic, allowing the same class to be applied independently to different actors.

@@ -433,8 +433,9 @@ object GameManager {
     * @param stash buffer holding commands received before the restore completes; drained into [[running]]
     * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent)
     * @param onReady optional ref signalled once the running state is entered (used in tests)
-    * @param tracingConfig forwarded to [[running]] for wrapping game actor spawns on [[SpawnGame]]
-    * @param traceEmit forwarded to [[running]] as the sink for [[TraceEvent]]s on game actor spawns
+    * @param tracingConfig used to wrap each restored game actor's spawn on [[RestoreGames]], then forwarded to
+    *                      [[running]] for wrapping spawns on [[SpawnGame]]
+    * @param traceEmit sink for [[TraceEvent]]s from the restored-actor interceptors, then forwarded to [[running]]
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],

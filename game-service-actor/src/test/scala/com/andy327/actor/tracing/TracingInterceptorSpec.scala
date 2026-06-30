@@ -24,9 +24,9 @@ class TracingInterceptorSpec extends AnyWordSpecLike with Matchers {
       case Pong(r) => r ! "ping"; Behaviors.same
     }
 
-  private val enabled = TracingConfig(enabled = true, sampleRate = 1.0)
-  private val disabled = TracingConfig(enabled = false, sampleRate = 1.0)
-  private val zeroRate = TracingConfig(enabled = true, sampleRate = 0.0)
+  private val enabled = TracingConfig(enabled = true, sampleRate = 1.0, bufferSize = 1000)
+  private val disabled = TracingConfig(enabled = false, sampleRate = 1.0, bufferSize = 1000)
+  private val zeroRate = TracingConfig(enabled = true, sampleRate = 0.0, bufferSize = 1000)
 
   "TracingInterceptor.wrap" when {
 
