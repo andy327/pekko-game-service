@@ -21,7 +21,6 @@ import com.andy327.actor.core.GameManager
 import com.andy327.actor.events.{EventPublisher, NoOpEventPublisher}
 import com.andy327.actor.lobby.{LobbyRepository, RedisLobbyRepository}
 import com.andy327.actor.persistence.PostgresActor
-import com.andy327.actor.tracing.{TraceCollector, TraceEvent, TracingConfig}
 import com.andy327.model.core.GameType
 import com.andy327.persistence.db.postgres.{
   PostgresGameRepository,
@@ -129,25 +128,7 @@ object GameServer {
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
-
-      // The collector actor is only spawned when tracing is enabled, so a disabled config costs nothing at startup.
-      val tracingConfig = TracingConfig.default
-      val traceEmit: TraceEvent => Unit =
-        if (tracingConfig.enabled) {
-          val collector = context.spawn(TraceCollector(tracingConfig.bufferSize), "trace-collector")
-          (event: TraceEvent) => collector ! TraceCollector.Record(event)
-        } else _ => ()
-
-      GameManager(
-        persistActor,
-        gameRepo,
-        lobbyRepo,
-        moveRepo,
-        chatRepo,
-        publisher,
-        tracingConfig = tracingConfig,
-        traceEmit = traceEmit
-      )
+      GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher)
     }
 
     // Pekko actor system
@@ -164,8 +145,7 @@ object GameServer {
       new GameRoutes(GameType.Battleship, system).routes,
       new WebSocketRoutes(system).routes,
       new MetricsRoutes(metricsRegistry).routes,
-      // Static web UI; composed last so its catch-all resource lookup never shadows an API route
-      new StaticRoutes().routes
+      new StaticRoutes().routes // Web UI; composed last so its catch-all resource lookup doesn't shadow an API route
     )
 
     // Start HTTP server

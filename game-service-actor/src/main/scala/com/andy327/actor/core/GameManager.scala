@@ -17,7 +17,7 @@ import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
-import com.andy327.actor.tracing.{TraceEvent, TracingConfig, TracingInterceptor}
+import com.andy327.actor.tracing.{TraceCollector, TraceEvent, TracingConfig, TracingInterceptor}
 import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 
@@ -145,6 +145,14 @@ object GameManager {
     * has since reconnected with a new PlayerActor.
     */
   final case class PlayerDisconnected(playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command]) extends Command
+
+  // --- Tracing commands ---
+
+  /** Replies with the live `trace-collector` child ref, or `None` if tracing is disabled (the collector is never
+    * spawned in that case — see [[GameManager.apply]]). Used by the debug WebSocket route to reach
+    * [[com.andy327.actor.tracing.TraceCollector]] without GameManager needing to proxy every trace interaction.
+    */
+  final case class GetTraceCollector(replyTo: ActorRef[Option[ActorRef[TraceCollector.Command]]]) extends Command
 
   // --- Lifecycle commands ---
 
@@ -362,9 +370,11 @@ object GameManager {
     * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent); defaults to
     *                  no-op
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
-    * @param tracingConfig controls whether [[tracing.TracingInterceptor]] is installed on spawned child actors;
-    *                      defaults to the `pekko-game-service.tracing` config stanza (disabled by default)
-    * @param traceEmit sink for [[tracing.TraceEvent]]s emitted by the interceptors; defaults to no-op
+    * @param tracingConfig controls whether tracing is active: when `enabled`, [[tracing.TracingInterceptor]] is
+    *                      installed on every spawned child actor and a `trace-collector` child
+    *                      ([[tracing.TraceCollector]]) is spawned to hold/distribute the resulting
+    *                      [[tracing.TraceEvent]]s — see [[GetTraceCollector]]. Defaults to the
+    *                      `pekko-game-service.tracing` config stanza (disabled by default)
     */
   @annotation.nowarn("msg=match may not be exhaustive")
   def apply(
@@ -375,11 +385,18 @@ object GameManager {
       chatRepo: ChatRepository = NoOpChatRepository,
       publisher: EventPublisher = NoOpEventPublisher,
       onReady: Option[ActorRef[Ready.type]] = None,
-      tracingConfig: TracingConfig = TracingConfig.default,
-      traceEmit: TraceEvent => Unit = _ => ()
+      tracingConfig: TracingConfig = TracingConfig.default
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
       Behaviors.setup { context =>
+        // The collector actor is only spawned when tracing is enabled, so a disabled config costs nothing at startup.
+        // Reachable from outside via GetTraceCollector (context.child("trace-collector")).
+        val traceEmit: TraceEvent => Unit =
+          if (tracingConfig.enabled) {
+            val collector = context.spawn(TraceCollector(tracingConfig.bufferSize), "trace-collector")
+            (event: TraceEvent) => collector ! TraceCollector.Record(event)
+          } else _ => ()
+
         val lobbyManager = context.spawn(
           TracingInterceptor.wrap(LobbyManager(context.self, lobbyRepo), tracingConfig, traceEmit),
           "lobby-manager"
@@ -719,6 +736,10 @@ object GameManager {
 
         case PlayerDisconnected(playerId, playerRef) =>
           playerManager ! PlayerManager.PlayerDisconnected(playerId, playerRef)
+          Behaviors.same
+
+        case GetTraceCollector(replyTo) =>
+          replyTo ! context.child("trace-collector").map(_.unsafeUpcast[TraceCollector.Command])
           Behaviors.same
 
         case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers) =>
