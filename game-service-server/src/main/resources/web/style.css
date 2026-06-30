@@ -198,3 +198,34 @@ button:disabled { opacity: 0.5; cursor: default; }
 .chat-text { color: var(--text); }
 
 #chat-input { flex: 1; }
+
+/* Battleship: override the single-board grid when two boards are shown side by side. */
+#board.bs-active { display: block; max-width: none; }
+
+.bs-boards { display: flex; gap: 1rem; }
+
+.bs-board-wrap { flex: 1; min-width: 0; }
+
+.bs-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.bs-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+}
+
+/* Smaller cells for the 10×10 Battleship grids. */
+.bs-grid .cell { font-size: 0.55rem; border-radius: 2px; }
+
+/* Cell states — hit/miss use explicit backgrounds to override the generic .cell background. */
+.cell.mark-hit     { background: #8b1a1a; border-color: #a52020; }
+.cell.mark-miss    { background: #1a3a5c; border-color: #2c5d8f; }
+.cell.mark-ship    { background: #3a4455; border-color: #505d72; }
+.cell.mark-water   { background: #0a1624; border-color: #152336; }
+.cell.mark-unknown { background: var(--bg); }

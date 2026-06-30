@@ -21,8 +21,9 @@ const session = {
 // Per-game-type knowledge the rest of the client stays agnostic to: display label, how a click becomes a move, and
 // whether moves are made by picking a column (Connect Four) rather than an individual cell.
 const GAMES = {
-  tictactoe: { label: "Tic-Tac-Toe", maxPlayers: 2, move: (row, col) => ({ row, col }) },
-  connectfour: { label: "Connect Four", maxPlayers: 2, move: (row, col) => ({ col }), columns: true }
+  tictactoe:   { label: "Tic-Tac-Toe", maxPlayers: 2, move: (row, col) => ({ row, col }) },
+  connectfour: { label: "Connect Four", maxPlayers: 2, move: (row, col) => ({ col }), columns: true },
+  battleship:  { label: "Battleship",   maxPlayers: 2, move: (row, col) => ({ row, col }) }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -551,18 +552,24 @@ function sendChat(text) {
 }
 
 // --- Board rendering -------------------------------------------------------------------------------------------------
-// Renders any grid game-state view: board is rows of cell tokens (mark symbol or "" when empty). Clicks are optimistic —
-// the server validates turn/legality and rejects with a plain-text message we surface. Column-based games (Connect Four)
-// are played via drop buttons above the board rather than by clicking individual cells.
+// Renders any game-state view pushed from the server. Battleship states (identified by `state.board1`) are handled
+// separately; all other games use the shared grid renderer below.
 function renderBoard(state) {
-  const board = $("board");
-  // a board push means we're now (or still) watching a live game, however we got here — e.g. a spectator watching a
-  // lobby whose match just started, handed off to the game actor along with the seated players
+  // a board push means we're now (or still) watching a live game, however we got here
   if (session.game) session.game.isLive = true;
-  $("start-game").classList.add("hidden"); // a live board means the game has started; Start no longer applies
-  $("post-game-bar").classList.add("hidden"); // a fresh board (e.g. a rematch) supersedes the prior match's post-game bar
+  $("start-game").classList.add("hidden");
+  $("post-game-bar").classList.add("hidden");
   $("rematch-btn").classList.add("hidden");
-  setError("game-error", ""); // the state changed, so any prior move error (e.g. "not your turn") is now stale
+  setError("game-error", "");
+
+  if (state.board1 !== undefined) {
+    renderBattleshipBoard(state);
+    return;
+  }
+
+  // Grid games (TicTacToe, ConnectFour): a single flat board of cell tokens.
+  const board = $("board");
+  board.classList.remove("bs-active");
   const rows = state.board;
   const cols = rows[0] ? rows[0].length : 0;
   board.style.setProperty("--cols", cols);
@@ -589,6 +596,66 @@ function renderBoard(state) {
   if (state.winner) setStatus(`${state.winner} wins!`);
   else if (state.draw) setStatus("Draw.");
   else setStatus(`Turn: ${state.currentPlayer}`);
+}
+
+// Renders the dual-board Battleship view. The viewer's own board reveals ships; the opponent's board (and both boards
+// for a spectator) shows only fired cells, hiding ship positions until hit.
+function renderBattleshipBoard(state) {
+  const board = $("board");
+  board.classList.add("bs-active");
+  board.innerHTML = "";
+  $("column-controls").innerHTML = "";
+
+  const over = Boolean(state.winner);
+  const spectating = Boolean(session.game && session.game.isSpectator);
+  const myTurn = !spectating && !over && state.viewerSeat !== null && state.currentPlayer === state.viewerSeat;
+
+  if (state.winner) setStatus(`${state.winner} wins!`);
+  else if (state.viewerSeat) setStatus(myTurn ? "Your turn — pick a target!" : "Opponent's turn…");
+  else setStatus(`Spectating — turn: ${state.currentPlayer}`);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "bs-boards";
+
+  if (state.viewerSeat) {
+    const myGrid  = state.viewerSeat === "P1" ? state.board1 : state.board2;
+    const oppGrid = state.viewerSeat === "P1" ? state.board2 : state.board1;
+    wrapper.appendChild(makeBsGrid("Your waters",  myGrid,  false));
+    wrapper.appendChild(makeBsGrid("Enemy waters", oppGrid, myTurn));
+  } else {
+    wrapper.appendChild(makeBsGrid("Player 1", state.board1, false));
+    wrapper.appendChild(makeBsGrid("Player 2", state.board2, false));
+  }
+
+  board.appendChild(wrapper);
+}
+
+// Builds one labeled Battleship grid. When `clickable` is true, only cells with token "unknown" (not yet fired) get
+// click handlers — already-fired cells (hit/miss) are inert.
+function makeBsGrid(label, rows, clickable) {
+  const wrap = document.createElement("div");
+  wrap.className = "bs-board-wrap";
+
+  const lbl = document.createElement("div");
+  lbl.className = "bs-label";
+  lbl.textContent = label;
+  wrap.appendChild(lbl);
+
+  const grid = document.createElement("div");
+  grid.className = "bs-grid";
+
+  rows.forEach((cells, r) => {
+    cells.forEach((token, c) => {
+      const cell = document.createElement("div");
+      const canClick = clickable && token === "unknown";
+      cell.className = "cell" + (token ? ` mark-${token}` : "") + (canClick ? " clickable" : " disabled");
+      if (canClick) cell.onclick = () => submitMove(r, c);
+      grid.appendChild(cell);
+    });
+  });
+
+  wrap.appendChild(grid);
+  return wrap;
 }
 
 // Render one drop button per column above the board (for column-based games). Pass cols=0 to clear the controls for
