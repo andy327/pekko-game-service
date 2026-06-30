@@ -46,6 +46,7 @@ import com.andy327.server.http.routes.{
   MetricsRoutes,
   PlayerRoutes,
   StaticRoutes,
+  TraceRoutes,
   WebSocketRoutes
 }
 import com.andy327.server.pubsub.RedisPubSubResource
@@ -144,6 +145,7 @@ object GameServer {
       new GameRoutes(GameType.ConnectFour, system).routes,
       new GameRoutes(GameType.Battleship, system).routes,
       new WebSocketRoutes(system).routes,
+      new TraceRoutes(system).routes,
       new MetricsRoutes(metricsRegistry).routes,
       new StaticRoutes().routes // Web UI; composed last so its catch-all resource lookup doesn't shadow an API route
     )

@@ -1,6 +1,6 @@
 package com.andy327.server.http.json
 
-import io.circe.generic.semiauto.deriveCodec
+import io.circe.generic.semiauto.{deriveCodec, deriveEncoder}
 import io.circe.syntax._
 import io.circe.{Codec, Decoder, Encoder, Json}
 import org.apache.pekko.http.scaladsl.unmarshalling.FromEntityUnmarshaller
@@ -24,6 +24,7 @@ import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{BattleshipState, GameState, GridGameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
+import com.andy327.actor.tracing.TraceEvent
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
@@ -76,6 +77,9 @@ object JsonProtocol extends CirceSupport {
   implicit val unsubscribeAcknowledgedCodec: Codec[UnsubscribeAcknowledged] = deriveCodec[UnsubscribeAcknowledged]
 
   implicit val moveRecordCodec: Codec[MoveRecord] = deriveCodec[MoveRecord]
+
+  // Write-only: pushed over the debug trace WebSocket (TraceRoutes), never read back from a request body.
+  implicit val traceEventEncoder: Encoder[TraceEvent] = deriveEncoder[TraceEvent]
 
   implicit val moveHistoryCodec: Codec[MoveHistory] = deriveCodec[MoveHistory]
 
