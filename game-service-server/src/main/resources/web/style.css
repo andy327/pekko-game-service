@@ -35,6 +35,7 @@ header h1 { font-size: 1.2rem; margin: 0; }
 
 .whoami { color: var(--muted); font-size: 0.9rem; }
 
+#debug-nav,
 #logout { padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .panel {
@@ -196,6 +197,44 @@ button:disabled { opacity: 0.5; cursor: default; }
 .chat-who { color: var(--muted); font-weight: 600; margin-right: 0.4rem; }
 .chat-msg.own .chat-who { color: var(--accent); }
 .chat-text { color: var(--text); }
+
+/* Debug: live actor message trace log. */
+#trace-log-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 0.75rem 0;
+}
+
+#trace-log { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+
+#trace-log th,
+#trace-log td {
+  text-align: left;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+#trace-log th {
+  color: var(--muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+#trace-log td.trace-to {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#trace-log td.trace-type { color: var(--accent); font-weight: 600; }
 
 #chat-input { flex: 1; }
 
