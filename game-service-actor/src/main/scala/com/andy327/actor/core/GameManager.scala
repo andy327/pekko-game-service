@@ -17,6 +17,7 @@ import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
+import com.andy327.actor.tracing.{TraceEvent, TracingConfig, TracingInterceptor}
 import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 
@@ -361,6 +362,9 @@ object GameManager {
     * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent); defaults to
     *                  no-op
     * @param onReady optional ref that receives a [[Ready]] signal once the running state is entered (used in tests)
+    * @param tracingConfig controls whether [[tracing.TracingInterceptor]] is installed on spawned child actors;
+    *                      defaults to the `pekko-game-service.tracing` config stanza (disabled by default)
+    * @param traceEmit sink for [[tracing.TraceEvent]]s emitted by the interceptors; defaults to no-op
     */
   @annotation.nowarn("msg=match may not be exhaustive")
   def apply(
@@ -370,12 +374,20 @@ object GameManager {
       moveRepo: MoveHistoryRepository = NoOpMoveHistoryRepository,
       chatRepo: ChatRepository = NoOpChatRepository,
       publisher: EventPublisher = NoOpEventPublisher,
-      onReady: Option[ActorRef[Ready.type]] = None
+      onReady: Option[ActorRef[Ready.type]] = None,
+      tracingConfig: TracingConfig = TracingConfig.default,
+      traceEmit: TraceEvent => Unit = _ => ()
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.withStash(capacity = 128) { stash =>
       Behaviors.setup { context =>
-        val lobbyManager = context.spawn(LobbyManager(context.self, lobbyRepo), "lobby-manager")
-        val playerManager = context.spawn(PlayerManager(), "player-manager")
+        val lobbyManager = context.spawn(
+          TracingInterceptor.wrap(LobbyManager(context.self, lobbyRepo), tracingConfig, traceEmit),
+          "lobby-manager"
+        )
+        val playerManager = context.spawn(
+          TracingInterceptor.wrap(PlayerManager(tracingConfig, traceEmit), tracingConfig, traceEmit),
+          "player-manager"
+        )
 
         val restoreIO = for {
           games <- IO.defer(gameRepo.loadAllGames())
@@ -400,7 +412,9 @@ object GameManager {
           chatRepo,
           stash,
           publisher,
-          onReady
+          onReady,
+          tracingConfig,
+          traceEmit
         )
       }
     }
@@ -419,6 +433,9 @@ object GameManager {
     * @param stash buffer holding commands received before the restore completes; drained into [[running]]
     * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent)
     * @param onReady optional ref signalled once the running state is entered (used in tests)
+    * @param tracingConfig used to wrap each restored game actor's spawn on [[RestoreGames]], then forwarded to
+    *                      [[running]] for wrapping spawns on [[SpawnGame]]
+    * @param traceEmit sink for [[TraceEvent]]s from the restored-actor interceptors, then forwarded to [[running]]
     */
   private def initializing(
       lobbyManager: ActorRef[LobbyManager.Command],
@@ -429,7 +446,9 @@ object GameManager {
       chatRepo: ChatRepository,
       stash: StashBuffer[Command],
       publisher: EventPublisher,
-      onReady: Option[ActorRef[Ready.type]]
+      onReady: Option[ActorRef[Ready.type]],
+      tracingConfig: TracingConfig,
+      traceEmit: TraceEvent => Unit
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive { (context, message) =>
     message match {
       case RestoreGames(games, lobbies) =>
@@ -450,7 +469,10 @@ object GameManager {
         val restoredActors = resolved.map { case (roomId, matchId, gameType, game) =>
           val gameActor = GameRegistry.forType(gameType).actor
           val behavior = gameActor.fromSnapshot(matchId, roomId, game, persistActor, context.self, publisher)
-          val actorRef = context.spawn(behavior, s"game-$matchId").unsafeUpcast[GameActor.GameCommand]
+          val actorRef = context.spawn(
+            TracingInterceptor.wrap(behavior, tracingConfig, traceEmit),
+            s"game-$matchId"
+          ).unsafeUpcast[GameActor.GameCommand]
           roomId -> (gameType, matchId, actorRef)
         }.toMap
 
@@ -475,7 +497,9 @@ object GameManager {
             gameRepo,
             moveRepo,
             chatRepo,
-            publisher
+            publisher,
+            tracingConfig,
+            traceEmit
           )(runtime)
         )
 
@@ -504,6 +528,8 @@ object GameManager {
     * @param moveRepo repository read to serve move-history queries
     * @param chatRepo repository written on each chat message and read to serve backscroll
     * @param publisher emit seam for analytics events (game started/move made/game completed/chat sent)
+    * @param tracingConfig passed to [[TracingInterceptor.wrap]] at each game-actor spawn site
+    * @param traceEmit sink for [[TraceEvent]]s produced by the game actor interceptors
     */
   private def running(
       activeGames: Map[RoomId, (GameType, MatchId, ActorRef[GameActor.GameCommand])],
@@ -515,7 +541,9 @@ object GameManager {
       gameRepo: GameRepository,
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository,
-      publisher: EventPublisher
+      publisher: EventPublisher,
+      tracingConfig: TracingConfig,
+      traceEmit: TraceEvent => Unit
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
@@ -706,7 +734,10 @@ object GameManager {
             val bundle = GameRegistry.forType(gameType)
             val (game, behavior) =
               bundle.actor.create(matchId, roomId, players, persistActor, context.self, publisher)
-            val actorRef = context.spawn(behavior, s"game-$matchId").unsafeUpcast[GameActor.GameCommand]
+            val actorRef = context.spawn(
+              TracingInterceptor.wrap(behavior, tracingConfig, traceEmit),
+              s"game-$matchId"
+            ).unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
 
@@ -732,7 +763,9 @@ object GameManager {
               gameRepo,
               moveRepo,
               chatRepo,
-              publisher
+              publisher,
+              tracingConfig,
+              traceEmit
             )
           }
 
@@ -755,7 +788,9 @@ object GameManager {
                 gameRepo,
                 moveRepo,
                 chatRepo,
-                publisher
+                publisher,
+                tracingConfig,
+                traceEmit
               )
             case None =>
               context.log.warn(s"Received GameCompleted for unknown room: $roomId")
@@ -773,7 +808,9 @@ object GameManager {
             gameRepo,
             moveRepo,
             chatRepo,
-            publisher
+            publisher,
+            tracingConfig,
+            traceEmit
           )
 
         case RunGameOperation(roomId, op, replyTo) =>

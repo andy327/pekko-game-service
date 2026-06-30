@@ -4,6 +4,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 
 import com.andy327.actor.lobby.Player
+import com.andy327.actor.tracing.{TraceEvent, TracingConfig, TracingInterceptor}
 import com.andy327.model.core.PlayerId
 
 /** A child actor of GameManager that tracks one PlayerActor per connected player.
@@ -42,22 +43,35 @@ object PlayerManager {
     */
   final case class PlayerDisconnected(playerId: PlayerId, playerRef: ActorRef[PlayerActor.Command]) extends Command
 
-  def apply(): Behavior[Command] = running(Map.empty, 0)
+  def apply(
+      tracingConfig: TracingConfig = TracingConfig.default,
+      traceEmit: TraceEvent => Unit = _ => ()
+  ): Behavior[Command] = running(Map.empty, 0, tracingConfig, traceEmit)
 
   /** Tracks the live player registry.
     *
     * @param players map from PlayerId to the currently running PlayerActor ref
     * @param spawnCount monotonically increasing counter appended to child names to satisfy Pekko's uniqueness
     *                   constraint during the brief overlap when an old actor is still stopping on reconnect
+    * @param tracingConfig passed to [[TracingInterceptor.wrap]] when spawning each [[PlayerActor]]
+    * @param traceEmit sink for [[TraceEvent]]s produced by the player-actor interceptors
     */
-  private def running(players: Map[PlayerId, ActorRef[PlayerActor.Command]], spawnCount: Int): Behavior[Command] =
+  private def running(
+      players: Map[PlayerId, ActorRef[PlayerActor.Command]],
+      spawnCount: Int,
+      tracingConfig: TracingConfig,
+      traceEmit: TraceEvent => Unit
+  ): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
         case RegisterPlayer(player, sessionOut, replyTo) =>
           players.get(player.id).foreach(_ ! PlayerActor.Disconnect)
-          val ref = context.spawn(PlayerActor(player, sessionOut), s"player-${player.id}-$spawnCount")
+          val ref = context.spawn(
+            TracingInterceptor.wrap(PlayerActor(player, sessionOut), tracingConfig, traceEmit),
+            s"player-${player.id}-$spawnCount"
+          )
           replyTo ! ref
-          running(players + (player.id -> ref), spawnCount + 1)
+          running(players + (player.id -> ref), spawnCount + 1, tracingConfig, traceEmit)
 
         case LookupPlayer(playerId, replyTo) =>
           replyTo ! players.get(playerId)
@@ -66,7 +80,7 @@ object PlayerManager {
         case PlayerDisconnected(playerId, playerRef) =>
           if (players.get(playerId).contains(playerRef)) {
             playerRef ! PlayerActor.Disconnect
-            running(players - playerId, spawnCount)
+            running(players - playerId, spawnCount, tracingConfig, traceEmit)
           } else {
             context.log.debug(s"Ignoring stale PlayerDisconnected for $playerId")
             Behaviors.same
