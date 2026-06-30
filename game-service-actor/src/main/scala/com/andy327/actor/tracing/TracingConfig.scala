@@ -9,8 +9,8 @@ import com.typesafe.config.{Config, ConfigFactory}
   * no per-message overhead in production.
   *
   * @param enabled master switch; must be `true` for any tracing to occur
-  * @param sampleRate fraction of messages to record, in [0.0, 1.0]; 1.0 records every message, lower values
-  *                   reduce overhead for high-frequency actors (e.g. a bot sending moves rapidly)
+  * @param sampleRate fraction of messages to record, in [0.0, 1.0]; 1.0 records every message, lower values reduce
+  *                   overhead for high-frequency actors (e.g. a bot sending moves rapidly)
   */
 final case class TracingConfig(enabled: Boolean, sampleRate: Double)
 
@@ -23,6 +23,6 @@ object TracingConfig {
       sampleRate = config.getDouble(s"$Namespace.sample-rate")
     )
 
-  /** Loads from the standard [[ConfigFactory.load()]] resolution chain (application.conf → reference.conf). */
+  /** Loads from the standard `ConfigFactory.load()` resolution chain (application.conf → reference.conf). */
   lazy val default: TracingConfig = fromConfig(ConfigFactory.load())
 }
