@@ -139,5 +139,45 @@ class TracingInterceptorSpec extends AnyWordSpecLike with Matchers {
         emitted shouldBe empty
       }
     }
+
+    "config has a per-message-type override" should {
+      "never emit for the overridden type when its rate is 0.0, while still emitting for other types" in {
+        val emitted = ListBuffer.empty[TraceEvent]
+        val probe = createTestProbe[String]()
+        val config = TracingConfig(
+          enabled = true,
+          sampleRate = 1.0,
+          bufferSize = 1000,
+          messageSampleRates = Map("Ping" -> 0.0)
+        )
+        val actor = spawn(TracingInterceptor.wrap[Cmd](echoBehavior, config, emitted += _))
+
+        actor ! Ping(probe.ref)
+        probe.expectMessage("pong")
+        actor ! Pong(probe.ref)
+        probe.expectMessage("ping")
+
+        emitted.map(_.messageType) shouldBe List("Pong")
+      }
+
+      "always emit for the overridden type when its rate is 1.0, even though the default sampleRate is 0.0" in {
+        val emitted = ListBuffer.empty[TraceEvent]
+        val probe = createTestProbe[String]()
+        val config = TracingConfig(
+          enabled = true,
+          sampleRate = 0.0,
+          bufferSize = 1000,
+          messageSampleRates = Map("Ping" -> 1.0)
+        )
+        val actor = spawn(TracingInterceptor.wrap[Cmd](echoBehavior, config, emitted += _))
+
+        actor ! Ping(probe.ref)
+        probe.expectMessage("pong")
+        actor ! Pong(probe.ref)
+        probe.expectMessage("ping")
+
+        emitted.map(_.messageType) shouldBe List("Ping")
+      }
+    }
   }
 }

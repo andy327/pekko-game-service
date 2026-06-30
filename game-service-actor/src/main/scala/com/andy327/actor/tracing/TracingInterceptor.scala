@@ -8,8 +8,8 @@ import org.apache.pekko.actor.typed.BehaviorInterceptor.{ReceiveTarget, SignalTa
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{Behavior, BehaviorInterceptor, Signal, TypedActorContext}
 
-/** A [[BehaviorInterceptor]] that passes every message received by the wrapped actor straight through, while
-  * emitting a [[TraceEvent]] for it (subject to `config.sampleRate`).
+/** A [[BehaviorInterceptor]] that passes every message received by the wrapped actor straight through, while emitting a
+  * [[TraceEvent]] for it (subject to the message type's effective sample rate, see [[TracingConfig.sampleRateFor]]).
   *
   * Install via [[TracingInterceptor.wrap]]; that helper is a no-op when `config.enabled` is `false`, so disabled
   * tracing costs nothing after startup — no interceptor is instantiated, no events are allocated.
@@ -17,9 +17,9 @@ import org.apache.pekko.actor.typed.{Behavior, BehaviorInterceptor, Signal, Type
   * Because typed Pekko does not expose the sender on received messages, `TraceEvent.from` is always `None`. The `to`
   * field is the receiving actor's path, available via the interceptor context.
   *
-  * Passes `classOf[AnyRef]` (via an unchecked cast to `Class[T]`) as the `interceptMessageClass` constructor
-  * argument, so Pekko's runtime `isInstance` check accepts every message regardless of the concrete command type —
-  * safe because `aroundReceive` only ever receives messages the actor's own mailbox has already typed as `T`.
+  * Passes `classOf[AnyRef]` (via an unchecked cast to `Class[T]`) as the `interceptMessageClass` constructor argument,
+  * so Pekko's runtime `isInstance` check accepts every message regardless of the concrete command type — safe because
+  * `aroundReceive` only ever receives messages the actor's own mailbox has already typed as `T`.
   *
   * `isSame` uses reference equality so that each interceptor instance is treated as distinct by Pekko's
   * interceptor-deduplication logic, allowing the same class to be applied independently to different actors.
@@ -28,12 +28,14 @@ final private class TracingInterceptor[T](config: TracingConfig, emit: TraceEven
     extends BehaviorInterceptor[T, T](classOf[AnyRef].asInstanceOf[Class[T]]) {
 
   override def aroundReceive(ctx: TypedActorContext[T], msg: T, target: ReceiveTarget[T]): Behavior[T] = {
-    if (config.sampleRate >= 1.0 || Random.nextDouble() < config.sampleRate)
+    val messageType = msg.getClass.getSimpleName
+    val rate = config.sampleRateFor(messageType)
+    if (rate >= 1.0 || Random.nextDouble() < rate)
       emit(
         TraceEvent(
           from = None,
           to = ctx.asScala.self.path.toString,
-          messageType = msg.getClass.getSimpleName,
+          messageType = messageType,
           timestamp = Instant.now()
         )
       )
