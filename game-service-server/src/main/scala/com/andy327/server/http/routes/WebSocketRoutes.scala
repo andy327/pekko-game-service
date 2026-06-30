@@ -34,7 +34,8 @@ import com.andy327.server.http.json.JsonProtocol._
   * disconnect or replacement on reconnect), it completes the stream via `PlayerActor.SessionComplete`, closing the
   * WebSocket from the server side.
   *
-  * Route: GET /ws (Auth: Bearer token, or `access_token` query parameter)
+  * Route Summary:
+  *   - GET /ws - Upgrade to a WebSocket session (Auth: Bearer token, or `access_token` query parameter)
   *
   * Actor relationships:
   *   - Sends to: `GameManager` (`RegisterPlayer` on connect, `SendChat` on an inbound chat frame, `PlayerDisconnected`
