@@ -240,32 +240,6 @@ object LobbyManager {
       emptyRoomGrace: FiniteDuration
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive[Command] { (context, message) =>
     message match {
-      case RestoreLobbies(restored) =>
-        // Only in-progress games are worth restoring: their game actor comes back from the database. Pre-game lobbies
-        // (WaitingForPlayers/ReadyToStart) are dead across a restart — their players' sessions are gone — so drop and
-        // delete them from Redis rather than leaving stale, un-rejoinable lobbies advertised in the list.
-        val (keep, drop) = restored.partition(_.status == GameLifecycleStatus.InProgress)
-        val restoredMap = keep.map(m => m.roomId -> m).toMap
-        context.log.info(s"Restoring ${restoredMap.size} in-progress lobbies; deleting ${drop.size} dead pre-game ones")
-        drop.foreach(m => persist(lobbyRepo.deleteLobby(m.roomId)))
-        running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)
-
-      case BroadcastChat(roomId, event) =>
-        fanOut(subscribers, roomId, event)
-        // chat keeps a post-game room alive: bump its activity so eviction doesn't close it mid-conversation
-        lobbies.get(roomId) match {
-          case Some(m) =>
-            running(
-              lobbies + (roomId -> m.copy(lastActivityAt = Instant.now())),
-              recentlyEnded,
-              subscribers,
-              gameManager,
-              lobbyRepo,
-              emptyRoomGrace
-            )
-          case None => Behaviors.same
-        }
-
       case CreateLobby(gameType, host, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
         val lobby = LobbyMetadata.newLobby(gameType, host)
@@ -554,6 +528,32 @@ object LobbyManager {
           case None =>
             context.log.info(s"MatchEnded for $roomId: no lobby entry (orphan match); dropping returned subscribers")
             Behaviors.same
+        }
+
+      case RestoreLobbies(restored) =>
+        // Only in-progress games are worth restoring: their game actor comes back from the database. Pre-game lobbies
+        // (WaitingForPlayers/ReadyToStart) are dead across a restart — their players' sessions are gone — so drop
+        // and delete them from Redis rather than leaving stale, un-rejoinable lobbies advertised in the list.
+        val (keep, drop) = restored.partition(_.status == GameLifecycleStatus.InProgress)
+        val restoredMap = keep.map(m => m.roomId -> m).toMap
+        context.log.info(s"Restoring ${restoredMap.size} in-progress lobbies; deleting ${drop.size} dead pre-game ones")
+        drop.foreach(m => persist(lobbyRepo.deleteLobby(m.roomId)))
+        running(restoredMap, recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)
+
+      case BroadcastChat(roomId, event) =>
+        fanOut(subscribers, roomId, event)
+        // chat keeps a post-game room alive: bump its activity so eviction doesn't close it mid-conversation
+        lobbies.get(roomId) match {
+          case Some(m) =>
+            running(
+              lobbies + (roomId -> m.copy(lastActivityAt = Instant.now())),
+              recentlyEnded,
+              subscribers,
+              gameManager,
+              lobbyRepo,
+              emptyRoomGrace
+            )
+          case None => Behaviors.same
         }
 
       case EvictIdleRooms =>
