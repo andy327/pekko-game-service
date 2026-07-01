@@ -100,7 +100,7 @@ class TraceRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         val collectorFuture = enabledSystem ? GameManager.GetTraceCollector
         val collector = Await.result(collectorFuture, 3.seconds).get
 
-        val event = TraceEvent(from = None, to = "actor-1", messageType = "Ping", timestamp = Instant.now())
+        val event = TraceEvent(to = "actor-1", messageType = "Ping", timestamp = Instant.now())
         collector ! TraceCollector.Record(event)
 
         // the collector replays its pre-existing buffer on subscribe (e.g. RestoreLobbies from system startup,

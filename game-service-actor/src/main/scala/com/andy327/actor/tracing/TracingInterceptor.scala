@@ -14,9 +14,6 @@ import org.apache.pekko.actor.typed.{Behavior, BehaviorInterceptor, Signal, Type
   * Install via [[TracingInterceptor.wrap]]; that helper is a no-op when `config.enabled` is `false`, so disabled
   * tracing costs nothing after startup — no interceptor is instantiated, no events are allocated.
   *
-  * Because typed Pekko does not expose the sender on received messages, `TraceEvent.from` is always `None`. The `to`
-  * field is the receiving actor's path, available via the interceptor context.
-  *
   * Passes `classOf[AnyRef]` (via an unchecked cast to `Class[T]`) as the `interceptMessageClass` constructor argument,
   * so Pekko's runtime `isInstance` check accepts every message regardless of the concrete command type — safe because
   * `aroundReceive` only ever receives messages the actor's own mailbox has already typed as `T`.
@@ -33,7 +30,6 @@ final private class TracingInterceptor[T](config: TracingConfig, emit: TraceEven
     if (rate >= 1.0 || Random.nextDouble() < rate)
       emit(
         TraceEvent(
-          from = None,
           to = ctx.asScala.self.path.toString,
           messageType = messageType,
           timestamp = Instant.now()

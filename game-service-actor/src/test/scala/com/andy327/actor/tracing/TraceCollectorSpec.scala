@@ -12,7 +12,7 @@ class TraceCollectorSpec extends AnyWordSpecLike with Matchers {
   import testKit._
 
   private def event(n: Int): TraceEvent =
-    TraceEvent(from = None, to = s"actor-$n", messageType = "Ping", timestamp = Instant.ofEpochMilli(n.toLong))
+    TraceEvent(to = s"actor-$n", messageType = "Ping", timestamp = Instant.ofEpochMilli(n.toLong))
 
   "TraceCollector" should {
     "reply with an empty buffer before any events are recorded" in {

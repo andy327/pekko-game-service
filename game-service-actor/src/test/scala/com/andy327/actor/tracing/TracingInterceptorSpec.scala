@@ -103,17 +103,6 @@ class TracingInterceptorSpec extends AnyWordSpecLike with Matchers {
 
         emitted.head.to should include(actor.path.name)
       }
-
-      "set from to None (typed Pekko does not expose the sender)" in {
-        val emitted = ListBuffer.empty[TraceEvent]
-        val probe = createTestProbe[String]()
-        val actor = spawn(TracingInterceptor.wrap[Cmd](echoBehavior, enabled, emitted += _))
-
-        actor ! Ping(probe.ref)
-        probe.expectMessage("pong")
-
-        emitted.head.from shouldBe None
-      }
     }
 
     "config is enabled with sampleRate = 0.0" should {
