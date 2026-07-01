@@ -15,8 +15,7 @@ import com.andy327.model.core.{GameError, PlayerId}
 /** [[GameModule]] implementation for Battleship.
   *
   * Provides move decoding, operation-to-command mapping, and per-viewer serialization for Battleship. Enables
-  * [[com.andy327.actor.core.GameManager]] and the HTTP routes to handle Battleship games without any
-  * game-specific logic.
+  * [[core.GameManager]] and the HTTP routes to handle Battleship games without any game-specific logic.
   */
 object BattleshipModule extends GameModule[Battleship] {
 

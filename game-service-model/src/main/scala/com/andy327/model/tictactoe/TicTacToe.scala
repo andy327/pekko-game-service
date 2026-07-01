@@ -79,11 +79,10 @@ final case class TicTacToe(
     case O => X
   }
 
-  /** Applies a move to the board for the current player.
+  /** Places `player`'s mark at `loc` on the board.
     *
-    * @param player the player making the move
-    * @param loc the location on the board to place the mark
-    * @return the updated game state, or a GameError if the move is invalid
+    * Validates turn order, board bounds, and that the target cell is empty. On success returns the updated game state
+    * with the mark placed, and detects a win (three in a line through the placed cell) or draw (board full, no winner).
     */
   def play(player: Mark, loc: Location): Either[GameError, TicTacToe] =
     if (gameStatus != InProgress)
@@ -125,6 +124,7 @@ final case class TicTacToe(
       case Some(leaver)                        => Right(copy(winner = Some(if (leaver == X) O else X)))
     }
 
+  /** Returns a human-readable representation of the board for logging. */
   def render: String = {
     val border = "-" * 7
     val rows = board.map { row =>

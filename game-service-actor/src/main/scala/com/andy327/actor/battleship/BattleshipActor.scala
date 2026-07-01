@@ -7,11 +7,11 @@ import com.andy327.actor.core.TurnBasedGameActor
 import com.andy327.actor.game.BattleshipState
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Seat}
 
-/** [[com.andy327.actor.core.GameActor]] binding for Battleship.
+/** [[core.GameActor]] binding for Battleship.
   *
   * All behavior lives in [[core.TurnBasedGameActor]]; the rules (firing, hit/sink detection, win when a fleet is sunk)
-  * live in the `model.battleship.Battleship` model, and the fog-of-war projection lives in the per-viewer
-  * `GameStateView[Battleship, BattleshipState]`. Player1 is seated first and fires first; fleets are placed at random.
+  * live in `model.battleship.Battleship`, and the fog-of-war projection lives in the per-viewer
+  * `GameStateView[Battleship, BattleshipState]`. Player1 is seated first; fleets are placed at random.
   */
 object BattleshipActor
     extends TurnBasedGameActor[Battleship, Fire, Seat, BattleshipState](

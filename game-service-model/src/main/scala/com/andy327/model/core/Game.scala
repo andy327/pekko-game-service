@@ -2,17 +2,14 @@ package com.andy327.model.core
 
 /** A generic interface for modeling turn-based games.
   *
-  * This trait abstracts over the concrete details of a specific game by parameterizing over the types involved: moves,
-  * players, game state, game status, and errors.
+  * Abstracts over the concrete details of a specific game by parameterizing over the types involved. Each implementing
+  * class defines the mechanics for tracking state and applying moves.
   *
-  * By implementing this trait, a game defines the basic mechanics for tracking state and applying moves
-  *
-  * Type Parameters:
-  *   - Move: type that represents a single player action (e.g., placing a piece)
-  *   - State: type that represents the current viewable state of the game
-  *   - Player: type that identifies a player (e.g., X or O)
-  *   - Status: type that indicates whether the game is ongoing, won, drawn, etc.
-  *   - Error: type that describes what can go wrong during play (e.g., invalid move)
+  * @tparam Move the type representing a single player action (e.g., placing a piece, firing a shot)
+  * @tparam State the type representing the game's current state, typically the game model itself
+  * @tparam Player the type identifying a player within the game (e.g., a mark or seat)
+  * @tparam Status the type indicating whether the game is ongoing, won, drawn, etc.
+  * @tparam Error the type describing what can go wrong during play (e.g., an invalid move)
   */
 trait Game[Move, State, Player, Status, Error] {
 
@@ -40,7 +37,7 @@ trait Game[Move, State, Player, Status, Error] {
 
   /** The participating players, in seat order.
     *
-    * Where [[playerFor]] maps a platform [[PlayerId]] to this game's internal player token, this exposes the roster
+    * Where [[playerFor]] maps a platform `PlayerId` to this game's internal player token, this exposes the roster
     * itself, letting game-agnostic code enumerate participants — e.g. to record a per-player result on completion —
     * without knowing how a given game seats them.
     */
@@ -62,10 +59,10 @@ trait Game[Move, State, Player, Status, Error] {
     * remaining players (the fold-out case for games with more than two players). A `Left` rejects the leave and leaves
     * the game untouched.
     *
-    * Each game defines its own leave semantics: two-player games forfeit — the leaver loses and the opponent wins — so
-    * the implementation should reject a non-participant and an already-finished game, then transition to a win for the
-    * remaining player. Returns a core [[GameError]] rather than the game-specific `Error` type because leaving never
-    * produces a game-rule error.
+    * Each game defines its own leave semantics: two-player games forfeit — the leaver loses and the opponent wins —
+    * so the implementation should reject a non-participant and an already-finished game, then transition to a win for
+    * the remaining player. Returns a core [[GameError]] rather than the game-specific `Error` type because leaving
+    * never produces a game-rule error.
     */
   def playerLeft(playerId: PlayerId): Either[GameError, State]
 }

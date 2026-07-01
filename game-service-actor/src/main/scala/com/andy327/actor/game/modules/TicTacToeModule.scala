@@ -15,8 +15,7 @@ import com.andy327.model.tictactoe.{Location, TicTacToe}
 /** [[GameModule]] implementation for TicTacToe.
   *
   * Provides move decoding, operation-to-command mapping, and game serialization for TicTacToe. Enables
-  * [[com.andy327.actor.core.GameManager]] and the HTTP routes to handle TicTacToe games without
-  * any game-specific logic.
+  * [[core.GameManager]] and the HTTP routes to handle TicTacToe games without any game-specific logic.
   */
 object TicTacToeModule extends GameModule[TicTacToe] {
 

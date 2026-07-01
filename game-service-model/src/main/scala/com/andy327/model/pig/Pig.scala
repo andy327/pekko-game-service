@@ -109,7 +109,8 @@ final case class Pig(
   /** The leaver forfeits; the non-leaver with the highest banked score wins (lowest seat index breaks a tie).
     *
     * If the leaver is the only player ahead by score, the runner-up wins — leaving never lets the leaver take the
-    * trophy.
+    * trophy. Rejects with [[core.GameError.InvalidPlayer]] if `playerId` is not a participant, or
+    * [[core.GameError.GameOver]] if the game has already ended.
     */
   override def playerLeft(playerId: PlayerId): Either[GameError, Pig] =
     playerFor(playerId) match {

@@ -15,8 +15,7 @@ import com.andy327.model.core.{GameError, PlayerId}
 /** [[GameModule]] implementation for ConnectFour.
   *
   * Provides move decoding, operation-to-command mapping, and game serialization for ConnectFour. Enables
-  * [[com.andy327.actor.core.GameManager]] and the HTTP routes to handle ConnectFour games without
-  * any game-specific logic.
+  * [[core.GameManager]] and the HTTP routes to handle ConnectFour games without any game-specific logic.
   */
 object ConnectFourModule extends GameModule[ConnectFour] {
 
