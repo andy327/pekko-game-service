@@ -28,4 +28,10 @@ object MovePayload {
     * @param col The column index (0-based)
     */
   final case class BattleshipMove(row: Int, col: Int) extends MovePayload
+
+  /** A move for Pig: either roll the die (`"roll"`) or bank the turn score (`"hold"`).
+    *
+    * @param action `"roll"` or `"hold"`
+    */
+  final case class PigAction(action: String) extends MovePayload
 }

@@ -31,6 +31,11 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 2)
   }
 
+  /** A press-your-luck dice game for 2–8 players: roll to accumulate points, but a 1 busts your turn. */
+  case object Pig extends GameType {
+    val (minPlayers, maxPlayers) = (2, 8)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
@@ -40,6 +45,7 @@ object GameType {
     case "tictactoe"   => Some(TicTacToe)
     case "connectfour" => Some(ConnectFour)
     case "battleship"  => Some(Battleship)
+    case "pig"         => Some(Pig)
     case _             => None
   }
 }

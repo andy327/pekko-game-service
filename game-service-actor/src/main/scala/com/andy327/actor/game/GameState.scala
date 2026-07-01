@@ -3,6 +3,7 @@ package com.andy327.actor.game
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
+import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
 
 /** Super-type for all serializable “view” representations of game state that can be sent to the client as part of an
@@ -78,6 +79,33 @@ object BattleshipState {
   }
 }
 
+/** Serializable view of a Pig game, pushed to all clients over WebSocket.
+  *
+  * Scores are indexed in seat order: `"P1"` → index 0, `"P2"` → index 1, etc. `viewerSeat` identifies the viewer
+  * ("P1", "P2", …) or is `None` for a spectator. `lastRoll` is absent at the start of a turn (before any roll).
+  */
+case class PigState(
+    scores: Map[String, Int],
+    currentPlayer: String,
+    turnScore: Int,
+    lastRoll: Option[Int],
+    winner: Option[String],
+    viewerSeat: Option[String]
+) extends GameState
+
+object PigState {
+
+  def of(game: Pig, viewerSeat: Option[Int]): PigState =
+    PigState(
+      scores = game.playerIds.indices.map(i => Pig.seatLabel(i) -> game.scores(i)).toMap,
+      currentPlayer = Pig.seatLabel(game.currentSeat),
+      turnScore = game.turnScore,
+      lastRoll = game.lastRoll,
+      winner = game.winner.map(Pig.seatLabel),
+      viewerSeat = viewerSeat.map(Pig.seatLabel)
+    )
+}
+
 /** Type class for converting an internal game model into a serializable GameState.
   *
   * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
@@ -104,6 +132,10 @@ object GameStateView {
   /** Type class instance for serializing a Battleship game, projected per viewer (fog-of-war for hidden boards). */
   implicit val battleshipView: GameStateView[Battleship, BattleshipState] =
     (game, viewer) => BattleshipState.of(game, viewer.flatMap(game.playerFor))
+
+  /** Type class instance for serializing a Pig game (same state for every viewer; no hidden information). */
+  implicit val pigView: GameStateView[Pig, PigState] =
+    (game, viewer) => PigState.of(game, viewer.flatMap(game.playerFor))
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView

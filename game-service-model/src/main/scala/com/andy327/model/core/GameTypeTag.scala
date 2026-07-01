@@ -2,6 +2,7 @@ package com.andy327.model.core
 
 import com.andy327.model.battleship.Battleship
 import com.andy327.model.connectfour.ConnectFour
+import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
 
 /** Type class used to associate a specific game model type (e.g., TicTacToe) with its corresponding GameType (e.g.,
@@ -31,5 +32,9 @@ object GameTypeTag {
 
   implicit val battleshipTag: GameTypeTag[Battleship] = new GameTypeTag[Battleship] {
     override val value: GameType = GameType.Battleship
+  }
+
+  implicit val pigTag: GameTypeTag[Pig] = new GameTypeTag[Pig] {
+    override val value: GameType = GameType.Pig
   }
 }

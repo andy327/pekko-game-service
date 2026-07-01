@@ -22,7 +22,7 @@ import com.andy327.actor.core.GameManager.{
 }
 import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.actor.game.{BattleshipState, GameState, GridGameState}
+import com.andy327.actor.game.{BattleshipState, GameState, GridGameState, PigState}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
 import com.andy327.persistence.db.MoveRecord
@@ -112,12 +112,15 @@ object JsonProtocol extends CirceSupport {
 
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
 
+  implicit val pigStateCodec: Codec[PigState] = deriveCodec[PigState]
+
   /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`;
-    * Battleship has its own per-viewer `BattleshipState`).
+    * Battleship has its own per-viewer `BattleshipState`; Pig has `PigState`).
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson
     case s: BattleshipState => s.asJson
+    case s: PigState        => s.asJson
   }
 
   // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see

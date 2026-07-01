@@ -8,6 +8,7 @@ import io.circe.{Codec, Decoder, Encoder}
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Mark => ConnectFourMark, Red, Yellow}
 import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.{Mark, O, TicTacToe, X}
 
 /** Circe codecs and utilities for working with GameType and serialized Game state.
@@ -23,12 +24,14 @@ object GameTypeCodecs {
       case "TicTacToe"   => Right(GameType.TicTacToe)
       case "ConnectFour" => Right(GameType.ConnectFour)
       case "Battleship"  => Right(GameType.Battleship)
+      case "Pig"         => Right(GameType.Pig)
       case other         => Left(s"Unknown GameType: $other")
     },
     Encoder.encodeString.contramap[GameType] {
       case GameType.TicTacToe   => "TicTacToe"
       case GameType.ConnectFour => "ConnectFour"
       case GameType.Battleship  => "Battleship"
+      case GameType.Pig         => "Pig"
     }
   )
 
@@ -68,12 +71,14 @@ object GameTypeCodecs {
   implicit val shipCodec: Codec[Ship] = deriveCodec[Ship]
   implicit val playerBoardCodec: Codec[PlayerBoard] = deriveCodec[PlayerBoard]
   implicit val battleshipCodec: Codec[Battleship] = deriveCodec[Battleship]
+  implicit val pigCodec: Codec[Pig] = deriveCodec[Pig]
 
   /** Serializes a game instance to a JSON string using the codec for the given GameType. */
   def serializeGame(gameType: GameType, game: Game[_, _, _, _, _]): String = gameType match {
     case GameType.TicTacToe   => game.asInstanceOf[TicTacToe].asJson.noSpaces
     case GameType.ConnectFour => game.asInstanceOf[ConnectFour].asJson.noSpaces
     case GameType.Battleship  => game.asInstanceOf[Battleship].asJson.noSpaces
+    case GameType.Pig         => game.asInstanceOf[Pig].asJson.noSpaces
   }
 
   /** Deserializes a game state JSON string into a Game instance based on the provided GameType. */
@@ -82,5 +87,6 @@ object GameTypeCodecs {
       case GameType.TicTacToe   => decode[TicTacToe](json).left.map(err => new Exception(err))
       case GameType.ConnectFour => decode[ConnectFour](json).left.map(err => new Exception(err))
       case GameType.Battleship  => decode[Battleship](json).left.map(err => new Exception(err))
+      case GameType.Pig         => decode[Pig](json).left.map(err => new Exception(err))
     }
 }

@@ -12,6 +12,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.{Location, TicTacToe, X}
 
 class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
@@ -135,6 +136,28 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     "return Left if Battleship game JSON is invalid" in {
       val badJson = """{ "not": "valid" }"""
       val result = deserializeGame(GameType.Battleship, badJson)
+      result.isLeft shouldBe true
+    }
+
+    "resolve \"pig\" via GameType.fromString" in {
+      GameType.fromString("pig") shouldBe Some(GameType.Pig)
+    }
+
+    "correctly encode and decode GameType.Pig" in {
+      val t: GameType = GameType.Pig
+      val json = t.asJson.noSpaces
+      json shouldBe "\"Pig\""
+      decode[GameType](json) shouldBe Right(GameType.Pig)
+    }
+
+    "round-trip a Pig game through serializeGame and deserializeGame" in {
+      val game = Pig.newGame(Seq(alice, bob))
+      val json = serializeGame(GameType.Pig, game)
+      deserializeGame(GameType.Pig, json) shouldBe Right(game)
+    }
+
+    "return Left if Pig game JSON is invalid" in {
+      val result = deserializeGame(GameType.Pig, """{ "not": "valid" }""")
       result.isLeft shouldBe true
     }
   }

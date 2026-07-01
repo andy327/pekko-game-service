@@ -144,6 +144,7 @@ object GameServer {
       new GameRoutes(GameType.TicTacToe, system).routes,
       new GameRoutes(GameType.ConnectFour, system).routes,
       new GameRoutes(GameType.Battleship, system).routes,
+      new GameRoutes(GameType.Pig, system).routes,
       new WebSocketRoutes(system).routes,
       new TraceRoutes(system).routes,
       new MetricsRoutes(metricsRegistry).routes,
