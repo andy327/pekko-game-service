@@ -109,11 +109,6 @@
   <section id="debug" class="panel hidden">
     <h2>Trace Debug</h2>
     <p id="debug-status" class="status"></p>
-    <div class="row">
-      <button id="trace-view-log" class="trace-view-btn active">Log</button>
-      <button id="trace-view-graph" class="trace-view-btn">Graph</button>
-    </div>
-
     <div id="trace-log-wrap">
       <table id="trace-log">
         <thead>
@@ -122,11 +117,6 @@
         <tbody id="trace-log-body"></tbody>
       </table>
     </div>
-
-    <!-- One node per distinct actor seen, pulsing on each message it receives. No edges: TraceEvent.from is always
-         null (typed Pekko exposes no sender), so there is no flow data to draw between nodes yet. -->
-    <div id="trace-graph" class="hidden"></div>
-
     <div class="row">
       <button id="debug-back-to-lobby">← Lobby</button>
     </div>
