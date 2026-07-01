@@ -19,7 +19,7 @@ import com.andy327.actor.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.actor.game.{BattleshipState, GameState, GameStateConverters, GridGameState}
+import com.andy327.actor.game.{BattleshipState, GameState, GameStateConverters, GridGameState, PigState}
 import com.andy327.actor.lobby._
 import com.andy327.model.battleship.Battleship
 import com.andy327.model.connectfour.ConnectFour
@@ -125,6 +125,20 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val json = state.asJson
       json.hcursor.get[Option[String]]("viewerSeat") shouldBe Right(None)
       json.hcursor.downField("board1").focus should be(defined)
+    }
+
+    "encode a PigState branch" in {
+      val state: GameState = PigState(
+        scores = Map("P1" -> 0, "P2" -> 0),
+        currentPlayer = "P1",
+        turnScore = 0,
+        lastRoll = None,
+        winner = None,
+        viewerSeat = None
+      )
+      val json = state.asJson
+      json.hcursor.downField("scores").focus should be(defined)
+      json.hcursor.get[String]("currentPlayer") shouldBe Right("P1")
     }
   }
 

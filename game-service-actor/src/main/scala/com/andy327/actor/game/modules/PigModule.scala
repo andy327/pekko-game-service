@@ -16,8 +16,9 @@ import com.andy327.model.pig.{Hold, Pig, Roll}
 
 /** [[GameModule]] implementation for Pig.
   *
-  * Decodes `{"action":"roll"}` / `{"action":"hold"}` request bodies, rolls the die server-side for a Roll action (so
-  * the model remains a pure function), and delegates serialization to [[GameStateConverters]].
+  * Provides move decoding, operation-to-command mapping, and game serialization for Pig. Enables
+  * [[com.andy327.actor.core.GameManager]] and the HTTP routes to handle Pig games without any game-specific logic.
+  * The die is rolled server-side here before dispatching to the model, keeping `Pig.play` a pure function.
   */
 object PigModule extends GameModule[Pig] {
 

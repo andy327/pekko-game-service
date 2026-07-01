@@ -69,5 +69,6 @@ class GameMetrics(registry: CollectorRegistry) {
     case GameType.TicTacToe   => "tictactoe"
     case GameType.ConnectFour => "connectfour"
     case GameType.Battleship  => "battleship"
+    case GameType.Pig         => "pig"
   }
 }

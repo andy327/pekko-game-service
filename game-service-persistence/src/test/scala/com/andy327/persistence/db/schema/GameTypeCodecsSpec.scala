@@ -139,6 +139,10 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
       result.isLeft shouldBe true
     }
 
+    "resolve \"pig\" via GameType.fromString" in {
+      GameType.fromString("pig") shouldBe Some(GameType.Pig)
+    }
+
     "correctly encode and decode GameType.Pig" in {
       val t: GameType = GameType.Pig
       val json = t.asJson.noSpaces

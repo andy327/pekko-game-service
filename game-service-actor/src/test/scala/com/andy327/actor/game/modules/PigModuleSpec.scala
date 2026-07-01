@@ -115,6 +115,15 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
       )
     }
 
+    "set winner in PigState when the game has ended" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = Pig.newGame(Seq(alice.id, bob.id))
+      val won = game.copy(winner = Some(0))
+      val state = PigModule.serialize(won, None).asInstanceOf[PigState]
+      state.winner shouldBe Some("P1")
+    }
+
     "set viewerSeat when serializing for a known player" in {
       val alice = Player("alice")
       val bob = Player("bob")

@@ -67,7 +67,7 @@ final case class Pig(
     *
     * Validates turn order. On `Roll`:
     *   - result 1: bust — turn score is lost, turn passes to the next player
-    *   - result 2–6: added to `turnScore`; if the resulting banked score would reach [[Pig.WinScore]], the game ends
+    *   - result 2–6: added to `turnScore`; the turn continues (a win can only be triggered by Hold, not Roll)
     *
     * On `Hold`: banks `turnScore` into `scores`; if that reaches [[Pig.WinScore]] the current player wins, otherwise
     * the turn passes. Holding with zero turn score (no roll yet this turn) is rejected.
