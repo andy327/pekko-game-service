@@ -100,11 +100,27 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Pig game to PigState" in {
+    "serialize a Pig game to PigState with correct initial field values" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = Pig.newGame(Seq(alice.id, bob.id))
-      PigModule.serialize(game, None) shouldBe a[PigState]
+      val state = PigModule.serialize(game, None)
+      state shouldBe PigState(
+        scores = Map("P1" -> 0, "P2" -> 0),
+        currentPlayer = "P1",
+        turnScore = 0,
+        lastRoll = None,
+        winner = None,
+        viewerSeat = None
+      )
+    }
+
+    "set viewerSeat when serializing for a known player" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = Pig.newGame(Seq(alice.id, bob.id))
+      val state = PigModule.serialize(game, Some(alice.id)).asInstanceOf[PigState]
+      state.viewerSeat shouldBe Some("P1")
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
