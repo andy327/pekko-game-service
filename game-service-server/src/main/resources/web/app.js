@@ -561,7 +561,14 @@ function sendChat(text) {
 // rejects the upgrade with 503 when tracing is disabled server-side, which surfaces here as a status line rather than
 // a console error. Every TraceEvent on this socket is plain (untagged) JSON, unlike the main socket's
 // type-discriminated push events, since this socket carries only one event shape.
+//
+// Two views share the same event stream: a scrolling Log (one row per event) and a Graph of one box per distinct
+// actor seen, which pulses on each message it receives. The graph has no edges — TraceEvent.from is always null,
+// since typed Pekko exposes no sender and a BehaviorInterceptor only observes the receiving side — so it shows which
+// actors are busy, not the flow between them.
 const TRACE_LOG_CAP = 300; // bounds DOM growth on a long-running session; oldest rows are dropped past this
+const traceNodes = new Map(); // actor path -> { el, countEl }, so repeat events update the same node in place
+const tracePulseTimers = new Map(); // actor path -> pending timeout that removes its node's pulse class
 
 function showDebug() {
   showPanel("debug");
@@ -569,6 +576,7 @@ function showDebug() {
 }
 
 function connectTraceWs() {
+  resetTraceViews();
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/trace?access_token=${encodeURIComponent(session.token)}`);
   session.traceWs = ws;
@@ -588,7 +596,8 @@ function connectTraceWs() {
     } catch (_) {
       return;
     }
-    appendTraceEvent(event);
+    appendTraceLogRow(event);
+    pulseTraceNode(event);
   };
 }
 
@@ -603,13 +612,32 @@ function disconnectTraceWs() {
   }
 }
 
+// Clears both views and any pending pulse timers, so a fresh connect's buffer replay doesn't pile up on top of
+// whatever a previous connection (e.g. before a logout/login cycle) already rendered.
+function resetTraceViews() {
+  $("trace-log-body").innerHTML = "";
+  $("trace-graph").innerHTML = "";
+  traceNodes.clear();
+  for (const timer of tracePulseTimers.values()) clearTimeout(timer);
+  tracePulseTimers.clear();
+}
+
 function setDebugStatus(text) {
   $("debug-status").textContent = text;
 }
 
+// Switch between the Log and Graph views; both keep accumulating state in the background regardless of which is
+// visible, so toggling back and forth never loses anything.
+function showTraceView(name) {
+  $("trace-log-wrap").classList.toggle("hidden", name !== "log");
+  $("trace-graph").classList.toggle("hidden", name !== "graph");
+  $("trace-view-log").classList.toggle("active", name === "log");
+  $("trace-view-graph").classList.toggle("active", name === "graph");
+}
+
 // Render one TraceEvent as a row, appended at the bottom (the server streams oldest first), capped to
 // TRACE_LOG_CAP rows so a chatty server can't grow the table unboundedly.
-function appendTraceEvent(event) {
+function appendTraceLogRow(event) {
   const body = $("trace-log-body");
   const tr = document.createElement("tr");
 
@@ -631,6 +659,42 @@ function appendTraceEvent(event) {
 
   const wrap = $("trace-log-wrap");
   wrap.scrollTop = wrap.scrollHeight; // keep the latest event in view
+}
+
+// Find or create the node for event.to (tracked by traceNodes, keyed by the full actor path), bump its message
+// count, and briefly flag it as "pulse" so the CSS transition highlights it. A re-trigger while already pulsing
+// just restarts the clear timer.
+const TRACE_PULSE_MS = 500;
+function pulseTraceNode(event) {
+  let node = traceNodes.get(event.to);
+  if (!node) {
+    const el = document.createElement("div");
+    el.className = "trace-node";
+    el.title = event.to;
+
+    const path = document.createElement("span");
+    path.className = "trace-node-path";
+    path.textContent = shortActorPath(event.to);
+
+    const countEl = document.createElement("span");
+    countEl.className = "trace-node-count";
+
+    el.append(path, countEl);
+    $("trace-graph").appendChild(el);
+
+    node = { el, countEl, count: 0 };
+    traceNodes.set(event.to, node);
+  }
+
+  node.count += 1;
+  node.countEl.textContent = `(${node.count})`;
+
+  node.el.classList.add("pulse");
+  clearTimeout(tracePulseTimers.get(event.to));
+  tracePulseTimers.set(
+    event.to,
+    setTimeout(() => node.el.classList.remove("pulse"), TRACE_PULSE_MS)
+  );
 }
 
 // Actor paths are full URIs like "pekko://GameManagerSystem/user/lobby-manager"; showing just the "user/..." tail
@@ -901,6 +965,8 @@ $("to-login").addEventListener("click", (e) => {
 $("logout").addEventListener("click", logout);
 $("debug-nav").addEventListener("click", showDebug);
 $("debug-back-to-lobby").addEventListener("click", enterLobby);
+$("trace-view-log").addEventListener("click", () => showTraceView("log"));
+$("trace-view-graph").addEventListener("click", () => showTraceView("graph"));
 
 for (const button of document.querySelectorAll("[data-gametype]")) {
   button.addEventListener("click", () => createGame(button.dataset.gametype));
