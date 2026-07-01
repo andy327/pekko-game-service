@@ -11,6 +11,7 @@
     <h1>Pekko Game Service</h1>
     <div class="header-right">
       <span id="whoami" class="whoami"></span>
+      <button id="debug-nav" class="hidden">Debug</button>
       <button id="logout" class="hidden">Log out</button>
     </div>
   </header>
@@ -101,6 +102,23 @@
         <input id="chat-input" type="text" placeholder="Message…" autocomplete="off" maxlength="500" />
         <button type="submit">Send</button>
       </form>
+    </div>
+  </section>
+
+  <!-- Debug screen: live actor message trace log (requires tracing enabled server-side). -->
+  <section id="debug" class="panel hidden">
+    <h2>Trace Debug</h2>
+    <p id="debug-status" class="status"></p>
+    <div id="trace-log-wrap">
+      <table id="trace-log">
+        <thead>
+          <tr><th>Time</th><th>To</th><th>Message</th></tr>
+        </thead>
+        <tbody id="trace-log-body"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button id="debug-back-to-lobby">← Lobby</button>
     </div>
   </section>
 

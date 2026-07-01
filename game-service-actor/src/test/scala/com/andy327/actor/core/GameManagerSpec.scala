@@ -24,6 +24,7 @@ import com.andy327.actor.events.{EventPublisher, GameEvent}
 import com.andy327.actor.game.{GameOperation, GameStateConverters, GridGameState, MovePayload}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
+import com.andy327.actor.tracing.{TraceCollector, TracingConfig}
 import com.andy327.model.core.{Game, GameType, MatchId, PlayerId, RoomId}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
@@ -1426,6 +1427,32 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val error = responseProbe.expectMessageType[GameManager.ErrorResponse]
       error.message should include("players required")
+    }
+
+    "reply to GetTraceCollector with Some(ref) when tracing is enabled" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+      val tracingConfig = TracingConfig(enabled = true, sampleRate = 1.0, bufferSize = 100)
+
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo, tracingConfig = tracingConfig))
+
+      val responseProbe = TestProbe[Option[ActorRef[TraceCollector.Command]]]()
+      gm ! GameManager.GetTraceCollector(responseProbe.ref)
+
+      responseProbe.expectMessageType[Some[ActorRef[TraceCollector.Command]]]
+    }
+
+    "reply to GetTraceCollector with None when tracing is disabled" in {
+      val persistProbe = TestProbe[PersistenceProtocol.Command]()
+      val gameRepo = new InMemRepo
+
+      // default tracingConfig is TracingConfig.default, which is disabled unless application.conf overrides it
+      val gm = spawn(GameManager(persistProbe.ref, gameRepo, noOpLobbyRepo))
+
+      val responseProbe = TestProbe[Option[ActorRef[TraceCollector.Command]]]()
+      gm ! GameManager.GetTraceCollector(responseProbe.ref)
+
+      responseProbe.expectMessage(None)
     }
 
   }
