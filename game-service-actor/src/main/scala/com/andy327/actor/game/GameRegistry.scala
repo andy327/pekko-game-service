@@ -3,7 +3,15 @@ package com.andy327.actor.game
 import com.andy327.actor.battleship.BattleshipActor
 import com.andy327.actor.connectfour.ConnectFourActor
 import com.andy327.actor.core.GameActor
-import com.andy327.actor.game.modules.{BattleshipModule, ConnectFourModule, GameModule, PigModule, TicTacToeModule}
+import com.andy327.actor.game.modules.{
+  BattleshipModule,
+  ConnectFourModule,
+  GameModule,
+  MastermindModule,
+  PigModule,
+  TicTacToeModule
+}
+import com.andy327.actor.mastermind.MastermindActor
 import com.andy327.actor.pig.PigActor
 import com.andy327.actor.tictactoe.TicTacToeActor
 import com.andy327.model.core.{Game, GameType, PlayerId}
@@ -46,5 +54,6 @@ object GameRegistry {
     case GameType.ConnectFour => GameModuleBundle(ConnectFourModule, ConnectFourActor)
     case GameType.Battleship  => GameModuleBundle(BattleshipModule, BattleshipActor)
     case GameType.Pig         => GameModuleBundle(PigModule, PigActor)
+    case GameType.Mastermind  => GameModuleBundle(MastermindModule, MastermindActor)
   }
 }

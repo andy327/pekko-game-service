@@ -3,6 +3,7 @@ package com.andy327.actor.game
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
+import com.andy327.model.mastermind.{Codemaker, Mastermind, Role}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
 
@@ -106,6 +107,47 @@ object PigState {
     )
 }
 
+/** One codebreaker guess in a Mastermind view: the guessed colors and its black/white peg feedback. */
+case class GuessResult(pegs: List[String], black: Int, white: Int)
+
+/** Serializable, per-viewer view of a Mastermind game.
+  *
+  * The `secret` is projected for the requesting viewer: the codemaker always sees their own code, and everyone
+  * (codebreaker and spectators) sees it once the game is over — but never before, so guessing stays honest. Guesses and
+  * their feedback are public. `currentPlayer` is `"codemaker"` while the code is unset and `"codebreaker"` afterwards.
+  *
+  * @param guesses the codebreaker's guesses with feedback, oldest first
+  * @param secret the revealed code (color names), or `None` while it is still hidden from this viewer
+  * @param guessesRemaining guesses the codebreaker has left before the codemaker wins by default
+  * @param viewerRole the viewer's role (`"codemaker"`/`"codebreaker"`), or `None` for a spectator
+  */
+case class MastermindState(
+    guesses: List[GuessResult],
+    secret: Option[List[String]],
+    currentPlayer: String,
+    winner: Option[String],
+    guessesRemaining: Int,
+    viewerRole: Option[String]
+) extends GameState
+
+object MastermindState {
+
+  /** Builds the view of `game` for the given viewer role (`None` = spectator). The secret is included only for the
+    * codemaker or once the game has ended.
+    */
+  def of(game: Mastermind, viewerRole: Option[Role]): MastermindState = {
+    val reveal = game.winner.isDefined || viewerRole.contains(Codemaker)
+    MastermindState(
+      guesses = game.guesses.map(a => GuessResult(a.guess.map(_.name).toList, a.feedback.black, a.feedback.white)),
+      secret = if (reveal) game.secret.map(_.map(_.name).toList) else None,
+      currentPlayer = game.currentPlayer.label,
+      winner = game.winner.map(_.label),
+      guessesRemaining = Mastermind.MaxGuesses - game.guesses.size,
+      viewerRole = viewerRole.map(_.label)
+    )
+  }
+}
+
 /** Type class for converting an internal game model into a serializable GameState.
   *
   * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
@@ -136,6 +178,10 @@ object GameStateView {
   /** Type class instance for serializing a Pig game (same state for every viewer; no hidden information). */
   implicit val pigView: GameStateView[Pig, PigState] =
     (game, viewer) => PigState.of(game, viewer.flatMap(game.playerFor))
+
+  /** Type class instance for serializing a Mastermind game, projected per viewer (the secret is hidden until reveal). */
+  implicit val mastermindView: GameStateView[Mastermind, MastermindState] =
+    (game, viewer) => MastermindState.of(game, viewer.flatMap(game.playerFor))
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView
