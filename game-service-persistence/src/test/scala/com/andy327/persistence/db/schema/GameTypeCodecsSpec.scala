@@ -12,6 +12,8 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.mastermind.Peg.{Blue, Green, Red => MmRed, Yellow}
+import com.andy327.model.mastermind.{Codebreaker, Codemaker, Guess, Mastermind, SetCode}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.{Location, TicTacToe, X}
 
@@ -159,6 +161,73 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     "return Left if Pig game JSON is invalid" in {
       val result = deserializeGame(GameType.Pig, """{ "not": "valid" }""")
       result.isLeft shouldBe true
+    }
+
+    "resolve mastermind via GameType.fromString" in {
+      GameType.fromString("mastermind") shouldBe Some(GameType.Mastermind)
+    }
+
+    "correctly encode and decode GameType.Mastermind" in {
+      val t: GameType = GameType.Mastermind
+      val json = t.asJson.noSpaces
+      json shouldBe "\"Mastermind\""
+      decode[GameType](json) shouldBe Right(GameType.Mastermind)
+    }
+
+    "round-trip a Mastermind game through serializeGame and deserializeGame" in {
+      // set the code then guess so the round-trip exercises the Peg and Attempt codecs
+      val game = Mastermind
+        .newGame(Seq(alice, bob))
+        .play(Codemaker, SetCode(Vector(MmRed, Green, Yellow, Blue)))
+        .flatMap(_.play(Codebreaker, Guess(Vector(MmRed, Green, Blue, Yellow))))
+        .toOption
+        .get
+      val json = serializeGame(GameType.Mastermind, game)
+      deserializeGame(GameType.Mastermind, json) shouldBe Right(game)
+    }
+
+    "round-trip finished Mastermind games, exercising the Role codec for both winners" in {
+      // the winner is the only Role-typed field, so serialize a game won by each role to cover both codec branches
+      val base = Mastermind
+        .newGame(Seq(alice, bob))
+        .play(Codemaker, SetCode(Vector(MmRed, Green, Yellow, Blue)))
+        .toOption
+        .get
+      List(base.copy(winner = Some(Codebreaker)), base.copy(winner = Some(Codemaker))).foreach { game =>
+        val json = serializeGame(GameType.Mastermind, game)
+        deserializeGame(GameType.Mastermind, json) shouldBe Right(game)
+      }
+    }
+
+    "fail to decode an invalid Mastermind Peg" in {
+      val baseJson = Mastermind
+        .newGame(Seq(alice, bob))
+        .play(Codemaker, SetCode(Vector(MmRed, Green, Yellow, Blue)))
+        .toOption
+        .get
+        .asJson
+        .noSpaces
+      val corruptedJson = baseJson.replace("\"red\"", "\"chartreuse\"")
+      deserializeGame(GameType.Mastermind, corruptedJson).isLeft shouldBe true
+    }
+
+    "fail to decode an invalid Mastermind Role" in {
+      val json = serializeGame(
+        GameType.Mastermind,
+        Mastermind
+          .newGame(Seq(alice, bob))
+          .play(Codemaker, SetCode(Vector(MmRed, Green, Yellow, Blue)))
+          .toOption
+          .get
+          .copy(winner = Some(Codebreaker))
+      )
+      // the winner serializes as "codebreaker"; the field key "codebreakerId" is unaffected (no closing quote match)
+      val corrupted = json.replace("\"codebreaker\"", "\"spymaster\"")
+      deserializeGame(GameType.Mastermind, corrupted).isLeft shouldBe true
+    }
+
+    "return Left if Mastermind game JSON is invalid" in {
+      deserializeGame(GameType.Mastermind, """{ "not": "valid" }""").isLeft shouldBe true
     }
   }
 }
