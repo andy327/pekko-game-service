@@ -268,3 +268,53 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.mark-ship    { background: #3a4455; border-color: #505d72; }
 .cell.mark-water   { background: #0a1624; border-color: #152336; }
 .cell.mark-unknown { background: var(--bg); }
+
+/* Mastermind: colored code pegs, a guess history with black/white feedback, and a peg-picker. */
+.mm-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; }
+.mm-label { color: var(--muted); font-size: 0.9rem; min-width: 4.5rem; }
+.mm-num { color: var(--muted); font-size: 0.85rem; width: 1.75rem; text-align: right; }
+
+.mm-peg {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+.mm-empty { background: var(--bg); border-style: dashed; }
+.mm-clickable { cursor: pointer; }
+.mm-clickable:hover { outline: 2px solid var(--accent); }
+
+.mm-red    { background: #e5484d; }
+.mm-yellow { background: #f5c451; }
+.mm-blue   { background: #4f9cf9; }
+.mm-green  { background: #46a758; }
+/* Black and white code pegs get lighter borders so they stay visible against the dark page. */
+.mm-black  { background: #14171c; border-color: #4a5568; }
+.mm-white  { background: #f5f7fa; border-color: #cbd5e1; }
+
+.mm-secret { margin-bottom: 0.75rem; }
+.mm-history { margin: 0.5rem 0; }
+.mm-guess { gap: 0.3rem; }
+.mm-remaining { color: var(--muted); font-size: 0.9rem; }
+
+/* Feedback dots, two rows of two, packed beside the guessed pegs. The key pegs sit on a neutral pad and each carries a
+   contrasting halo, so the black (right color & place) and white (right color, wrong place) markers both stand out
+   against the dark page and against each other. */
+.mm-feedback {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 9px);
+  gap: 3px;
+  margin-left: 0.5rem;
+  padding: 4px;
+  background: #7c8794;
+  border-radius: 4px;
+}
+.mm-dot { width: 9px; height: 9px; border-radius: 50%; }
+.mm-dot-black { background: #0a0d12; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6); }
+.mm-dot-white { background: #ffffff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
+.mm-dot-none  { background: transparent; border: 1px solid rgba(0, 0, 0, 0.28); }
+
+.mm-input { margin-top: 0.75rem; }
+.mm-palette { gap: 0.4rem; }
+.mm-actions { margin-top: 0.5rem; }

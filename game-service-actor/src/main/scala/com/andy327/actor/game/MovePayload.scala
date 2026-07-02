@@ -34,4 +34,11 @@ object MovePayload {
     * @param action `"roll"` or `"hold"`
     */
   final case class PigAction(action: String) extends MovePayload
+
+  /** A move for Mastermind: the codemaker sets the code (`"setcode"`) or the codebreaker guesses it (`"guess"`).
+    *
+    * @param action `"setcode"` or `"guess"`
+    * @param pegs the color names making up the code or guess (e.g. `["red","blue","red","green"]`)
+    */
+  final case class MastermindAction(action: String, pegs: List[String]) extends MovePayload
 }

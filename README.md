@@ -12,7 +12,7 @@
 
 **Pekko Game Service** is a backend for hosting multiplayer turn-based games. Players authenticate, gather in lobbies, and play matches whose moves are validated server-side and pushed to every participant in real time over WebSockets. Game state is the single source of truth held in a per-game actor, persisted to PostgreSQL, and cached in Redis so matches survive restarts.
 
-The architecture is built around the actor model: each game is an isolated actor that serializes its own moves (no race conditions), and new game types plug in through a small `Game` trait plus a module registry. Games with hidden information (e.g. Battleship's fog of war) are supported through per-viewer state projection, so each player — and any spectator — only ever receives the slice of state they're allowed to see.
+The architecture is built around the actor model: each game is an isolated actor that serializes its own moves (no race conditions), and new game types plug in through a small `Game` trait plus a module registry. Games with hidden information (e.g. Battleship's fog of war, or Mastermind's hidden code) are supported through per-viewer state projection, so each player — and any spectator — only ever receives the slice of state they're allowed to see.
 
 Although it runs as a single instance today, the system is **designed for horizontal scale from the ground up**, and the actor model is the foundation for getting there. A few choices made early reflect that intent: each match is an independent, self-contained game actor — a natural unit of sharding that can be relocated to any node without changing its logic; all durable state lives outside the process (PostgreSQL as system of record, Redis as a shared write-through cache), so instances hold no irreplaceable in-memory state and stay interchangeable; the HTTP layer is stateless and authenticates every request with a self-contained JWT, so REST traffic needs no sticky sessions; and analytics are decoupled over a Redis pub/sub channel rather than computed inline, letting the consumer side scale and evolve independently of gameplay. The remaining step — distributing those game actors across a cluster via Pekko Cluster Sharding — is on the [Roadmap](#roadmap), and the seams it needs are already in place.
 
@@ -23,7 +23,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 - 🔐 Credentialed accounts — register, log in, and change password (Argon2-hashed), issuing expiring JWTs for player actions
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
 - 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
-- 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, and Pig
+- 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, and Mastermind
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
 - ⚡ Real-time state delivery to all participants over WebSockets
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
@@ -280,7 +280,7 @@ On startup `GameManager` doesn't accept traffic blindly — it kicks off an asyn
 
 ### Per-viewer projection (fog of war)
 
-A game actor never ships its raw internal state to anyone. When it needs to send state out — as a move reply or a push — it renders a **view** for a specific viewer through a `GameStateView` type class: `serialize(game, Some(playerId))` for that player's own view, `serialize(game, None)` for a public/spectator view. Full-information games (Tic-Tac-Toe, Connect Four, Pig) ignore the viewer and show everyone the same board. For Battleship the projection is where fog of war is enforced: your own ships are visible to you, your opponent's are hidden, and a spectator sees both boards fogged. No code path can leak hidden state, because the unredacted model never leaves the actor.
+A game actor never ships its raw internal state to anyone. When it needs to send state out — as a move reply or a push — it renders a **view** for a specific viewer through a `GameStateView` type class: `serialize(game, Some(playerId))` for that player's own view, `serialize(game, None)` for a public/spectator view. Full-information games (Tic-Tac-Toe, Connect Four, Pig) ignore the viewer and show everyone the same board. For Battleship the projection is where fog of war is enforced: your own ships are visible to you, your opponent's are hidden, and a spectator sees both boards fogged. Mastermind works the same way — the codemaker's secret code is hidden from the codebreaker (and spectators) until the game ends. No code path can leak hidden state, because the unredacted model never leaves the actor.
 
 ### Real-time delivery
 
@@ -347,7 +347,7 @@ Planned work, in rough priority order:
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would carry cross-instance delivery between game actors and player sessions directly, while the analytics event stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
 - **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. Considered and deliberately deferred: **token revocation** — JWTs are stateless, so a password change or "log out" doesn't invalidate already-issued tokens before they expire; closing that needs a per-account token version baked into the claim (or a `jti` denylist in Redis) checked at validation time. **Password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration. **Rate limiting / lockout** on the auth endpoints to slow credential stuffing, and **email-address verification** at registration, are likewise out of scope for now. The short token TTL keeps the revocation gap small in the meantime.
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
-- **More game types** — additional turn-based games beyond the current four (e.g. Liar's Dice, Mastermind, Texas Hold 'Em).
+- **More game types** — additional turn-based games beyond the current five (e.g. Liar's Dice, Texas Hold 'Em).
 - **AI opponent** — a bot player for single-player matches and testing.
 - **Load testing** — throughput/latency benchmarking, plus retention policies for snapshots and move logs.
 
