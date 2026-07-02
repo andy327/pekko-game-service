@@ -65,14 +65,21 @@ class GameMetricsSpec extends AnyWordSpec with Matchers {
       ) shouldBe Some(1.0)
     }
 
-    "label Pig events with the \"pig\" game type" in {
+    "label Pig events with the pig game type" in {
       val (registry, metrics) = fixture
       metrics.record(GameStarted(UUID.randomUUID(), GameType.Pig, 3))
 
       sample(registry, "games_started_total", Array("game_type"), Array("pig")) shouldBe Some(1.0)
     }
 
-    "label lobby chat as \"lobby\" and in-game chat by game type" in {
+    "label Mastermind events with the mastermind game type" in {
+      val (registry, metrics) = fixture
+      metrics.record(GameStarted(UUID.randomUUID(), GameType.Mastermind, 2))
+
+      sample(registry, "games_started_total", Array("game_type"), Array("mastermind")) shouldBe Some(1.0)
+    }
+
+    "label lobby chat as lobby and in-game chat by game type" in {
       val (registry, metrics) = fixture
       metrics.record(ChatSent(UUID.randomUUID(), Some(GameType.Battleship)))
       metrics.record(ChatSent(UUID.randomUUID(), None))

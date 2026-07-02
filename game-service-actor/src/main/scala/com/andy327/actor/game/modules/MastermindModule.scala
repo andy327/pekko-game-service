@@ -15,8 +15,8 @@ import com.andy327.model.mastermind.{Guess, Mastermind, Peg, SetCode}
 /** [[GameModule]] implementation for Mastermind.
   *
   * Provides move decoding, operation-to-command mapping, and per-viewer serialization for Mastermind. The peg color
-  * names carried in the payload are resolved to [[com.andy327.model.mastermind.Peg]] values here; an unrecognized color
-  * is rejected as an `Unknown` error so it never reaches the model.
+  * names carried in the payload are resolved to `Peg` values here; an unrecognized color is rejected as an `Unknown`
+  * error so it never reaches the model.
   */
 object MastermindModule extends GameModule[Mastermind] {
 

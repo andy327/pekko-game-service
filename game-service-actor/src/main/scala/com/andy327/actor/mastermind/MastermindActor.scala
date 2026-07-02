@@ -13,7 +13,7 @@ import com.andy327.model.mastermind.{Guess, Mastermind, MastermindMove, Role, Se
   * or exhausting guesses) live in `model.mastermind.Mastermind`, and the per-viewer projection that hides the secret
   * lives in `GameStateView[Mastermind, MastermindState]`. The codemaker (seat 0) sets the code first.
   *
-  * The move-log encoder deliberately redacts the code from a [[SetCode]]: the history log is served publicly via
+  * The move-log encoder deliberately redacts the code from a `SetCode`: the history log is served publicly via
   * `GET /{gameType}/{roomId}/history`, so logging the pegs would let the codebreaker read the answer mid-game.
   */
 object MastermindActor

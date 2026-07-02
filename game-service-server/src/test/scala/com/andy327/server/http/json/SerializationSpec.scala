@@ -19,7 +19,15 @@ import com.andy327.actor.core.GameManager.{
   SubscribeAcknowledged
 }
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.actor.game.{BattleshipState, GameState, GameStateConverters, GridGameState, PigState}
+import com.andy327.actor.game.{
+  BattleshipState,
+  GameState,
+  GameStateConverters,
+  GridGameState,
+  GuessResult,
+  MastermindState,
+  PigState
+}
 import com.andy327.actor.lobby._
 import com.andy327.model.battleship.Battleship
 import com.andy327.model.connectfour.ConnectFour
@@ -139,6 +147,20 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val json = state.asJson
       json.hcursor.downField("scores").focus should be(defined)
       json.hcursor.get[String]("currentPlayer") shouldBe Right("P1")
+    }
+
+    "encode a MastermindState branch" in {
+      val state: GameState = MastermindState(
+        guesses = List(GuessResult(List("red", "green", "yellow", "blue"), 2, 1)),
+        secret = None,
+        currentPlayer = "codebreaker",
+        winner = None,
+        guessesRemaining = 9,
+        viewerRole = Some("codebreaker")
+      )
+      val json = state.asJson
+      json.hcursor.downField("guesses").focus should be(defined)
+      json.hcursor.get[String]("currentPlayer") shouldBe Right("codebreaker")
     }
   }
 
