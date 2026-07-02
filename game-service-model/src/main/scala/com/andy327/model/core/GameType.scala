@@ -36,6 +36,11 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 8)
   }
 
+  /** A two-player code-breaking game: one player sets a hidden color code, the other guesses it from peg feedback. */
+  case object Mastermind extends GameType {
+    val (minPlayers, maxPlayers) = (2, 2)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
@@ -46,6 +51,7 @@ object GameType {
     case "connectfour" => Some(ConnectFour)
     case "battleship"  => Some(Battleship)
     case "pig"         => Some(Pig)
+    case "mastermind"  => Some(Mastermind)
     case _             => None
   }
 }
