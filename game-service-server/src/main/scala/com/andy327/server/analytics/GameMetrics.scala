@@ -71,5 +71,6 @@ class GameMetrics(registry: CollectorRegistry) {
     case GameType.Battleship  => "battleship"
     case GameType.Pig         => "pig"
     case GameType.Mastermind  => "mastermind"
+    case GameType.LiarsDice   => "liarsdice"
   }
 }

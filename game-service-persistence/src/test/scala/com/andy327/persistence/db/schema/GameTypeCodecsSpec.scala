@@ -12,6 +12,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.liarsdice.{Bid, Challenge, LiarsDice, MakeBid, StandingBid}
 import com.andy327.model.mastermind.Peg.{Blue, Green, Red => MmRed, Yellow}
 import com.andy327.model.mastermind.{Codebreaker, Codemaker, Guess, Mastermind, SetCode}
 import com.andy327.model.pig.Pig
@@ -228,6 +229,42 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
 
     "return Left if Mastermind game JSON is invalid" in {
       deserializeGame(GameType.Mastermind, """{ "not": "valid" }""").isLeft shouldBe true
+    }
+
+    "resolve liarsdice via GameType.fromString" in {
+      GameType.fromString("liarsdice") shouldBe Some(GameType.LiarsDice)
+    }
+
+    "correctly encode and decode GameType.LiarsDice" in {
+      val t: GameType = GameType.LiarsDice
+      val json = t.asJson.noSpaces
+      json shouldBe "\"LiarsDice\""
+      decode[GameType](json) shouldBe Right(GameType.LiarsDice)
+    }
+
+    "round-trip a Liar's Dice game through serializeGame and deserializeGame" in {
+      // open with a numbered bid, then a wild "ones" bid, then a challenge, so the round-trip exercises the Bid
+      // (with and without a face), StandingBid, and Reveal codecs
+      val game = LiarsDice
+        .newGame(Seq(alice, bob), List.fill(LiarsDice.MaxTotalDice)(4))
+        .play(0, MakeBid(Bid(2, Some(4))))
+        .flatMap(_.play(1, MakeBid(Bid(2, None)))) // "2 ones" is the next clockwise ones space after "2 fours"
+        .flatMap(_.play(0, Challenge(List.fill(LiarsDice.MaxTotalDice)(3))))
+        .toOption
+        .get
+      val json = serializeGame(GameType.LiarsDice, game)
+      deserializeGame(GameType.LiarsDice, json) shouldBe Right(game)
+    }
+
+    "round-trip a finished Liar's Dice game with a standing bid still present" in {
+      val game = LiarsDice.newGame(Seq(alice, bob), List.fill(LiarsDice.MaxTotalDice)(6))
+        .copy(standing = Some(StandingBid(Bid(3, Some(5)), 0)), winner = Some(1))
+      val json = serializeGame(GameType.LiarsDice, game)
+      deserializeGame(GameType.LiarsDice, json) shouldBe Right(game)
+    }
+
+    "return Left if Liar's Dice game JSON is invalid" in {
+      deserializeGame(GameType.LiarsDice, """{ "not": "valid" }""").isLeft shouldBe true
     }
   }
 }

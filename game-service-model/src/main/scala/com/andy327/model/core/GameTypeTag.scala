@@ -2,6 +2,7 @@ package com.andy327.model.core
 
 import com.andy327.model.battleship.Battleship
 import com.andy327.model.connectfour.ConnectFour
+import com.andy327.model.liarsdice.LiarsDice
 import com.andy327.model.mastermind.Mastermind
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
@@ -41,5 +42,9 @@ object GameTypeTag {
 
   implicit val mastermindTag: GameTypeTag[Mastermind] = new GameTypeTag[Mastermind] {
     override val value: GameType = GameType.Mastermind
+  }
+
+  implicit val liarsDiceTag: GameTypeTag[LiarsDice] = new GameTypeTag[LiarsDice] {
+    override val value: GameType = GameType.LiarsDice
   }
 }

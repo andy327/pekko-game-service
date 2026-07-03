@@ -41,4 +41,15 @@ object MovePayload {
     * @param pegs the color names making up the code or guess (e.g. `["red","blue","red","green"]`)
     */
   final case class MastermindAction(action: String, pegs: List[String]) extends MovePayload
+
+  /** A move for Liar's Dice: raise the bid (`"bid"`) or call "Liar" (`"challenge"`).
+    *
+    * For a bid, `quantity` is required and `face` is the numbered face 2–6, or `None`/absent for a wild "ones" bid. A
+    * challenge ignores both fields. The dice a challenge re-rolls are supplied server-side, never by the client.
+    *
+    * @param action `"bid"` or `"challenge"`
+    * @param quantity the bid's quantity (dice claimed), for a `"bid"` action
+    * @param face the bid's numbered face 2–6, or `None` for a wild "ones" bid
+    */
+  final case class LiarsDiceAction(action: String, quantity: Option[Int], face: Option[Int]) extends MovePayload
 }

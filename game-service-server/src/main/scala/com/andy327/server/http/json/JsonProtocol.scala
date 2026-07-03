@@ -22,7 +22,17 @@ import com.andy327.actor.core.GameManager.{
 }
 import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
-import com.andy327.actor.game.{BattleshipState, GameState, GridGameState, GuessResult, MastermindState, PigState}
+import com.andy327.actor.game.{
+  BattleshipState,
+  BidView,
+  GameState,
+  GridGameState,
+  GuessResult,
+  LiarsDiceState,
+  MastermindState,
+  PigState,
+  RevealView
+}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
 import com.andy327.persistence.db.MoveRecord
@@ -118,14 +128,22 @@ object JsonProtocol extends CirceSupport {
 
   implicit val mastermindStateCodec: Codec[MastermindState] = deriveCodec[MastermindState]
 
-  /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`;
-    * Battleship has its own per-viewer `BattleshipState`; Pig has `PigState`; Mastermind has `MastermindState`).
+  implicit val bidViewCodec: Codec[BidView] = deriveCodec[BidView]
+
+  implicit val revealViewCodec: Codec[RevealView] = deriveCodec[RevealView]
+
+  implicit val liarsDiceStateCodec: Codec[LiarsDiceState] = deriveCodec[LiarsDiceState]
+
+  /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`; Battleship has its own
+    * per-viewer `BattleshipState`; Pig has `PigState`; Mastermind has `MastermindState`; Liar's Dice has
+    * `LiarsDiceState`).
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson
     case s: BattleshipState => s.asJson
     case s: PigState        => s.asJson
     case s: MastermindState => s.asJson
+    case s: LiarsDiceState  => s.asJson
   }
 
   // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see

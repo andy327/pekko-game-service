@@ -3,6 +3,7 @@ package com.andy327.actor.game
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
+import com.andy327.model.liarsdice.{Bid, LiarsDice}
 import com.andy327.model.mastermind.{Codemaker, Mastermind, Role}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
@@ -148,6 +149,84 @@ object MastermindState {
   }
 }
 
+/** One bid in a Liar's Dice view: a quantity plus either a numbered face (2–6) or `None` for a wild "ones" bid. */
+case class BidView(quantity: Int, face: Option[Int])
+
+/** The public reveal of the most recently resolved challenge in a Liar's Dice view.
+  *
+  * Every seat's dice are exposed here (keyed by seat label) because a challenge is the one moment all cups come up;
+  * this snapshot is safe to show everyone and persists into the next round for reconnecting clients.
+  *
+  * @param bid the bid that was challenged
+  * @param count the true number of dice counting toward `bid` (its face plus wild ones)
+  * @param dice every seat's dice at the challenge, keyed by seat label ("P1", "P2", …)
+  * @param challenger the seat that called "Liar"
+  * @param bidder the seat whose bid was challenged
+  * @param loser the seat that lost dice
+  * @param diceLost how many dice `loser` lost (0 when a challenger meets the bid exactly)
+  */
+case class RevealView(
+    bid: BidView,
+    count: Int,
+    dice: Map[String, List[Int]],
+    challenger: String,
+    bidder: String,
+    loser: String,
+    diceLost: Int
+)
+
+/** Serializable, per-viewer view of a Liar's Dice game.
+  *
+  * The viewer sees their own current dice and every seat's dice count, but never another seat's current dice — hidden
+  * information stays hidden. `lastReveal` is the exception: it captures all dice at the moment of the last challenge,
+  * which is public once the cups come up.
+  *
+  * @param dice the viewer's own current dice, or `None` for a spectator
+  * @param diceCounts dice remaining per seat, keyed by seat label ("P1", "P2", …)
+  * @param currentBid the standing bid, or `None` at the start of a round
+  * @param currentPlayer the seat label whose turn it is
+  * @param winner the winning seat label once the game is over, otherwise `None`
+  * @param viewerSeat the viewer's seat label, or `None` for a spectator
+  * @param lastReveal the most recently resolved challenge, or `None` before any challenge
+  */
+case class LiarsDiceState(
+    dice: Option[List[Int]],
+    diceCounts: Map[String, Int],
+    currentBid: Option[BidView],
+    currentPlayer: String,
+    winner: Option[String],
+    viewerSeat: Option[String],
+    lastReveal: Option[RevealView]
+) extends GameState
+
+object LiarsDiceState {
+
+  /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees dice counts but no hand). */
+  def of(game: LiarsDice, viewerSeat: Option[Int]): LiarsDiceState = {
+    def label(seat: Int): String = LiarsDice.seatLabel(seat)
+    def bidView(bid: Bid): BidView = BidView(bid.quantity, bid.face)
+    LiarsDiceState(
+      dice = viewerSeat.map(seat => game.dice(seat).toList),
+      diceCounts = game.playerIds.indices.map(i => label(i) -> game.diceCount(i)).toMap,
+      currentBid = game.standing.map(sb => bidView(sb.bid)),
+      currentPlayer = label(game.currentSeat),
+      winner = game.winner.map(label),
+      viewerSeat = viewerSeat.map(label),
+      lastReveal = game.lastReveal.map { r =>
+        RevealView(
+          bid = bidView(r.bid),
+          count = r.count,
+          dice = game.playerIds.indices.map(i => label(i) -> r.allDice(i).toList).toMap,
+          challenger = label(r.challengerSeat),
+          bidder = label(r.bidderSeat),
+          loser = label(r.loserSeat),
+          diceLost = r.diceLost
+        )
+      }
+    )
+  }
+}
+
 /** Type class for converting an internal game model into a serializable GameState.
   *
   * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
@@ -182,6 +261,10 @@ object GameStateView {
   /** Type class instance for serializing a Mastermind game, projected per viewer (the secret is hidden until reveal). */
   implicit val mastermindView: GameStateView[Mastermind, MastermindState] =
     (game, viewer) => MastermindState.of(game, viewer.flatMap(game.playerFor))
+
+  /** Type class instance for serializing a Liar's Dice game, projected per viewer (only the viewer's own dice show). */
+  implicit val liarsDiceView: GameStateView[LiarsDice, LiarsDiceState] =
+    (game, viewer) => LiarsDiceState.of(game, viewer.flatMap(game.playerFor))
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView
