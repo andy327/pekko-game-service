@@ -41,6 +41,11 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 2)
   }
 
+  /** A 2–6 player dice-bluffing game: players bid on the dice hidden under every cup until someone calls "Liar". */
+  case object LiarsDice extends GameType {
+    val (minPlayers, maxPlayers) = (2, 6)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
@@ -52,6 +57,7 @@ object GameType {
     case "battleship"  => Some(Battleship)
     case "pig"         => Some(Pig)
     case "mastermind"  => Some(Mastermind)
+    case "liarsdice"   => Some(LiarsDice)
     case _             => None
   }
 }
