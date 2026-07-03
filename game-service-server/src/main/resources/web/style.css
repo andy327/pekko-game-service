@@ -318,3 +318,89 @@ button:disabled { opacity: 0.5; cursor: default; }
 .mm-input { margin-top: 0.75rem; }
 .mm-palette { gap: 0.4rem; }
 .mm-actions { margin-top: 0.5rem; }
+
+/* Liar's Dice: a bidding-track ring, a per-seat dice-count table, the viewer's own hand, and the challenge reveal. */
+.ld-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.3rem 0; }
+.ld-seat { color: var(--muted); font-size: 0.9rem; min-width: 4.5rem; }
+
+/* Dice drawn as CSS pips: a 3×3 grid with dots at the face's positions. */
+.ld-die {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 3px;
+  box-sizing: border-box;
+  background: #f5f7fa;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.ld-die-sm { width: 1.5rem; height: 1.5rem; padding: 2px; border-radius: 4px; }
+.ld-pipcell { display: flex; align-items: center; justify-content: center; }
+.ld-pip { width: 42%; height: 42%; border-radius: 50%; background: #14171c; }
+.ld-die-red { background: #c0272d; border-color: #7f1a1e; }
+.ld-die-red .ld-pip { background: #ffffff; }
+
+/* Liar's Dice content (the track ring especially) is wider than the default 360px board grid, so free the board up. */
+#board.ld-active { display: block; max-width: none; }
+
+/* The Monopoly-style bidding-track ring: 30 spaces around a 10×7 grid, with the current bid marked by a red die. */
+.ld-track {
+  display: grid;
+  grid-template-columns: repeat(10, 2.2rem);
+  grid-template-rows: repeat(7, 2.2rem);
+  gap: 3px;
+  width: max-content;
+  margin: 0 auto 1rem;
+}
+.ld-space {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.ld-space-num { background: var(--panel); color: var(--text); }
+.ld-space-ones { background: #14171c; color: #f5f7fa; border-color: #4a5568; }
+.ld-onepip { width: 0.28rem; height: 0.28rem; border-radius: 50%; background: #f5f7fa; margin-top: 2px; }
+.ld-space-current { outline: 2px solid var(--accent); z-index: 1; }
+.ld-marker { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.ld-track-center {
+  grid-column: 2 / 10;
+  grid-row: 2 / 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.5rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ld-counts { border-collapse: collapse; margin: 0.5rem 0; }
+.ld-counts th, .ld-counts td { padding: 0.25rem 0.9rem; text-align: left; border-bottom: 1px solid var(--line); }
+.ld-counts th { color: var(--muted); font-weight: 600; }
+.ld-current { background: var(--accent-dim); }
+
+.ld-hand { margin-top: 0.5rem; }
+
+.ld-reveal {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.ld-reveal-summary { margin: 0 0 0.4rem; font-size: 0.9rem; }
+
+.ld-controls { margin-top: 0.75rem; }
+.ld-bid-row { gap: 0.5rem; align-items: center; }
+.ld-qty { width: 4rem; }
+.ld-challenge { margin-top: 0.5rem; background: #8b1a1a; border-color: #a52020; }
+.ld-challenge:hover:not(:disabled) { background: #a52020; }
