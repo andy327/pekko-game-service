@@ -146,6 +146,7 @@ object GameServer {
       new GameRoutes(GameType.Battleship, system).routes,
       new GameRoutes(GameType.Pig, system).routes,
       new GameRoutes(GameType.Mastermind, system).routes,
+      new GameRoutes(GameType.LiarsDice, system).routes,
       new WebSocketRoutes(system).routes,
       new TraceRoutes(system).routes,
       new MetricsRoutes(metricsRegistry).routes,

@@ -21,10 +21,12 @@ import com.andy327.actor.core.GameManager.{
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
+  BidView,
   GameState,
   GameStateConverters,
   GridGameState,
   GuessResult,
+  LiarsDiceState,
   MastermindState,
   PigState
 }
@@ -161,6 +163,22 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       val json = state.asJson
       json.hcursor.downField("guesses").focus should be(defined)
       json.hcursor.get[String]("currentPlayer") shouldBe Right("codebreaker")
+    }
+
+    "encode a LiarsDiceState branch, keeping the viewer's dice and a wild-ones bid's absent face" in {
+      val state: GameState = LiarsDiceState(
+        dice = Some(List(2, 3, 4, 5, 6)),
+        diceCounts = Map("P1" -> 5, "P2" -> 5),
+        currentBid = Some(BidView(2, None)), // a wild "ones" bid: face is absent
+        currentPlayer = "P1",
+        winner = None,
+        viewerSeat = Some("P1"),
+        lastReveal = None
+      )
+      val json = state.asJson
+      json.hcursor.get[List[Int]]("dice") shouldBe Right(List(2, 3, 4, 5, 6))
+      json.hcursor.get[String]("currentPlayer") shouldBe Right("P1")
+      json.hcursor.downField("currentBid").get[Option[Int]]("face") shouldBe Right(None)
     }
   }
 
