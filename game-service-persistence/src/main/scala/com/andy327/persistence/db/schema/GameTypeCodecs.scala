@@ -1,5 +1,7 @@
 package com.andy327.persistence.db.schema
 
+import scala.util.Try
+
 import io.circe.generic.semiauto.deriveCodec
 import io.circe.parser.decode
 import io.circe.syntax._
@@ -8,6 +10,7 @@ import io.circe.{Codec, Decoder, Encoder}
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Mark => ConnectFourMark, Red, Yellow}
 import com.andy327.model.core.{Game, GameType}
+import com.andy327.model.holdem.{Card, HandResult, PotAward, Street, TexasHoldEm}
 import com.andy327.model.liarsdice.{Bid, LiarsDice, Reveal, StandingBid}
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Codemaker, Feedback, Mastermind, Peg, Role}
 import com.andy327.model.pig.Pig
@@ -29,6 +32,7 @@ object GameTypeCodecs {
       case "Pig"         => Right(GameType.Pig)
       case "Mastermind"  => Right(GameType.Mastermind)
       case "LiarsDice"   => Right(GameType.LiarsDice)
+      case "TexasHoldEm" => Right(GameType.TexasHoldEm)
       case other         => Left(s"Unknown GameType: $other")
     },
     Encoder.encodeString.contramap[GameType] {
@@ -38,6 +42,7 @@ object GameTypeCodecs {
       case GameType.Pig         => "Pig"
       case GameType.Mastermind  => "Mastermind"
       case GameType.LiarsDice   => "LiarsDice"
+      case GameType.TexasHoldEm => "TexasHoldEm"
     }
   )
 
@@ -105,6 +110,34 @@ object GameTypeCodecs {
   implicit val revealCodec: Codec[Reveal] = deriveCodec[Reveal]
   implicit val liarsDiceCodec: Codec[LiarsDice] = deriveCodec[LiarsDice]
 
+  // Texas Hold 'Em. A Card round-trips through its compact text form ("AS", "TD"); a Street through a lowercase name.
+  // Declared in dependency order so each is in scope for the deriveCodec that needs it. Action and HoldEmMove are absent
+  // on purpose: they are moves, not persisted state, and are encoded for the history log in the actor layer.
+  implicit val cardCodec: Codec[Card] = Codec.from(
+    Decoder.decodeString.emap(s => Try(Card(s)).toEither.left.map(_ => s"Invalid Card: $s")),
+    Encoder.encodeString.contramap[Card](_.toString)
+  )
+
+  implicit val streetCodec: Codec[Street] = Codec.from(
+    Decoder.decodeString.emap {
+      case "preflop" => Right(Street.PreFlop)
+      case "flop"    => Right(Street.Flop)
+      case "turn"    => Right(Street.Turn)
+      case "river"   => Right(Street.River)
+      case other     => Left(s"Invalid Street: $other")
+    },
+    Encoder.encodeString.contramap[Street] {
+      case Street.PreFlop => "preflop"
+      case Street.Flop    => "flop"
+      case Street.Turn    => "turn"
+      case Street.River   => "river"
+    }
+  )
+
+  implicit val potAwardCodec: Codec[PotAward] = deriveCodec[PotAward]
+  implicit val handResultCodec: Codec[HandResult] = deriveCodec[HandResult]
+  implicit val texasHoldEmCodec: Codec[TexasHoldEm] = deriveCodec[TexasHoldEm]
+
   /** Serializes a game instance to a JSON string using the codec for the given GameType. */
   def serializeGame(gameType: GameType, game: Game[_, _, _, _, _]): String = gameType match {
     case GameType.TicTacToe   => game.asInstanceOf[TicTacToe].asJson.noSpaces
@@ -113,6 +146,7 @@ object GameTypeCodecs {
     case GameType.Pig         => game.asInstanceOf[Pig].asJson.noSpaces
     case GameType.Mastermind  => game.asInstanceOf[Mastermind].asJson.noSpaces
     case GameType.LiarsDice   => game.asInstanceOf[LiarsDice].asJson.noSpaces
+    case GameType.TexasHoldEm => game.asInstanceOf[TexasHoldEm].asJson.noSpaces
   }
 
   /** Deserializes a game state JSON string into a Game instance based on the provided GameType. */
@@ -124,5 +158,6 @@ object GameTypeCodecs {
       case GameType.Pig         => decode[Pig](json).left.map(err => new Exception(err))
       case GameType.Mastermind  => decode[Mastermind](json).left.map(err => new Exception(err))
       case GameType.LiarsDice   => decode[LiarsDice](json).left.map(err => new Exception(err))
+      case GameType.TexasHoldEm => decode[TexasHoldEm](json).left.map(err => new Exception(err))
     }
 }

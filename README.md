@@ -23,7 +23,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 - 🔐 Credentialed accounts — register, log in, and change password (Argon2-hashed), issuing expiring JWTs for player actions
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
 - 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
-- 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, Mastermind, and Liar's Dice
+- 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, Mastermind, Liar's Dice, and Texas Hold 'Em
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
 - ⚡ Real-time state delivery to all participants over WebSockets
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
@@ -162,7 +162,7 @@ The response is the updated board, and every connected participant is pushed the
 
 ## API reference
 
-All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a token from `/auth/register` or `/auth/token`. Paths with a `{gameType}` segment accept `tictactoe`, `connectfour`, or `battleship`.
+All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a token from `/auth/register` or `/auth/token`. Paths with a `{gameType}` segment accept `tictactoe`, `connectfour`, `battleship`, `pig`, `mastermind`, `liarsdice`, or `texasholdem`.
 
 ### Auth
 
@@ -280,7 +280,7 @@ On startup `GameManager` doesn't accept traffic blindly — it kicks off an asyn
 
 ### Per-viewer projection (fog of war)
 
-A game actor never ships its raw internal state to anyone. When it needs to send state out — as a move reply or a push — it renders a **view** for a specific viewer through a `GameStateView` type class: `serialize(game, Some(playerId))` for that player's own view, `serialize(game, None)` for a public/spectator view. Full-information games (Tic-Tac-Toe, Connect Four, Pig) ignore the viewer and show everyone the same board. For Battleship the projection is where fog of war is enforced: your own ships are visible to you, your opponent's are hidden, and a spectator sees both boards fogged. Mastermind works the same way — the codemaker's secret code is hidden from the codebreaker (and spectators) until the game ends. Liar's Dice is the same idea across many hands: each player sees only their own dice (everyone else's is a count), until a challenge turns every cup over and the reveal becomes public. No code path can leak hidden state, because the unredacted model never leaves the actor.
+A game actor never ships its raw internal state to anyone. When it needs to send state out — as a move reply or a push — it renders a **view** for a specific viewer through a `GameStateView` type class: `serialize(game, Some(playerId))` for that player's own view, `serialize(game, None)` for a public/spectator view. Full-information games (Tic-Tac-Toe, Connect Four, Pig) ignore the viewer and show everyone the same board. For Battleship the projection is where fog of war is enforced: your own ships are visible to you, your opponent's are hidden, and a spectator sees both boards fogged. Mastermind works the same way — the codemaker's secret code is hidden from the codebreaker (and spectators) until the game ends. Liar's Dice is the same idea across many hands: each player sees only their own dice (everyone else's is a count), until a challenge turns every cup over and the reveal becomes public. Texas Hold 'Em follows suit — you see only your own hole cards, the community cards are public, and a contested hand's showdown is the moment the remaining players' cards are revealed. No code path can leak hidden state, because the unredacted model never leaves the actor.
 
 ### Real-time delivery
 
@@ -347,7 +347,7 @@ Planned work, in rough priority order:
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would carry cross-instance delivery between game actors and player sessions directly, while the analytics event stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
 - **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. Considered and deliberately deferred: **token revocation** — JWTs are stateless, so a password change or "log out" doesn't invalidate already-issued tokens before they expire; closing that needs a per-account token version baked into the claim (or a `jti` denylist in Redis) checked at validation time. **Password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration. **Rate limiting / lockout** on the auth endpoints to slow credential stuffing, and **email-address verification** at registration, are likewise out of scope for now. The short token TTL keeps the revocation gap small in the meantime.
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
-- **More game types** — additional turn-based games beyond the current six (e.g. Texas Hold 'Em).
+- **More game types** — additional turn-based games beyond the current seven.
 - **AI opponent** — a bot player for single-player matches and testing.
 - **Load testing** — throughput/latency benchmarking, plus retention policies for snapshots and move logs.
 

@@ -27,7 +27,8 @@ const GAMES = {
   battleship:  { label: "Battleship",   maxPlayers: 2, move: (row, col) => ({ row, col }) },
   pig:         { label: "Pig",          maxPlayers: 8, pig: true },
   mastermind:  { label: "Mastermind",   maxPlayers: 2, mastermind: true },
-  liarsdice:   { label: "Liar's Dice",  maxPlayers: 6, liarsdice: true }
+  liarsdice:   { label: "Liar's Dice",  maxPlayers: 6, liarsdice: true },
+  texasholdem: { label: "Texas Hold 'Em", maxPlayers: 6, texasholdem: true }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -725,6 +726,7 @@ function renderBoard(state) {
   $("rematch-btn").classList.add("hidden");
   setError("game-error", "");
   $("board").classList.remove("ld-active"); // cleared here so switching away from Liar's Dice restores the board grid
+  $("board").classList.remove("holdem-active"); // likewise for the free-sized Texas Hold 'Em table
 
   if (state.board1 !== undefined) {
     renderBattleshipBoard(state);
@@ -743,6 +745,11 @@ function renderBoard(state) {
 
   if (state.diceCounts !== undefined) {
     renderLiarsDiceBoard(state);
+    return;
+  }
+
+  if (state.seats !== undefined) {
+    renderTexasHoldEmBoard(state);
     return;
   }
 
@@ -1123,6 +1130,183 @@ function formatLdBid(bid) {
 }
 
 async function submitLiarsDiceMove(body) {
+  const game = session.game;
+  if (!game) return;
+  setError("game-error", "");
+  const res = await api(`/${game.gameType}/${game.roomId}/move`, { method: "POST", body });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Move rejected");
+}
+
+// --- Texas Hold 'Em --------------------------------------------------------------------------------------------------
+// The community board, a seat table (stacks, bets, folded/all-in), the viewer's own hole cards, the last hand's
+// showdown reveal, and betting controls. The server validates every bet/raise amount and rejects an illegal one.
+const HOLDEM_SUITS = { S: "♠", H: "♥", C: "♣", D: "♦" };
+
+function renderTexasHoldEmBoard(state) {
+  const board = $("board");
+  board.classList.remove("bs-active");
+  board.classList.add("holdem-active"); // the seat table is wider than the default board grid; let it size freely
+  board.innerHTML = "";
+  $("column-controls").innerHTML = "";
+
+  const over = Boolean(state.winner);
+  const spectating = Boolean(session.game && session.game.isSpectator) || state.viewerSeat == null;
+  const myTurn = !over && !spectating && state.currentPlayer === state.viewerSeat;
+
+  if (over) setStatus(state.winner === state.viewerSeat ? "You win the sit-and-go!" : `${state.winner} wins the sit-and-go!`);
+  else if (spectating) setStatus(`Spectating — ${state.currentPlayer} to act`);
+  else setStatus(myTurn ? "Your turn to act." : `${state.currentPlayer}'s turn…`);
+
+  // The community cards (revealed cards face-up, the rest face-down) and the pot.
+  const cards = document.createElement("div");
+  cards.className = "holdem-board";
+  for (let i = 0; i < 5; i++) cards.appendChild(makeHoldemCard(i < state.board.length ? state.board[i] : null));
+  board.appendChild(cards);
+
+  const pot = document.createElement("div");
+  pot.className = "holdem-pot";
+  pot.textContent = `Pot: ${state.pot}` + (state.currentBet ? ` · Current bet: ${state.currentBet}` : "");
+  board.appendChild(pot);
+
+  // Seats: stack, chips committed this hand, and whose turn it is.
+  const table = document.createElement("table");
+  table.className = "holdem-seats";
+  table.insertRow().innerHTML = "<th>Player</th><th>Stack</th><th>In pot</th><th></th>";
+  state.seats.forEach((s) => {
+    const row = table.insertRow();
+    row.className = s.seat === state.currentPlayer && !over ? "holdem-current" : "";
+    const you = s.seat === state.viewerSeat ? " (you)" : "";
+    const dealer = s.seat === state.button ? " Ⓓ" : ""; // circled D marks the dealer button
+    const status = s.folded ? "folded" : s.allIn ? "all-in" : s.bet > 0 ? `bet ${s.bet}` : "";
+    row.innerHTML = `<td>${s.seat}${you}${dealer}</td><td>${s.stack}</td><td>${s.committed}</td><td>${status}</td>`;
+  });
+  board.appendChild(table);
+
+  // The most recent hand's showdown reveal — the one moment hole cards come up.
+  if (state.handResult) board.appendChild(renderHoldemResult(state.handResult));
+
+  // The viewer's own hole cards.
+  if (state.holeCards && state.holeCards.length) {
+    const hand = document.createElement("div");
+    hand.className = "holdem-hand";
+    const label = document.createElement("span");
+    label.className = "holdem-label";
+    label.textContent = "Your hand:";
+    hand.appendChild(label);
+    state.holeCards.forEach((c) => hand.appendChild(makeHoldemCard(c)));
+    board.appendChild(hand);
+  }
+
+  if (myTurn) board.appendChild(makeHoldemControls(state));
+}
+
+// A single card face from its text form ("AS", "TD"), or a face-down card for a null (unrevealed) slot.
+function makeHoldemCard(card) {
+  const el = document.createElement("span");
+  el.className = "holdem-card";
+  if (!card) {
+    el.classList.add("holdem-card-back");
+    return el;
+  }
+  const suit = card.slice(-1);
+  if (suit === "H" || suit === "D") el.classList.add("holdem-card-red");
+  el.innerHTML =
+    `<span class="holdem-rank">${card.slice(0, -1)}</span>` +
+    `<span class="holdem-suit">${HOLDEM_SUITS[suit] || suit}</span>`;
+  return el;
+}
+
+// The showdown reveal: who won each pot and with what, plus the hole cards of everyone who reached the showdown.
+function renderHoldemResult(result) {
+  const box = document.createElement("div");
+  box.className = "holdem-reveal";
+  result.awards.forEach((a) => {
+    const p = document.createElement("p");
+    p.className = "holdem-reveal-summary";
+    const who = a.winners.join(", ");
+    p.textContent = a.description ? `${who} won ${a.amount} with ${a.description}.` : `${who} won ${a.amount}.`;
+    box.appendChild(p);
+  });
+  Object.keys(result.shownHands).sort().forEach((seat) => {
+    const row = document.createElement("div");
+    row.className = "holdem-hand";
+    const label = document.createElement("span");
+    label.className = "holdem-label";
+    label.textContent = `${seat}:`;
+    row.appendChild(label);
+    result.shownHands[seat].forEach((c) => row.appendChild(makeHoldemCard(c)));
+    box.appendChild(row);
+  });
+  return box;
+}
+
+// Fold, check-or-call, and a bet/raise amount (the total to commit this street) with an all-in shortcut. The bet/raise
+// row is hidden when the viewer cannot raise; a short all-in below the minimum raise is still offered as All-in.
+function makeHoldemControls(state) {
+  const wrap = document.createElement("div");
+  wrap.className = "holdem-controls";
+
+  const me = state.seats.find((s) => s.seat === state.viewerSeat) || { stack: 0, bet: 0 };
+  const maxTo = me.bet + me.stack; // the total this street if the viewer moves all-in
+
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const fold = document.createElement("button");
+  fold.textContent = "Fold";
+  fold.onclick = () => submitTexasHoldEmMove({ action: "fold" });
+  row.appendChild(fold);
+
+  const callBtn = document.createElement("button");
+  if (state.toCall === 0) {
+    callBtn.textContent = "Check";
+    callBtn.onclick = () => submitTexasHoldEmMove({ action: "check" });
+  } else {
+    callBtn.textContent = `Call ${Math.min(state.toCall, me.stack)}`;
+    callBtn.onclick = () => submitTexasHoldEmMove({ action: "call" });
+  }
+  row.appendChild(callBtn);
+  wrap.appendChild(row);
+
+  if (maxTo > state.currentBet) {
+    const opening = state.currentBet === 0;
+    const betRow = document.createElement("div");
+    betRow.className = "row holdem-bet-row";
+
+    if (maxTo >= state.minRaise) {
+      const amount = document.createElement("input");
+      amount.type = "number";
+      amount.className = "holdem-amount";
+      amount.min = String(state.minRaise);
+      amount.max = String(maxTo);
+      amount.value = String(state.minRaise);
+      betRow.appendChild(amount);
+
+      const betBtn = document.createElement("button");
+      betBtn.textContent = opening ? "Bet" : "Raise to";
+      betBtn.onclick = () => {
+        const value = parseInt(amount.value, 10);
+        if (!Number.isInteger(value) || value < 1) {
+          flashError("game-error", "Enter a valid amount.");
+          return;
+        }
+        submitTexasHoldEmMove({ action: opening ? "bet" : "raise", amount: value });
+      };
+      betRow.appendChild(betBtn);
+    }
+
+    const allIn = document.createElement("button");
+    allIn.textContent = `All-in ${maxTo}`;
+    allIn.onclick = () => submitTexasHoldEmMove({ action: opening ? "bet" : "raise", amount: maxTo });
+    betRow.appendChild(allIn);
+
+    wrap.appendChild(betRow);
+  }
+
+  return wrap;
+}
+
+async function submitTexasHoldEmMove(body) {
   const game = session.game;
   if (!game) return;
   setError("game-error", "");

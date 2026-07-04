@@ -404,3 +404,45 @@ button:disabled { opacity: 0.5; cursor: default; }
 .ld-qty { width: 4rem; }
 .ld-challenge { margin-top: 0.5rem; background: #8b1a1a; border-color: #a52020; }
 .ld-challenge:hover:not(:disabled) { background: #a52020; }
+
+/* Texas Hold 'Em: a community board of card faces, a seat table, and betting controls. */
+#board.holdem-active { display: block; max-width: none; }
+.holdem-board { display: flex; gap: 0.4rem; margin: 0.25rem 0; }
+.holdem-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 3.6rem;
+  border-radius: 0.35rem;
+  background: #f4f6fb;
+  color: #11151c;
+  border: 1px solid var(--line);
+  font-weight: 700;
+  line-height: 1.1;
+}
+.holdem-card-red { color: #c0392b; }
+.holdem-card-back {
+  background: repeating-linear-gradient(45deg, var(--accent-dim), var(--accent-dim) 4px, var(--panel) 4px, var(--panel) 8px);
+}
+.holdem-rank { font-size: 1.1rem; }
+.holdem-suit { font-size: 1.1rem; }
+.holdem-pot { color: var(--muted); margin: 0.3rem 0 0.6rem; }
+.holdem-seats { border-collapse: collapse; margin: 0.5rem 0; }
+.holdem-seats th, .holdem-seats td { padding: 0.25rem 0.9rem; text-align: left; border-bottom: 1px solid var(--line); }
+.holdem-seats th { color: var(--muted); font-weight: 600; }
+.holdem-current { background: var(--accent-dim); }
+.holdem-hand { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
+.holdem-label { color: var(--muted); font-size: 0.9rem; min-width: 4.5rem; }
+.holdem-reveal {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+.holdem-reveal-summary { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.holdem-controls { margin-top: 0.75rem; }
+.holdem-bet-row { gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.holdem-amount { width: 6rem; }

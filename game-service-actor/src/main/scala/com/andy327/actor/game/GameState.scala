@@ -3,6 +3,7 @@ package com.andy327.actor.game
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
+import com.andy327.model.holdem.TexasHoldEm
 import com.andy327.model.liarsdice.{Bid, LiarsDice}
 import com.andy327.model.mastermind.{Codemaker, Mastermind, Role}
 import com.andy327.model.pig.Pig
@@ -227,6 +228,95 @@ object LiarsDiceState {
   }
 }
 
+/** One seat's public state in a Texas Hold 'Em view: its chips, what it has committed this hand and this street, and
+  * whether it has folded or is all-in. Hole cards are never here — a viewer sees only their own, in [[HoldEmState]].
+  */
+case class HoldEmSeat(seat: String, stack: Int, committed: Int, bet: Int, folded: Boolean, allIn: Boolean)
+
+/** One pot awarded in a Texas Hold 'Em showdown view: chips, the winning seat labels, and the hand description (absent
+  * when the pot was taken uncontested).
+  */
+case class HoldEmPotAward(amount: Int, winners: List[String], description: Option[String])
+
+/** The public reveal of the most recently finished Texas Hold 'Em hand.
+  *
+  * Every seat that reached the showdown exposes its hole cards here (keyed by seat label); folded hands stay hidden.
+  * Safe to show everyone and retained into the next hand for reconnecting clients, mirroring Liar's Dice's reveal.
+  *
+  * @param board the community cards that were face-up when the hand ended
+  * @param shownHands the hole cards shown at the showdown, keyed by seat label ("P1", "P2", …)
+  * @param awards the pots awarded, main pot first
+  */
+case class HoldEmHandResult(board: List[String], shownHands: Map[String, List[String]], awards: List[HoldEmPotAward])
+
+/** Serializable, per-viewer view of a Texas Hold 'Em game.
+  *
+  * The viewer sees their own hole cards and every seat's public chips/bets, but never another seat's hole cards until a
+  * showdown, which surfaces through `handResult`. `board` holds only the community cards revealed on the current street.
+  * Cards are rendered as their compact text form ("As", "Td"); `street` is the street name.
+  *
+  * @param seats every seat's public state, in seat order
+  * @param holeCards the viewer's own two hole cards, or `None` for a spectator
+  * @param board the community cards revealed so far
+  * @param button the seat label holding the dealer button
+  * @param currentPlayer the seat label whose turn it is
+  * @param currentBet the amount to match on the current street
+  * @param minRaise the smallest total a bet or raise may commit this street
+  * @param pot the total chips committed to the pot this hand
+  * @param toCall the chips the viewer must put in to call, or 0 for a spectator
+  * @param street the current street ("PreFlop", "Flop", "Turn", "River")
+  * @param winner the winning seat label once the sit-and-go is over, otherwise `None`
+  * @param viewerSeat the viewer's seat label, or `None` for a spectator
+  * @param handResult the most recently finished hand's public reveal, or `None` before any hand ends
+  */
+case class HoldEmState(
+    seats: List[HoldEmSeat],
+    holeCards: Option[List[String]],
+    board: List[String],
+    button: String,
+    currentPlayer: String,
+    currentBet: Int,
+    minRaise: Int,
+    pot: Int,
+    toCall: Int,
+    street: String,
+    winner: Option[String],
+    viewerSeat: Option[String],
+    handResult: Option[HoldEmHandResult]
+) extends GameState
+
+object HoldEmState {
+
+  /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees no hole cards). */
+  def of(game: TexasHoldEm, viewerSeat: Option[Int]): HoldEmState = {
+    def label(seat: Int): String = TexasHoldEm.seatLabel(seat)
+    val minRaise = if (game.currentBet == 0) TexasHoldEm.BigBlind else game.currentBet + game.lastRaiseSize
+    HoldEmState(
+      seats = game.playerIds.indices.toList.map { i =>
+        HoldEmSeat(label(i), game.stacks(i), game.committed(i), game.streetContrib(i), game.folded(i), game.allIn(i))
+      },
+      holeCards = viewerSeat.map(seat => game.holeCards(seat).map(_.toString)),
+      board = game.board.take(game.street.revealed).map(_.toString),
+      button = label(game.button),
+      currentPlayer = label(game.toAct),
+      currentBet = game.currentBet,
+      minRaise = minRaise,
+      pot = game.pot,
+      toCall = viewerSeat.map(game.toCall).getOrElse(0),
+      street = game.street.toString,
+      winner = game.winner.map(label),
+      viewerSeat = viewerSeat.map(label),
+      handResult = game.handResult.map { r =>
+        HoldEmHandResult(
+          board = r.board.map(_.toString),
+          shownHands = r.shownHands.map { case (seat, cs) => label(seat) -> cs.map(_.toString) },
+          awards = r.awards.map(a => HoldEmPotAward(a.amount, a.winners.map(label), a.description))
+        )
+      }
+    )
+  }
+}
+
 /** Type class for converting an internal game model into a serializable GameState.
   *
   * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
@@ -265,6 +355,10 @@ object GameStateView {
   /** Type class instance for serializing a Liar's Dice game, projected per viewer (only the viewer's own dice show). */
   implicit val liarsDiceView: GameStateView[LiarsDice, LiarsDiceState] =
     (game, viewer) => LiarsDiceState.of(game, viewer.flatMap(game.playerFor))
+
+  /** Type class instance for serializing a Texas Hold 'Em game, projected per viewer (only the viewer's hole cards). */
+  implicit val texasHoldEmView: GameStateView[TexasHoldEm, HoldEmState] =
+    (game, viewer) => HoldEmState.of(game, viewer.flatMap(game.playerFor))
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView
