@@ -12,6 +12,8 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
+import com.andy327.model.holdem.Action.{Bet, Call, Check, Fold}
+import com.andy327.model.holdem.{Card, HandResult, HoldEmMove, PotAward, Street, TexasHoldEm}
 import com.andy327.model.liarsdice.{Bid, Challenge, LiarsDice, MakeBid, StandingBid}
 import com.andy327.model.mastermind.Peg.{Blue, Green, Red => MmRed, Yellow}
 import com.andy327.model.mastermind.{Codebreaker, Codemaker, Guess, Mastermind, SetCode}
@@ -265,6 +267,79 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
 
     "return Left if Liar's Dice game JSON is invalid" in {
       deserializeGame(GameType.LiarsDice, """{ "not": "valid" }""").isLeft shouldBe true
+    }
+
+    "resolve texasholdem via GameType.fromString" in {
+      GameType.fromString("texasholdem") shouldBe Some(GameType.TexasHoldEm)
+    }
+
+    "correctly encode and decode GameType.TexasHoldEm" in {
+      val t: GameType = GameType.TexasHoldEm
+      val json = t.asJson.noSpaces
+      json shouldBe "\"TexasHoldEm\""
+      decode[GameType](json) shouldBe Right(GameType.TexasHoldEm)
+    }
+
+    "round-trip a Texas Hold 'Em game through serializeGame and deserializeGame" in {
+      // play a hand to a showdown so the round-trip exercises the Card, Street, PotAward, and HandResult codecs (the
+      // last carrying a shown-hands map and an odd-length board) alongside the full game state
+      val deck = "AS AH KS KH AD 7C 2D 5S 9H".split(" ").map(Card(_)).toList
+      val fullDeck = Card.deck
+      val game = TexasHoldEm
+        .newGame(Seq(alice, bob), deck)
+        .play(0, HoldEmMove(Call, fullDeck))
+        .flatMap(_.play(1, HoldEmMove(Check, fullDeck)))
+        .flatMap(_.play(1, HoldEmMove(Check, fullDeck)))
+        .flatMap(_.play(0, HoldEmMove(Bet(50), fullDeck)))
+        .flatMap(_.play(1, HoldEmMove(Fold, fullDeck)))
+        .toOption
+        .get
+      val json = serializeGame(GameType.TexasHoldEm, game)
+      deserializeGame(GameType.TexasHoldEm, json) shouldBe Right(game)
+    }
+
+    "round-trip a finished Texas Hold 'Em game with a showdown result present" in {
+      val game = TexasHoldEm
+        .newGame(Seq(alice, bob), Card.deck)
+        .copy(
+          handResult = Some(
+            HandResult(
+              board = "AS KD 9C 4H 2S".split(" ").map(Card(_)).toList,
+              shownHands = Map(0 -> List(Card("AH"), Card("AC")), 1 -> List(Card("KS"), Card("KH"))),
+              awards = List(PotAward(200, List(0), Some("three of a kind, As")))
+            )
+          ),
+          winner = Some(0)
+        )
+      val json = serializeGame(GameType.TexasHoldEm, game)
+      deserializeGame(GameType.TexasHoldEm, json) shouldBe Right(game)
+    }
+
+    "round-trip a Texas Hold 'Em game on every street" in {
+      val base = TexasHoldEm.newGame(Seq(alice, bob), Card.deck)
+      Seq(Street.PreFlop, Street.Flop, Street.Turn, Street.River).foreach { street =>
+        val game = base.copy(street = street)
+        val json = serializeGame(GameType.TexasHoldEm, game)
+        deserializeGame(GameType.TexasHoldEm, json) shouldBe Right(game)
+      }
+    }
+
+    "fail to decode an unknown Street in Texas Hold 'Em JSON" in {
+      val json = serializeGame(GameType.TexasHoldEm, TexasHoldEm.newGame(Seq(alice, bob), Card.deck))
+      val corrupted = json.replace("\"street\":\"preflop\"", "\"street\":\"showdown\"")
+      deserializeGame(GameType.TexasHoldEm, corrupted).isLeft shouldBe true
+    }
+
+    "fail to decode an invalid Card in Texas Hold 'Em JSON" in {
+      val game = TexasHoldEm.newGame(Seq(alice, bob), Card.deck)
+      val json = serializeGame(GameType.TexasHoldEm, game)
+      // corrupt a hole card's rank to something outside 2–14
+      val corrupted = json.replaceFirst("\"board\":\\[\"[^\"]+\"", "\"board\":[\"ZZ\"")
+      deserializeGame(GameType.TexasHoldEm, corrupted).isLeft shouldBe true
+    }
+
+    "return Left if Texas Hold 'Em game JSON is invalid" in {
+      deserializeGame(GameType.TexasHoldEm, """{ "not": "valid" }""").isLeft shouldBe true
     }
   }
 }
