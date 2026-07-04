@@ -46,6 +46,11 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 6)
   }
 
+  /** A 2–6 player No-Limit Texas Hold 'Em sit-and-go: play hands until one player has all the chips. */
+  case object TexasHoldEm extends GameType {
+    val (minPlayers, maxPlayers) = (2, 6)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
@@ -58,6 +63,7 @@ object GameType {
     case "pig"         => Some(Pig)
     case "mastermind"  => Some(Mastermind)
     case "liarsdice"   => Some(LiarsDice)
+    case "texasholdem" => Some(TexasHoldEm)
     case _             => None
   }
 }
