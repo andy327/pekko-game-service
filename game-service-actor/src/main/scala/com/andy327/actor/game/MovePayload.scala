@@ -52,4 +52,15 @@ object MovePayload {
     * @param face the bid's numbered face 2–6, or `None` for a wild "ones" bid
     */
   final case class LiarsDiceAction(action: String, quantity: Option[Int], face: Option[Int]) extends MovePayload
+
+  /** A move for Texas Hold 'Em: `fold`, `check`, `call`, `bet`, or `raise`.
+    *
+    * `amount` is the total chip target for a `bet` or `raise` (the seat's street contribution after the action) and is
+    * absent for `fold`, `check`, and `call`. The deck a hand-starting action shuffles is supplied server-side, never by
+    * the client.
+    *
+    * @param action `fold`, `check`, `call`, `bet`, or `raise`
+    * @param amount the total to bet or raise to, for a `bet` or `raise` action
+    */
+  final case class HoldEmAction(action: String, amount: Option[Int]) extends MovePayload
 }

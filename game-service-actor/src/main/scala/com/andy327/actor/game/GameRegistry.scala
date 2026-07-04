@@ -10,11 +10,13 @@ import com.andy327.actor.game.modules.{
   LiarsDiceModule,
   MastermindModule,
   PigModule,
+  TexasHoldEmModule,
   TicTacToeModule
 }
 import com.andy327.actor.liarsdice.LiarsDiceActor
 import com.andy327.actor.mastermind.MastermindActor
 import com.andy327.actor.pig.PigActor
+import com.andy327.actor.texasholdem.TexasHoldEmActor
 import com.andy327.actor.tictactoe.TicTacToeActor
 import com.andy327.model.core.{Game, GameType, PlayerId}
 
@@ -58,5 +60,6 @@ object GameRegistry {
     case GameType.Pig         => GameModuleBundle(PigModule, PigActor)
     case GameType.Mastermind  => GameModuleBundle(MastermindModule, MastermindActor)
     case GameType.LiarsDice   => GameModuleBundle(LiarsDiceModule, LiarsDiceActor)
+    case GameType.TexasHoldEm => GameModuleBundle(TexasHoldEmModule, TexasHoldEmActor)
   }
 }

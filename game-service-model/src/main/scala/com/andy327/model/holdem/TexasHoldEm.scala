@@ -74,6 +74,9 @@ object TexasHoldEm {
   /** Hole cards dealt to each seat still in the sit-and-go. */
   val HoleCards: Int = 2
 
+  /** Human-readable seat label for a zero-based seat index. */
+  def seatLabel(seat: Int): String = s"P${seat + 1}"
+
   /** Creates a fresh sit-and-go: equal starting stacks, the button just before seat 0 (so the first hand's button is
     * seat 0), and the first hand dealt and blinded from `deck`. `deck` is a full 52-card shuffle produced server-side.
     */
