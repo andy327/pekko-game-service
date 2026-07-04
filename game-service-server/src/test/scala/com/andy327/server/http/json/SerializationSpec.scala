@@ -26,6 +26,10 @@ import com.andy327.actor.game.{
   GameStateConverters,
   GridGameState,
   GuessResult,
+  HoldEmHandResult,
+  HoldEmPotAward,
+  HoldEmSeat,
+  HoldEmState,
   LiarsDiceState,
   MastermindState,
   PigState
@@ -179,6 +183,40 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.get[List[Int]]("dice") shouldBe Right(List(2, 3, 4, 5, 6))
       json.hcursor.get[String]("currentPlayer") shouldBe Right("P1")
       json.hcursor.downField("currentBid").get[Option[Int]]("face") shouldBe Right(None)
+    }
+
+    "encode a HoldEmState branch, keeping the viewer's hole cards and the showdown reveal" in {
+      val state: GameState = HoldEmState(
+        seats = List(
+          HoldEmSeat("P1", 990, 10, 10, folded = false, allIn = false),
+          HoldEmSeat("P2", 985, 15, 15, folded = false, allIn = false)
+        ),
+        holeCards = Some(List("AS", "AH")),
+        board = List("2C", "7D", "9S"),
+        button = "P1",
+        currentPlayer = "P2",
+        currentBet = 15,
+        minRaise = 30,
+        pot = 25,
+        toCall = 5,
+        street = "Flop",
+        winner = None,
+        viewerSeat = Some("P1"),
+        handResult = Some(
+          HoldEmHandResult(
+            List("2C"),
+            Map("P1" -> List("AS", "AH")),
+            List(HoldEmPotAward(25, List("P1"), Some("one pair, As")))
+          )
+        )
+      )
+      val json = state.asJson
+      json.hcursor.get[List[String]]("holeCards") shouldBe Right(List("AS", "AH"))
+      json.hcursor.get[String]("currentPlayer") shouldBe Right("P2")
+      json.hcursor.get[Int]("toCall") shouldBe Right(5)
+      json.hcursor.downField("handResult").downField("shownHands").get[List[String]]("P1") shouldBe Right(
+        List("AS", "AH")
+      )
     }
   }
 

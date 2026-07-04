@@ -28,6 +28,10 @@ import com.andy327.actor.game.{
   GameState,
   GridGameState,
   GuessResult,
+  HoldEmHandResult,
+  HoldEmPotAward,
+  HoldEmSeat,
+  HoldEmState,
   LiarsDiceState,
   MastermindState,
   PigState,
@@ -134,9 +138,17 @@ object JsonProtocol extends CirceSupport {
 
   implicit val liarsDiceStateCodec: Codec[LiarsDiceState] = deriveCodec[LiarsDiceState]
 
+  implicit val holdEmSeatCodec: Codec[HoldEmSeat] = deriveCodec[HoldEmSeat]
+
+  implicit val holdEmPotAwardCodec: Codec[HoldEmPotAward] = deriveCodec[HoldEmPotAward]
+
+  implicit val holdEmHandResultCodec: Codec[HoldEmHandResult] = deriveCodec[HoldEmHandResult]
+
+  implicit val holdEmStateCodec: Codec[HoldEmState] = deriveCodec[HoldEmState]
+
   /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`; Battleship has its own
     * per-viewer `BattleshipState`; Pig has `PigState`; Mastermind has `MastermindState`; Liar's Dice has
-    * `LiarsDiceState`).
+    * `LiarsDiceState`; Texas Hold 'Em has `HoldEmState`).
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson
@@ -144,6 +156,7 @@ object JsonProtocol extends CirceSupport {
     case s: PigState        => s.asJson
     case s: MastermindState => s.asJson
     case s: LiarsDiceState  => s.asJson
+    case s: HoldEmState     => s.asJson
   }
 
   // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see
