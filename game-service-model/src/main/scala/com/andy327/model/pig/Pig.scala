@@ -70,7 +70,8 @@ final case class Pig(
     *   - result 2–6: added to `turnScore`; the turn continues (a win can only be triggered by Hold, not Roll)
     *
     * On `Hold`: banks `turnScore` into `scores`; if that reaches [[Pig.WinScore]] the current player wins, otherwise
-    * the turn passes. Holding with zero turn score (no roll yet this turn) is rejected.
+    * the turn passes. Holding with zero turn score banks nothing and simply passes the turn — a legal no-score pass
+    * that lets an idle player's turn clock advance the game rather than stall it.
     */
   def play(player: Int, move: PigMove): Either[GameError, Pig] =
     if (gameStatus != InProgress)
@@ -89,21 +90,19 @@ final case class Pig(
           }
 
         case Hold =>
-          if (turnScore == 0)
-            Left(NothingToHold)
-          else {
-            val banked = scores(currentSeat) + turnScore
-            val base = copy(
-              scores = scores.updated(currentSeat, banked),
-              turnScore = 0,
-              lastRoll = None,
-              moveCount = moveCount + 1
-            )
-            if (banked >= WinScore)
-              Right(base.copy(winner = Some(currentSeat)))
-            else
-              Right(base.copy(currentSeat = nextSeat))
-          }
+          // holding with no accumulated points (turnScore 0) is a legal no-score pass: it banks nothing and advances
+          // to the next player. this lets the shared per-turn timeout auto-hold an idle player who has not yet rolled.
+          val banked = scores(currentSeat) + turnScore
+          val base = copy(
+            scores = scores.updated(currentSeat, banked),
+            turnScore = 0,
+            lastRoll = None,
+            moveCount = moveCount + 1
+          )
+          if (banked >= WinScore)
+            Right(base.copy(winner = Some(currentSeat)))
+          else
+            Right(base.copy(currentSeat = nextSeat))
       }
 
   /** The leaver forfeits; the non-leaver with the highest banked score wins (lowest seat index breaks a tie).
