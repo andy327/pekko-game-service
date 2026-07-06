@@ -14,8 +14,7 @@ import org.apache.pekko.util.Timeout
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, PlayerHistoryRepository}
-import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{PlayerGameSummary, PlayerHistory}
+import com.andy327.server.http.auth.{JwtAuthenticator, PlayerGameSummary, PlayerHistory}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for a player's own data: their current participation and their completed-game history.
@@ -33,7 +32,8 @@ import com.andy327.server.http.json.JsonProtocol._
   */
 class PlayerRoutes(
     system: ActorSystem[GameManager.Command],
-    playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository
+    playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository,
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
 )(implicit runtime: IORuntime) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
@@ -52,7 +52,7 @@ class PlayerRoutes(
       */
     path("sessions") {
       get {
-        authenticatePlayer { player =>
+        authenticator.authenticatePlayer { player =>
           onSuccess(system.ask[GameResponse](GameManager.GetPlayerSessions(player.id, _))) {
             case sessions: PlayerSessions => complete(sessions)
             case other                    => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -70,7 +70,7 @@ class PlayerRoutes(
       */
     path("history") {
       get {
-        authenticatePlayer { player =>
+        authenticator.authenticatePlayer { player =>
           onSuccess(playerHistoryRepo.findByPlayer(player.id).unsafeToFuture()) { records =>
             val games = records.map(r => PlayerGameSummary(r.matchId, r.gameType, r.result, r.forfeit, r.finishedAt))
             complete(PlayerHistory(games))

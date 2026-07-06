@@ -27,7 +27,7 @@ import com.andy327.actor.core.GameManager.{
 }
 import com.andy327.actor.lobby.LobbyError
 import com.andy327.model.core.GameType
-import com.andy327.server.http.auth.JwtPlayerDirectives._
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._
 
@@ -47,7 +47,10 @@ import com.andy327.server.http.routes.RouteDirectives._
   *   - POST /lobby/{roomId}/subscribe - Start spectating a lobby (push events over the player's WebSocket)
   *   - DELETE /lobby/{roomId}/subscribe - Stop spectating a lobby
   */
-class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
+class LobbyRoutes(
+    system: ActorSystem[GameManager.Command],
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
+) {
   implicit val timeout: Timeout = 3.seconds
   implicit val scheduler: Scheduler = system.scheduler
 
@@ -102,7 +105,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
     path("create" / Segment) { gameTypeStr =>
       parseGameType(gameTypeStr) { gameType =>
         post {
-          authenticatePlayer { player =>
+          authenticator.authenticatePlayer { player =>
             onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateLobby(gameType, player, replyTo))) {
               case created: LobbyCreated => complete(created)
               case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
@@ -143,7 +146,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             * - 500: unexpected error
             */
           delete {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.CancelLobby(roomId, player.id, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
@@ -165,7 +168,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           */
         path("join") {
           post {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(roomId, player, replyTo))) {
                 case joined: LobbyJoined       => complete(joined)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
@@ -192,7 +195,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           */
         path("leave") {
           post {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(roomId, player, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case GameForfeited(_, state)   => complete(state)
@@ -217,7 +220,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           */
         path("start") {
           post {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(roomId, player.id, replyTo))) {
                 case gs @ GameStarted(_)       => complete(gs)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
@@ -241,7 +244,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
           */
         path("subscribe") {
           post {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(
                 system.ask[GameResponse](replyTo => GameManager.SubscribePlayerToLobby(roomId, player.id, replyTo))
               ) {
@@ -264,7 +267,7 @@ class LobbyRoutes(system: ActorSystem[GameManager.Command]) {
             * - 500: unexpected error
             */
           delete {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(
                 system.ask[GameResponse](replyTo => GameManager.UnsubscribePlayerFromLobby(roomId, player.id, replyTo))
               ) {

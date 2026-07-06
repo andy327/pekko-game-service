@@ -12,15 +12,17 @@ import pdi.jwt._
 
 import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.UserContext
-import com.andy327.server.config.JwtConfig.secretKey
+import com.andy327.server.config.JwtConfig
 import com.andy327.server.http.json.JsonProtocol._
 
-/** Provides a custom Pekko HTTP directive that authenticates players using JWT tokens.
+/** Authenticates players from JWT bearer tokens, as an injectable component.
   *
   * The directive parses the Authorization header, validates the JWT using the configured secret, extracts the
-  * UserContext payload, and converts it into a Player object.
+  * `UserContext` payload, and converts it into a `Player`.
+  *
+  * @param secretKey shared secret the tokens are signed with; defaults to the configured `jwt.secret`
   */
-object JwtPlayerDirectives {
+class JwtAuthenticator(secretKey: String = JwtConfig.secretKey) {
 
   /** Custom directive that extracts a Player from a valid JWT supplied in the Authorization header.
     *

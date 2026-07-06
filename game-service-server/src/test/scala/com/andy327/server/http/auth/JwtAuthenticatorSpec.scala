@@ -14,15 +14,17 @@ import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.UserContext
 import com.andy327.server.config.JwtConfig
 
-class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
+class JwtAuthenticatorSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
+
+  private val authenticator = new JwtAuthenticator()
 
   val testRoute: Route =
-    JwtPlayerDirectives.authenticatePlayer { player =>
+    authenticator.authenticatePlayer { player =>
       complete(s"Hello, ${player.name}!")
     }
 
   val queryParamRoute: Route =
-    JwtPlayerDirectives.authenticatePlayerAllowingQueryParam { player =>
+    authenticator.authenticatePlayerAllowingQueryParam { player =>
       complete(s"Hello, ${player.name}!")
     }
 
@@ -33,7 +35,7 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
     (player, JwtCirce.encode(userContext.asJson, JwtConfig.secretKey, JwtAlgorithm.HS256))
   }
 
-  "JwtPlayerDirectives.authenticatePlayer" should {
+  "JwtAuthenticator.authenticatePlayer" should {
     "reject if Authorization header is missing" in
       Get("/") ~> testRoute ~> check {
         status shouldBe StatusCodes.Unauthorized
@@ -92,7 +94,7 @@ class JwtPlayerDirectivesSpec extends AnyWordSpec with Matchers with ScalatestRo
     }
   }
 
-  "JwtPlayerDirectives.authenticatePlayerAllowingQueryParam" should {
+  "JwtAuthenticator.authenticatePlayerAllowingQueryParam" should {
     "accept a valid JWT from the access_token query parameter" in {
       val (_, token) = tokenForNewPlayer("carol")
       Get(s"/?access_token=$token") ~> queryParamRoute ~> check {

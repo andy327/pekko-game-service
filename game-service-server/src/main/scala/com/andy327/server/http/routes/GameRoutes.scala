@@ -28,7 +28,7 @@ import com.andy327.actor.core.GameManager.{
 }
 import com.andy327.actor.game.{GameOperation, GameRegistry}
 import com.andy327.model.core.GameType
-import com.andy327.server.http.auth.JwtPlayerDirectives._
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.routes.RouteDirectives._
 
@@ -49,7 +49,11 @@ import com.andy327.server.http.routes.RouteDirectives._
   *   - POST /{gameType}/{roomId}/subscribe - Start spectating a game (push events over the player's WebSocket)
   *   - DELETE /{gameType}/{roomId}/subscribe - Stop spectating a game
   */
-class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
+class GameRoutes(
+    gameType: GameType,
+    system: ActorSystem[Command],
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
+) {
   implicit val scheduler: Scheduler = system.scheduler
   implicit val timeout: Timeout = 3.seconds
   implicit val ec: ExecutionContext = system.executionContext
@@ -99,7 +103,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           * - 500: unexpected error
           */
         path("move") {
-          authenticatePlayer { player =>
+          authenticator.authenticatePlayer { player =>
             post {
               extractRequest { req =>
                 onSuccess(decodeJsonEntity(module.moveDecoder)(req)) {
@@ -190,7 +194,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
           */
         path("subscribe") {
           post {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(roomId, player.id, _))) {
                 case ack: SubscribeAcknowledged => complete(ack)
                 case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
@@ -211,7 +215,7 @@ class GameRoutes(gameType: GameType, system: ActorSystem[Command]) {
             * - 500: unexpected error
             */
           delete {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](GameManager.UnsubscribePlayerFromGame(roomId, player.id, _))) {
                 case ack: UnsubscribeAcknowledged => complete(ack)
                 case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")

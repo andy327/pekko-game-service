@@ -47,6 +47,7 @@ import com.andy327.server.auth.{
   RedisAuthRateLimiter
 }
 import com.andy327.server.config.AuthRateLimitConfig
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.routes.{
   AuthRoutes,
   GameRoutes,
@@ -142,7 +143,8 @@ object GameServer {
       publisher: EventPublisher = NoOpEventPublisher,
       metricsRegistry: CollectorRegistry = new CollectorRegistry(),
       authRateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
-      authRateLimitConfig: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig()
+      authRateLimitConfig: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
+      authenticator: JwtAuthenticator = new JwtAuthenticator()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
@@ -155,18 +157,18 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig).routes,
-      new PlayerRoutes(system, playerHistoryRepo).routes,
-      new LobbyRoutes(system).routes,
-      new GameRoutes(GameType.TicTacToe, system).routes,
-      new GameRoutes(GameType.ConnectFour, system).routes,
-      new GameRoutes(GameType.Battleship, system).routes,
-      new GameRoutes(GameType.Pig, system).routes,
-      new GameRoutes(GameType.Mastermind, system).routes,
-      new GameRoutes(GameType.LiarsDice, system).routes,
-      new GameRoutes(GameType.TexasHoldEm, system).routes,
-      new WebSocketRoutes(system).routes,
-      new TraceRoutes(system).routes,
+      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig, authenticator).routes,
+      new PlayerRoutes(system, playerHistoryRepo, authenticator).routes,
+      new LobbyRoutes(system, authenticator).routes,
+      new GameRoutes(GameType.TicTacToe, system, authenticator).routes,
+      new GameRoutes(GameType.ConnectFour, system, authenticator).routes,
+      new GameRoutes(GameType.Battleship, system, authenticator).routes,
+      new GameRoutes(GameType.Pig, system, authenticator).routes,
+      new GameRoutes(GameType.Mastermind, system, authenticator).routes,
+      new GameRoutes(GameType.LiarsDice, system, authenticator).routes,
+      new GameRoutes(GameType.TexasHoldEm, system, authenticator).routes,
+      new WebSocketRoutes(system, authenticator).routes,
+      new TraceRoutes(system, authenticator).routes,
       new MetricsRoutes(metricsRegistry).routes,
       new StaticRoutes().routes // Web UI; composed last so its catch-all resource lookup doesn't shadow an API route
     )

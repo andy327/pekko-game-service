@@ -18,7 +18,7 @@ import org.apache.pekko.util.Timeout
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent}
 import com.andy327.actor.lobby.Player
-import com.andy327.server.http.auth.JwtPlayerDirectives._
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.ClientMessage
 import com.andy327.server.http.json.JsonProtocol._
 
@@ -41,7 +41,10 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - Sends to: `GameManager` (`RegisterPlayer` on connect, `SendChat` on an inbound chat frame, `PlayerDisconnected`
   *     on close)
   */
-class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
+class WebSocketRoutes(
+    gameManager: ActorSystem[GameManager.Command],
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
+) {
   implicit private val system: ActorSystem[GameManager.Command] = gameManager
   implicit private val timeout: Timeout = Timeout(5.seconds)
   implicit private val mat: Materializer = Materializer(system)
@@ -49,7 +52,7 @@ class WebSocketRoutes(gameManager: ActorSystem[GameManager.Command]) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   val routes: Route = path("ws") {
-    authenticatePlayerAllowingQueryParam { player =>
+    authenticator.authenticatePlayerAllowingQueryParam { player =>
       handleWebSocketMessages(buildFlow(player))
     }
   }

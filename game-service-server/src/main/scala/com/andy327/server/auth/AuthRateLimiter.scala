@@ -63,7 +63,7 @@ object NoOpAuthRateLimiter extends AuthRateLimiter {
 }
 
 /** An in-memory [[AuthRateLimiter]] with the same semantics as the Redis-backed one, used for tests and single-process
-  * runs where no Redis is wired. Expiry is driven by an injectable [[Clock]] so lockout windows can be exercised
+  * runs where no Redis is wired. Expiry is driven by an injectable `Clock` so lockout windows can be exercised
   * deterministically in tests.
   */
 class InMemoryAuthRateLimiter(implicit clock: Clock = Clock.systemUTC()) extends AuthRateLimiter {

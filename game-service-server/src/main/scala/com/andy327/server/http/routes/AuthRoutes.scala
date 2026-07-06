@@ -18,8 +18,13 @@ import com.andy327.server.auth.{
   UserContext
 }
 import com.andy327.server.config.AuthRateLimitConfig
-import com.andy327.server.http.auth.JwtPlayerDirectives._
-import com.andy327.server.http.auth.{AuthValidation, ChangePasswordRequest, LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{
+  AuthValidation,
+  ChangePasswordRequest,
+  JwtAuthenticator,
+  LoginRequest,
+  RegisterRequest
+}
 import com.andy327.server.http.json.JsonProtocol._
 
 /** HTTP routes for registration, authentication, and token issuance.
@@ -28,9 +33,9 @@ import com.andy327.server.http.json.JsonProtocol._
   * asserted by the client: the
   * token a caller receives attests to the account the server authenticated, and its id comes from that account.
   *
-  * The credential-bearing endpoints are rate limited via an [[AuthRateLimiter]]: a per-IP fixed-window throttle guards
-  * register/login/password against spraying, and repeated failed logins lock an account (by email) for a cool-off
-  * period. Both default to no-ops.
+  * The credential-bearing endpoints are rate limited via an [[server.auth.AuthRateLimiter]]: a per-IP fixed-window
+  * throttle guards register/login/password against spraying, and repeated failed logins lock an account (by email) for
+  * a cool-off period. Both default to no-ops.
   *
   * Route Summary:
   *   - POST /auth/register - Create an account and receive a signed JWT
@@ -41,7 +46,8 @@ import com.andy327.server.http.json.JsonProtocol._
 class AuthRoutes(
     identityProvider: IdentityProvider,
     rateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
-    limits: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig()
+    limits: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
 )(implicit runtime: IORuntime) {
   private val jwtIssuer = JwtIssuer.fromConfig()
 
@@ -167,7 +173,7 @@ class AuthRoutes(
       post {
         clientIp { ip =>
           ipThrottle("password", ip) {
-            authenticatePlayer { player =>
+            authenticator.authenticatePlayer { player =>
               entity(as[ChangePasswordRequest]) { req =>
                 AuthValidation.validatePasswordChange(req) match {
                   case Left(error) =>
@@ -195,7 +201,7 @@ class AuthRoutes(
       * - 401: missing token, invalid or expired token, undecodable payload, or malformed player ID
       */
     path("whoami") {
-      authenticatePlayer { player =>
+      authenticator.authenticatePlayer { player =>
         get {
           complete(player)
         }
