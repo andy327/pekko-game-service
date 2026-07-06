@@ -38,7 +38,15 @@ import com.andy327.persistence.db.{
   PlayerHistoryRepository
 }
 import com.andy327.server.analytics.{AnalyticsConsumer, GameMetrics, RedisAnalyticsPublisher}
-import com.andy327.server.auth.{IdentityProvider, PasswordHasher, PasswordIdentityProvider}
+import com.andy327.server.auth.{
+  AuthRateLimiter,
+  IdentityProvider,
+  NoOpAuthRateLimiter,
+  PasswordHasher,
+  PasswordIdentityProvider,
+  RedisAuthRateLimiter
+}
+import com.andy327.server.config.AuthRateLimitConfig
 import com.andy327.server.http.routes.{
   AuthRoutes,
   GameRoutes,
@@ -81,6 +89,11 @@ object GameServer {
       val userRepo = new PostgresUserRepository(xa)
       val identityProvider = new PasswordIdentityProvider(userRepo, PasswordHasher.fromConfig())
 
+      // Auth rate limiting: a Redis-backed throttle/lockout when enabled, otherwise a no-op limiter
+      val rateLimitConfig = AuthRateLimitConfig.fromConfig(config)
+      val authRateLimiter: AuthRateLimiter =
+        if (rateLimitConfig.enabled) new RedisAuthRateLimiter(redis) else NoOpAuthRateLimiter
+
       // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
@@ -105,7 +118,9 @@ object GameServer {
           playerHistoryRepo,
           identityProvider,
           publisher,
-          registry
+          registry,
+          authRateLimiter,
+          rateLimitConfig
         ).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -125,7 +140,9 @@ object GameServer {
       identityProvider: IdentityProvider =
         new PasswordIdentityProvider(new InMemoryUserRepository, PasswordHasher.fromConfig()),
       publisher: EventPublisher = NoOpEventPublisher,
-      metricsRegistry: CollectorRegistry = new CollectorRegistry()
+      metricsRegistry: CollectorRegistry = new CollectorRegistry(),
+      authRateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
+      authRateLimitConfig: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
@@ -138,7 +155,7 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider).routes,
+      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig).routes,
       new PlayerRoutes(system, playerHistoryRepo).routes,
       new LobbyRoutes(system).routes,
       new GameRoutes(GameType.TicTacToe, system).routes,
