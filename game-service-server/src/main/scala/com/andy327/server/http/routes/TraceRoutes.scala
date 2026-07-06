@@ -16,7 +16,7 @@ import org.apache.pekko.util.Timeout
 
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.tracing.{TraceCollector, TraceEvent}
-import com.andy327.server.http.auth.JwtPlayerDirectives._
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
 
 /** Debug HTTP route that streams live `TraceEvent`s for actor message tracing visualization.
@@ -35,14 +35,17 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - Sends to: `GameManager` (`GetTraceCollector` on connect), the resolved `trace-collector`
   *     (`TraceCollector.Subscribe` on connect, `TraceCollector.Unsubscribe` on close)
   */
-class TraceRoutes(gameManager: ActorSystem[GameManager.Command]) {
+class TraceRoutes(
+    gameManager: ActorSystem[GameManager.Command],
+    authenticator: JwtAuthenticator = new JwtAuthenticator()
+) {
   implicit private val system: ActorSystem[GameManager.Command] = gameManager
   implicit private val timeout: Timeout = Timeout(5.seconds)
   implicit private val mat: Materializer = Materializer(system)
   private val ec = system.executionContext
 
   val routes: Route = path("ws" / "trace") {
-    authenticatePlayerAllowingQueryParam { _ =>
+    authenticator.authenticatePlayerAllowingQueryParam { _ =>
       onSuccess(gameManager ? GameManager.GetTraceCollector) {
         case Some(collector) => handleWebSocketMessages(buildFlow(collector))
         case None            => complete(StatusCodes.ServiceUnavailable -> "tracing is disabled")

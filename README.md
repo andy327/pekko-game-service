@@ -123,6 +123,7 @@ Every setting has a working default for local development and can be overridden 
 | `JWT_TTL` | `1h` | Lifetime of an issued access token |
 | `CHAT_MAX_MESSAGES` | `100` | Per-match chat backscroll retained for `GET /chat` |
 | `ARGON2_MEMORY_KIB` / `ARGON2_ITERATIONS` / `ARGON2_PARALLELISM` | `19456` / `2` / `1` | Argon2id password-hashing cost (OWASP baseline) |
+| `AUTH_RATE_LIMIT_ENABLED` | `true` | Master switch for auth throttling/lockout; the window, per-IP limit, and lockout thresholds are further tunable under `auth.rate-limit` |
 
 ### A two-minute walkthrough
 
@@ -170,8 +171,11 @@ All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a 
 |--------|------|-------------|
 | `POST` | `/auth/register` | Create an account (`username`, `email`, `password`) and receive a JWT |
 | `POST` | `/auth/token` | Authenticate with `email` + `password` and receive a JWT |
-| `POST` | `/auth/password` | Change the authenticated account's password (does not revoke existing tokens) |
+| `POST` | `/auth/password` | Change the authenticated account's password (revokes the account's existing tokens) |
+| `POST` | `/auth/logout` | Revoke the account's outstanding tokens ("log out everywhere") |
 | `GET`  | `/auth/whoami` | Return the caller's player `id` and `name` decoded from the token |
+
+The credential endpoints (`/auth/register`, `/auth/token`, `/auth/password`) are rate limited per client IP, and repeated failed logins temporarily lock the account; exceeding a limit returns `429 Too Many Requests` with a `Retry-After` header. Logout and password change revoke the account's already-issued tokens, so they stop being accepted before they expire.
 
 ### Lobbies
 
@@ -345,7 +349,7 @@ $ sbt actor/test    # a single module
 Planned work, in rough priority order:
 
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would carry cross-instance delivery between game actors and player sessions directly, while the analytics event stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
-- **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. Considered and deliberately deferred: **token revocation** — JWTs are stateless, so a password change or "log out" doesn't invalidate already-issued tokens before they expire; closing that needs a per-account token version baked into the claim (or a `jti` denylist in Redis) checked at validation time. **Password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration. **Rate limiting / lockout** on the auth endpoints to slow credential stuffing, and **email-address verification** at registration, are likewise out of scope for now. The short token TTL keeps the revocation gap small in the meantime.
+- **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. **Token revocation** is now implemented: since JWTs are stateless, each account keeps a Redis-backed "revoked-before" cutoff (self-expiring after the token TTL) that logout and password change advance to now, and the authenticator rejects any token issued before it — so those actions invalidate already-issued tokens instead of waiting for expiry. **Rate limiting and lockout** are also in place: a per-IP fixed-window throttle on the auth endpoints plus a per-account lockout after repeated failed logins, both Redis-backed and returning `429` with `Retry-After` (tunable under `auth.rate-limit`). Still deliberately deferred: **password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration; and **email-address verification** at registration, which reuses that same email seam.
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
 - **More game types** — additional turn-based games beyond the current seven.
 - **AI opponent** — a bot player for single-player matches and testing.
