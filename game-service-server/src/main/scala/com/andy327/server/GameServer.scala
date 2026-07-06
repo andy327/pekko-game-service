@@ -42,9 +42,12 @@ import com.andy327.server.auth.{
   AuthRateLimiter,
   IdentityProvider,
   NoOpAuthRateLimiter,
+  NoOpRevocationStore,
   PasswordHasher,
   PasswordIdentityProvider,
-  RedisAuthRateLimiter
+  RedisAuthRateLimiter,
+  RedisRevocationStore,
+  RevocationStore
 }
 import com.andy327.server.config.AuthRateLimitConfig
 import com.andy327.server.http.auth.JwtAuthenticator
@@ -95,6 +98,10 @@ object GameServer {
       val authRateLimiter: AuthRateLimiter =
         if (rateLimitConfig.enabled) new RedisAuthRateLimiter(redis) else NoOpAuthRateLimiter
 
+      // Token revocation: a Redis-backed cutoff store that logout/password-change write and the authenticator enforces
+      val revocationStore = new RedisRevocationStore(redis)
+      val authenticator = new JwtAuthenticator(revocationStore = revocationStore)
+
       // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
@@ -121,7 +128,9 @@ object GameServer {
           publisher,
           registry,
           authRateLimiter,
-          rateLimitConfig
+          rateLimitConfig,
+          authenticator,
+          revocationStore
         ).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -144,7 +153,8 @@ object GameServer {
       metricsRegistry: CollectorRegistry = new CollectorRegistry(),
       authRateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
       authRateLimitConfig: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
-      authenticator: JwtAuthenticator = new JwtAuthenticator()
+      authenticator: JwtAuthenticator = new JwtAuthenticator(),
+      revocationStore: RevocationStore = NoOpRevocationStore
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
@@ -157,7 +167,7 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig, authenticator).routes,
+      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig, authenticator, revocationStore).routes,
       new PlayerRoutes(system, playerHistoryRepo, authenticator).routes,
       new LobbyRoutes(system, authenticator).routes,
       new GameRoutes(GameType.TicTacToe, system, authenticator).routes,

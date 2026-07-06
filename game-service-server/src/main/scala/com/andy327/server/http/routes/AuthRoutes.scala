@@ -1,23 +1,28 @@
 package com.andy327.server.http.routes
 
+import java.time.Instant
+
 import cats.effect.unsafe.IORuntime
 
-import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.headers.`Retry-After`
+import org.apache.pekko.http.scaladsl.model.{StatusCode, StatusCodes}
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.{Directive1, Route}
 
+import com.andy327.actor.lobby.Player
 import com.andy327.persistence.db.Account
 import com.andy327.server.auth.{
   AuthRateLimiter,
   IdentityProvider,
   JwtIssuer,
   NoOpAuthRateLimiter,
+  NoOpRevocationStore,
   RateLimitOutcome,
   RegisterError,
+  RevocationStore,
   UserContext
 }
-import com.andy327.server.config.AuthRateLimitConfig
+import com.andy327.server.config.{AuthRateLimitConfig, JwtConfig}
 import com.andy327.server.http.auth.{
   AuthValidation,
   ChangePasswordRequest,
@@ -41,13 +46,15 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - POST /auth/register - Create an account and receive a signed JWT
   *   - POST /auth/token - Authenticate with credentials and receive a signed JWT
   *   - POST /auth/password - Change the authenticated account's password
+  *   - POST /auth/logout - Revoke the account's outstanding tokens (log out everywhere)
   *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
   */
 class AuthRoutes(
     identityProvider: IdentityProvider,
     rateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
     limits: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
-    authenticator: JwtAuthenticator = new JwtAuthenticator()
+    authenticator: JwtAuthenticator = new JwtAuthenticator(),
+    revocationStore: RevocationStore = NoOpRevocationStore
 )(implicit runtime: IORuntime) {
   private val jwtIssuer = JwtIssuer.fromConfig()
 
@@ -78,6 +85,14 @@ class AuthRoutes(
 
   /** Lockout key for an account, normalized to lower case so it matches regardless of how the email was cased. */
   private def lockoutKey(email: String): String = s"login:email:${email.toLowerCase}"
+
+  /** Revokes every token the account currently holds (issued before now), then completes with `status`. The cutoff is
+    * kept for the token lifetime, after which those tokens have expired anyway. Used by logout and password change.
+    */
+  private def revokeTokensThen(player: Player, status: StatusCode): Route = {
+    val revoked = revocationStore.revokeBefore(player.id, Instant.now(), JwtConfig.ttl).as(status)
+    onSuccess(revoked.unsafeToFuture())(complete(_))
+  }
 
   val routes: Route = pathPrefix("auth") {
 
@@ -167,7 +182,7 @@ class AuthRoutes(
       * - 403: the current password is incorrect
       * - 429: too many requests from this IP; retry after the `Retry-After` header
       *
-      * Existing tokens are not revoked by a change — they remain valid until they expire.
+      * A successful change revokes the account's existing tokens, so tokens issued before it stop being accepted.
       */
     path("password") {
       post {
@@ -182,13 +197,26 @@ class AuthRoutes(
                     onSuccess(
                       identityProvider.changePassword(player.id, req.currentPassword, req.newPassword).unsafeToFuture()
                     ) {
-                      case Right(_) => complete(StatusCodes.NoContent)
+                      case Right(_) => revokeTokensThen(player, StatusCodes.NoContent)
                       case Left(_) => complete(StatusCodes.Forbidden -> Map("error" -> "Current password is incorrect"))
                     }
                 }
               }
             }
           }
+        }
+      }
+    } ~
+    /** Logs the caller out by revoking every token their account currently holds ("log out everywhere").
+      *
+      * - Auth: Bearer token required
+      * - 204: the account's outstanding tokens are revoked; they will no longer be accepted
+      * - 401: missing, invalid, or expired token
+      */
+    path("logout") {
+      post {
+        authenticator.authenticatePlayer { player =>
+          revokeTokensThen(player, StatusCodes.NoContent)
         }
       }
     } ~
