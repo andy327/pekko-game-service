@@ -1,9 +1,10 @@
 package com.andy327.actor.core
 
+import scala.concurrent.duration.FiniteDuration
 import scala.reflect.ClassTag
 
 import io.circe.Encoder
-import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.events.{EventPublisher, GameEvent}
@@ -61,6 +62,33 @@ object TurnBasedGameActor {
     * state change while the game is active.
     */
   final case class SnapshotSaved(result: Either[Throwable, Unit]) extends Command[Nothing]
+
+  /** Fired by the per-turn timer when `playerId`'s clock expires. Keyed to the turn it was armed for: `forMoveCount` is
+    * the game's `moveCount` at arm time, so a timeout that arrives after the player already moved (and the game
+    * advanced) no longer matches the current turn and is ignored by the active behavior's handler. Internal — only the
+    * actor's own `TimerScheduler` sends it.
+    */
+  final case class TurnTimeout(playerId: PlayerId, forMoveCount: Int) extends Command[Nothing]
+
+  /** The fallback the shared actor applies when a player's turn clock expires. Supplied per game type via the
+    * `timeoutAction` seam: a game with a safe "no-op" move returns [[TimeoutAction.AutoMove]] (auto-played and recorded
+    * like a normal move), while a game with no pass returns [[TimeoutAction.Forfeit]] (routed through
+    * `Game.playerLeft`, handing two-player games to the opponent).
+    *
+    * @tparam M the game's move type; covariant so `Forfeit` fits any game's actor
+    */
+  sealed trait TimeoutAction[+M]
+  object TimeoutAction {
+
+    /** Auto-play `move` on behalf of the timed-out player (e.g. Pig auto-hold, Hold 'Em auto-check-or-fold). */
+    final case class AutoMove[M](move: M) extends TimeoutAction[M]
+
+    /** Forfeit the timed-out player via `Game.playerLeft`. */
+    case object Forfeit extends TimeoutAction[Nothing]
+  }
+
+  /** Timer key for the single per-turn clock; re-arming with this key replaces any prior turn's timer. */
+  private case object TurnTimerKey
 }
 
 /** The single [[GameActor]] implementation shared by every turn-based game.
@@ -97,6 +125,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
   type Command = TurnBasedGameActor.Command[M]
 
+  /** Per-game policy for an expired turn clock, given the current game: a safe auto-move or a forfeit. Defaults to
+    * `TimeoutAction.Forfeit`, which suits every game with no "pass"; games with a safe no-op (Pig, Texas Hold 'Em)
+    * override it. Only consulted when a turn clock is configured for this game type (see
+    * `pekko-game-service.turn-timeouts`).
+    */
+  protected def timeoutAction(game: G): TimeoutAction[M] = TimeoutAction.Forfeit
+
   override def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand =
     Subscribe(playerRef, playerId)
 
@@ -125,6 +160,28 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       case _                       => None
     }
 
+  /** The turn clock configured for this game type, read from the actor system's config so a test can inject a short
+    * (or absent) duration. `None` means no timer is ever armed — the original wait-forever behavior.
+    */
+  private def turnTimeoutFor(context: ActorContext[Command]): Option[FiniteDuration] =
+    TurnTimeoutConfig.fromConfig(context.system.settings.config).forGameType(gameType)
+
+  /** The platform id of the seat whose turn it is, resolved from the game's `currentPlayer` token. */
+  private def currentPlayerId(game: G): Option[PlayerId] =
+    game.players.find(pid => game.playerFor(pid).contains(game.currentPlayer))
+
+  /** Arm (or re-arm) the single per-turn timer for the current player, keyed to `moveCount` so a stale fire is
+    * ignored. A no-op when no clock is configured or the game is not in progress. Re-arming replaces any prior turn's
+    * timer, so each move restarts the clock for the next player.
+    */
+  private def armTurnTimer(timers: TimerScheduler[Command], game: G, timeout: Option[FiniteDuration]): Unit =
+    timeout.foreach { duration =>
+      if (game.gameStatus == InProgress)
+        currentPlayerId(game).foreach { pid =>
+          timers.startSingleTimer(TurnTimerKey, TurnTimeout(pid, game.moveCount), duration)
+        }
+    }
+
   /** Initializes a new game actor with an empty game. */
   override def create(
       matchId: MatchId,
@@ -137,7 +194,11 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     val game = newGame(players)
     val behavior = Behaviors.setup[Command] { context =>
       context.log.info(s"[$matchId] starting new game")
-      active(game, matchId, roomId, persist, gameManager, Map.empty, publisher)
+      Behaviors.withTimers[Command] { timers =>
+        val timeout = turnTimeoutFor(context)
+        armTurnTimer(timers, game, timeout)
+        active(game, matchId, roomId, persist, gameManager, Map.empty, publisher, timers, timeout)
+      }
     }
     (game, behavior)
   }
@@ -162,7 +223,11 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
           game.gameStatus match {
             case InProgress =>
               context.log.info(s"[$matchId] restored in-progress game")
-              active(game, matchId, roomId, persist, gameManager, Map.empty, publisher)
+              Behaviors.withTimers[Command] { timers =>
+                val timeout = turnTimeoutFor(context)
+                armTurnTimer(timers, game, timeout)
+                active(game, matchId, roomId, persist, gameManager, Map.empty, publisher, timers, timeout)
+              }
             case Won(_) | Draw =>
               context.log.info(s"[$matchId] restored as already-completed game — notifying GameManager and stopping")
               gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed)
@@ -203,7 +268,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
       publisher: EventPublisher,
       forfeit: Boolean,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameState]],
+      timers: TimerScheduler[Command],
+      timeout: Option[FiniteDuration]
   )(appendMove: => Unit = ()): Behavior[Command] = {
     context.log.info(s"Match $matchId updated:\n$nextState")
 
@@ -252,10 +319,14 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         // chat and the post-game state; re-key by playerId to match the GameCompleted/MatchEnded shape
         val subscribersByPlayer = subscribers.map { case (ref, pid) => pid -> ref }
         gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed, subscribersByPlayer)
+        // the game is over: cancel any pending turn clock so it cannot fire during terminating
+        timers.cancel(TurnTimerKey)
         terminating(matchId)
 
       case InProgress =>
-        active(nextState, matchId, roomId, persist, gameManager, subscribers, publisher)
+        // the turn advanced (or a multi-seat fold-out kept the game going): restart the clock for the new player
+        armTurnTimer(timers, nextState, timeout)
+        active(nextState, matchId, roomId, persist, gameManager, subscribers, publisher, timers, timeout)
     }
   }
 
@@ -273,7 +344,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       persist: ActorRef[PersistenceProtocol.Command],
       gameManager: ActorRef[GameManager.Command],
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
-      publisher: EventPublisher
+      publisher: EventPublisher,
+      timers: TimerScheduler[Command],
+      timeout: Option[FiniteDuration]
   ): Behavior[Command] = Behaviors.receive[Command] { (context, msg) =>
     msg match {
       case MakeMove(playerId, move, replyTo) =>
@@ -293,7 +366,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
                   subscribers,
                   publisher,
                   forfeit = false,
-                  replyTo
+                  replyTo,
+                  timers,
+                  timeout
                 ) {
                   // record the move in the append-only history log; seq is the pre-move count (0-based ordinal)
                   persist ! PersistenceProtocol.AppendMove(matchId, game.moveCount, playerId, moveEncoder(move))
@@ -328,7 +403,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
               subscribers,
               publisher,
               forfeit = true,
-              replyTo
+              replyTo,
+              timers,
+              timeout
             )()
 
           case Left(err) =>
@@ -336,6 +413,74 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
             replyTo ! Left(err)
             Behaviors.same
         }
+
+      case TurnTimeout(playerId, forMoveCount) =>
+        // stale-timer guard: only act if this fire still matches the current turn. A move already applied (advancing
+        // moveCount, and usually currentPlayer) makes an in-flight timeout from the prior turn a no-op.
+        val isCurrentTurn =
+          game.gameStatus == InProgress && game.moveCount == forMoveCount && currentPlayerId(game).contains(playerId)
+        if (!isCurrentTurn) {
+          context.log.debug(s"[$matchId] stale turn timeout for $playerId@$forMoveCount ignored")
+          Behaviors.same
+        } else
+          timeoutAction(game) match {
+            case TimeoutAction.Forfeit =>
+              context.log.info(s"[$matchId] turn timeout: $playerId forfeits")
+              game.playerLeft(playerId) match {
+                case Right(nextState) =>
+                  applyTransition(
+                    context,
+                    nextState,
+                    playerId,
+                    matchId,
+                    roomId,
+                    persist,
+                    gameManager,
+                    subscribers,
+                    publisher,
+                    forfeit = true,
+                    context.system.ignoreRef,
+                    timers,
+                    timeout
+                  )()
+
+                // unreachable: the isCurrentTurn guard already established InProgress and that playerId is the current
+                // participant, so a game's playerLeft cannot reject this forfeit
+                case Left(err) =>
+                  context.log.warn(s"[$matchId] timeout forfeit rejected: $err")
+                  Behaviors.same
+              }
+
+            case TimeoutAction.AutoMove(move) =>
+              // isCurrentTurn guarantees currentPlayer is playerId's seat, so play on that token
+              game.play(game.currentPlayer, move) match {
+                case Right(nextState) =>
+                  context.log.info(s"[$matchId] turn timeout: auto-move for $playerId")
+                  applyTransition(
+                    context,
+                    nextState,
+                    playerId,
+                    matchId,
+                    roomId,
+                    persist,
+                    gameManager,
+                    subscribers,
+                    publisher,
+                    forfeit = false,
+                    context.system.ignoreRef,
+                    timers,
+                    timeout
+                  ) {
+                    // an auto-move is a real move: record it in the history log and emit the analytics event
+                    persist ! PersistenceProtocol.AppendMove(matchId, game.moveCount, playerId, moveEncoder(move))
+                    publisher.publish(GameEvent.MoveMade(matchId, gameType, playerId, game.moveCount))
+                  }
+
+                case Left(err) =>
+                  context.log.warn(s"[$matchId] timeout auto-move rejected: $err")
+                  Behaviors.same
+              }
+          }
 
       case GetState(replyTo) =>
         replyTo ! Right(view.fromGame(game, None))
@@ -350,12 +495,13 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         val viewState = view.fromGame(game, Some(playerId))
         val event = PlayerEvent.GameStateUpdated(roomId, viewState, spectatorCount(updatedSubscribers, game))
         playerRef ! PlayerActor.SendEvent(event)
-        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher)
+        // a spectator (un)subscribing does not change whose turn it is, so the running turn clock is left untouched
+        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher, timers, timeout)
 
       case Unsubscribe(playerRef) =>
         context.unwatch(playerRef)
         val updatedSubscribers = subscribers - playerRef
-        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher)
+        active(game, matchId, roomId, persist, gameManager, updatedSubscribers, publisher, timers, timeout)
 
       case Broadcast(event) =>
         // chat and other broadcasts carry no hidden state, so every viewer gets the same event
@@ -372,6 +518,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
   }.receiveSignal { case (context, Terminated(ref)) =>
     // a subscribed PlayerActor stopped; drop its (now-dead) ref so we stop fanning events to it
     context.log.debug(s"[$matchId] subscriber $ref terminated; removing from subscribers")
-    active(game, matchId, roomId, persist, gameManager, subscribers.filterNot { case (r, _) => r == ref }, publisher)
+    val remaining = subscribers.filterNot { case (r, _) => r == ref }
+    active(game, matchId, roomId, persist, gameManager, remaining, publisher, timers, timeout)
   }
 }
