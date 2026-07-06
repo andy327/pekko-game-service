@@ -4,6 +4,7 @@ import io.circe.syntax._
 import io.circe.{Encoder, Json}
 
 import com.andy327.actor.core.TurnBasedGameActor
+import com.andy327.actor.core.TurnBasedGameActor.TimeoutAction
 import com.andy327.actor.game.HoldEmState
 import com.andy327.actor.game.modules.TexasHoldEmModule
 import com.andy327.model.holdem.Action.{Bet, Call, Check, Fold, Raise}
@@ -18,6 +19,11 @@ import com.andy327.model.holdem.{HoldEmMove, TexasHoldEm}
   *
   * The move-log encoder records a bet's or raise's amount but omits the deck each move carries: that deck is internal
   * server randomness for the next hand, not meaningful public history.
+  *
+  * On a turn timeout Hold 'Em plays the soft, never-forfeiting safe action: auto-check when checking is free
+  * (`toCall == 0`), otherwise auto-fold. The player only loses the current hand and stays in the sit-and-go; repeated
+  * timeouts blind them down until they bust naturally. The auto-fold carries a fresh deck like any other action, since
+  * folding can end the hand and deal the next.
   */
 object TexasHoldEmActor
     extends TurnBasedGameActor[TexasHoldEm, HoldEmMove, Int, HoldEmState](
@@ -31,4 +37,10 @@ object TexasHoldEmActor
           case Raise(a) => Json.obj("action" -> "raise".asJson, "amount" -> a.asJson)
         }
       }
-    )
+    ) {
+
+  override protected def timeoutAction(game: TexasHoldEm): TimeoutAction[HoldEmMove] = {
+    val action = if (game.toCall(game.currentPlayer) == 0) Check else Fold
+    TimeoutAction.AutoMove(HoldEmMove(action, TexasHoldEmModule.shuffledDeck()))
+  }
+}

@@ -58,6 +58,18 @@ class TexasHoldEmActorSpec extends AnyWordSpecLike with Matchers {
     persistProbe.expectMessageType[PersistenceProtocol.AppendMove].move
   }
 
+  /** Fires the turn clock for `player`'s turn `forMoveCount` and returns the JSON logged for the auto-move. */
+  private def timedOutMove(
+      actor: ActorRef[TexasHoldEmActor.Command],
+      persistProbe: TestProbe[PersistenceProtocol.Command],
+      player: PlayerId,
+      forMoveCount: Int
+  ): io.circe.Json = {
+    actor ! TurnBasedGameActor.TurnTimeout(player, forMoveCount)
+    persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+    persistProbe.expectMessageType[PersistenceProtocol.AppendMove].move
+  }
+
   "TexasHoldEmActor's move-log encoder" should {
     "record a raise's amount but never the deck it carries" in {
       val (actor, persistProbe) = newActor()
@@ -73,6 +85,23 @@ class TexasHoldEmActorSpec extends AnyWordSpecLike with Matchers {
       val json = loggedMove(actor, persistProbe, alice, HoldEmMove(Call, deck))
       json.hcursor.get[String]("action") shouldBe Right("call")
       json.asObject.map(_.keys.toList) shouldBe Some(List("action"))
+    }
+  }
+
+  "TexasHoldEmActor's turn-timeout policy" should {
+    "auto-fold the current player when they face a bet" in {
+      val (actor, persistProbe) = newActor()
+      // heads-up pre-flop, seat 0 (SB) is first to act and still owes the big blind (toCall > 0), so it folds
+      val json = timedOutMove(actor, persistProbe, alice, 0)
+      json.hcursor.get[String]("action") shouldBe Right("fold")
+    }
+
+    "auto-check the current player when checking is free" in {
+      val (actor, persistProbe) = newActor()
+      // seat 0 (SB) completes the blind; now seat 1 (BB) has the option with nothing to call (toCall == 0)
+      loggedMove(actor, persistProbe, alice, HoldEmMove(Call, deck))
+      val json = timedOutMove(actor, persistProbe, bob, 1)
+      json.hcursor.get[String]("action") shouldBe Right("check")
     }
   }
 }

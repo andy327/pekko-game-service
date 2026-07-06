@@ -108,9 +108,12 @@ class PigSpec extends AnyWordSpec with Matchers {
       held.scores(0) shouldBe 101
     }
 
-    "reject Hold when no roll has been made this turn" in {
+    "pass the turn on Hold with no roll this turn, banking nothing" in {
       val game = Pig.newGame(Seq(alice, bob))
-      game.play(0, Hold) shouldBe Left(NothingToHold)
+      val Right(passed) = game.play(0, Hold)
+      passed.scores(0) shouldBe 0
+      passed.currentSeat shouldBe 1
+      passed.gameStatus shouldBe InProgress
     }
 
     "wrap the turn back to the first seat after the last" in {
