@@ -25,6 +25,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 - 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
 - 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, Mastermind, Liar's Dice, and Texas Hold 'Em
 - ✅ Server-side move validation (turn order and legality enforced by the game model)
+- ⏱️ Per-turn timeouts — an idle or disconnected player can't stall a match: when a seat's clock runs out the game applies a safe fallback (Texas Hold 'Em auto-checks or folds, Pig auto-holds) or forfeits the seat, so play always progresses. Opt-in per game type.
 - ⚡ Real-time state delivery to all participants over WebSockets
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
 - 💬 In-match chat with persisted backscroll history
@@ -124,6 +125,8 @@ Every setting has a working default for local development and can be overridden 
 | `CHAT_MAX_MESSAGES` | `100` | Per-match chat backscroll retained for `GET /chat` |
 | `ARGON2_MEMORY_KIB` / `ARGON2_ITERATIONS` / `ARGON2_PARALLELISM` | `19456` / `2` / `1` | Argon2id password-hashing cost (OWASP baseline) |
 | `AUTH_RATE_LIMIT_ENABLED` | `true` | Master switch for auth throttling/lockout; the window, per-IP limit, and lockout thresholds are further tunable under `auth.rate-limit` |
+
+Per-turn timeouts are configured under the `pekko-game-service.turn-timeouts` HOCON stanza rather than an environment variable: each key is a game type and its value a duration (e.g. `texasholdem = 60s`). A game type with no entry has no turn clock and waits indefinitely, so the feature is opt-in — the shipped default enables only Texas Hold 'Em.
 
 ### A two-minute walkthrough
 
