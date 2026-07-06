@@ -58,8 +58,12 @@ class TurnTimeoutConfigSpec extends AnyWordSpecLike with Matchers {
   }
 
   "TurnTimeoutConfig.default" should {
-    "ship no turn clocks by default, so every game keeps the original wait-forever behavior until opted in" in {
-      TurnTimeoutConfig.default.perGameType shouldBe empty
+    "opt Texas Hold 'Em into a turn clock from the shipped reference.conf" in {
+      TurnTimeoutConfig.default.forGameType(GameType.TexasHoldEm) shouldBe defined
+    }
+
+    "leave the casual two-player games without a turn clock" in {
+      TurnTimeoutConfig.default.forGameType(GameType.TicTacToe) shouldBe None
     }
   }
 }
