@@ -1164,10 +1164,13 @@ function renderTexasHoldEmBoard(state) {
   else if (spectating) setStatus(`Spectating — ${state.currentPlayer} to act`);
   else setStatus(myTurn ? "Your turn to act." : `${state.currentPlayer}'s turn…`);
 
-  // The community cards (revealed cards face-up, the rest face-down) and the pot.
+  // The community cards (revealed cards face-up, the rest face-down) and the pot. Once the sit-and-go is over no new
+  // hand is dealt, so the top table still refers to the final hand — show its full showdown run-out here rather than
+  // the street-limited live board (which stalls face-down when players get all-in early).
+  const topBoard = over && state.handResult ? state.handResult.board : state.board;
   const cards = document.createElement("div");
   cards.className = "holdem-board";
-  for (let i = 0; i < 5; i++) cards.appendChild(makeHoldemCard(i < state.board.length ? state.board[i] : null));
+  for (let i = 0; i < 5; i++) cards.appendChild(makeHoldemCard(i < topBoard.length ? topBoard[i] : null));
   board.appendChild(cards);
 
   const pot = document.createElement("div");
@@ -1189,8 +1192,9 @@ function renderTexasHoldEmBoard(state) {
   });
   board.appendChild(table);
 
-  // The most recent hand's showdown reveal — the one moment hole cards come up.
-  if (state.handResult) board.appendChild(renderHoldemResult(state.handResult));
+  // The most recent hand's showdown reveal — the one moment hole cards come up. Its board row is shown only mid-game,
+  // when the top strip has already moved on to the next hand; once the game is over the top strip shows this board.
+  if (state.handResult) board.appendChild(renderHoldemResult(state.handResult, !over));
 
   // The viewer's own hole cards.
   if (state.holeCards && state.holeCards.length) {
@@ -1240,9 +1244,20 @@ function makeHoldemCard(card) {
 }
 
 // The showdown reveal: who won each pot and with what, plus the hole cards of everyone who reached the showdown.
-function renderHoldemResult(result) {
+function renderHoldemResult(result, showBoard) {
   const box = document.createElement("div");
   box.className = "holdem-reveal";
+
+  // The full five-card run-out at the showdown, including streets that never came up in the live board when the hand
+  // ended early (e.g. everyone all-in before the river). Shown only mid-game; once the game is over the top strip
+  // carries this board instead, so rendering it here too would just duplicate it.
+  if (showBoard && result.board && result.board.length) {
+    const cards = document.createElement("div");
+    cards.className = "holdem-board holdem-reveal-board";
+    result.board.forEach((c) => cards.appendChild(makeHoldemCard(c)));
+    box.appendChild(cards);
+  }
+
   result.awards.forEach((a) => {
     const p = document.createElement("p");
     p.className = "holdem-reveal-summary";

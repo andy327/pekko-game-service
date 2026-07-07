@@ -442,6 +442,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   border: 1px solid var(--line);
   border-radius: 0.4rem;
 }
+.holdem-reveal-board { margin: 0 0 0.6rem; }
 .holdem-reveal-summary { margin: 0 0 0.4rem; font-size: 0.9rem; }
 .holdem-controls { margin-top: 0.75rem; }
 .holdem-bet-row { gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
