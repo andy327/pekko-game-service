@@ -76,11 +76,11 @@ class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
 
     "report the player's joined lobby and active game" in {
       // Lobby A: alice + bob, left joinable
-      val GameManager.LobbyCreated(lobbyA, _) = ask(GameManager.CreateLobby(GameType.TicTacToe, alice, _))
+      val GameManager.LobbyCreated(lobbyA, _) = ask(GameManager.CreateLobby(GameType.TicTacToe, alice, None, _))
       ask(GameManager.JoinLobby(lobbyA, bob, _))
 
       // Lobby B: alice + bob, started into a live game
-      val GameManager.LobbyCreated(gameB, hostB) = ask(GameManager.CreateLobby(GameType.TicTacToe, alice, _))
+      val GameManager.LobbyCreated(gameB, hostB) = ask(GameManager.CreateLobby(GameType.TicTacToe, alice, None, _))
       ask(GameManager.JoinLobby(gameB, bob, _))
       ask(GameManager.StartGame(gameB, hostB.id, _))
 

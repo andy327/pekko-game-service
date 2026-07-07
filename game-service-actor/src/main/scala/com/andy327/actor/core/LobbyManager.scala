@@ -50,9 +50,15 @@ object LobbyManager {
 
   // --- Commands received from GameManager (all handled locally by LobbyManager) ---
 
-  /** Create a new lobby for `gameType` hosted by `host`; replies with [[GameManager.LobbyCreated]]. */
-  final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameManager.GameResponse])
-      extends Command
+  /** Create a new lobby for `gameType` hosted by `host`, optionally named `name`; replies with
+    * [[GameManager.LobbyCreated]].
+    */
+  final case class CreateLobby(
+      gameType: GameType,
+      host: Player,
+      name: Option[String],
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
 
   /** Add `player` to an existing joinable lobby; replies with [[GameManager.LobbyJoined]] or an error. */
   final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
@@ -240,9 +246,9 @@ object LobbyManager {
       emptyRoomGrace: FiniteDuration
   )(implicit runtime: IORuntime): Behavior[Command] = Behaviors.receive[Command] { (context, message) =>
     message match {
-      case CreateLobby(gameType, host, replyTo) =>
+      case CreateLobby(gameType, host, name, replyTo) =>
         context.log.info(s"Creating new lobby for game type $gameType with host ${host.name}")
-        val lobby = LobbyMetadata.newLobby(gameType, host)
+        val lobby = LobbyMetadata.newLobby(gameType, host, name)
         replyTo ! GameManager.LobbyCreated(lobby.roomId, host)
         persist(lobbyRepo.saveLobby(lobby))
         running(lobbies + (lobby.roomId -> lobby), recentlyEnded, subscribers, gameManager, lobbyRepo, emptyRoomGrace)

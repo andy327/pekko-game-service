@@ -95,20 +95,32 @@ class LobbyRoutes(
     } ~
     /** Creates a new game lobby for the specified game type using the authenticated player as host.
       *
+      * An optional `name` query parameter sets a host-chosen display label for the lobby. It is trimmed, and a blank
+      * name is treated as absent; names longer than [[LobbyRoutes.MaxNameLength]] characters are rejected.
+      *
       * - Auth: Bearer token required
       * - Path: `gameType` — the type of game to create (e.g., `tictactoe`)
+      * - Query `name` (optional): display label, e.g. `Friday night poker`
       * - 200: `LobbyCreated` with the new game ID and host player info
-      * - 400: invalid game type
+      * - 400: invalid game type, or lobby name too long
       * - 401: missing or invalid token
       * - 500: unexpected error
       */
     path("create" / Segment) { gameTypeStr =>
       parseGameType(gameTypeStr) { gameType =>
         post {
-          authenticator.authenticatePlayer { player =>
-            onSuccess(system.ask[GameResponse](replyTo => GameManager.CreateLobby(gameType, player, replyTo))) {
-              case created: LobbyCreated => complete(created)
-              case other                 => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+          parameter("name".?) { nameParam =>
+            authenticator.authenticatePlayer { player =>
+              LobbyRoutes.normalizeName(nameParam) match {
+                case Left(err)   => complete(StatusCodes.BadRequest -> err)
+                case Right(name) =>
+                  onSuccess(
+                    system.ask[GameResponse](replyTo => GameManager.CreateLobby(gameType, player, name, replyTo))
+                  ) {
+                    case created: LobbyCreated => complete(created)
+                    case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                  }
+              }
             }
           }
         }
@@ -280,4 +292,20 @@ class LobbyRoutes(
       }
     }
   }
+}
+
+object LobbyRoutes {
+
+  /** Maximum allowed length, in characters, of a host-chosen lobby name. */
+  val MaxNameLength: Int = 40
+
+  /** Normalizes an optional lobby name: trims surrounding whitespace and treats a blank result as absent (`None`).
+    * Returns the cleaned name on the right, or an error message on the left when the trimmed name exceeds
+    * [[MaxNameLength]] characters.
+    */
+  def normalizeName(name: Option[String]): Either[String, Option[String]] =
+    name.map(_.trim).filter(_.nonEmpty) match {
+      case Some(n) if n.length > MaxNameLength => Left(s"Lobby name must be at most $MaxNameLength characters")
+      case cleaned                             => Right(cleaned)
+    }
 }

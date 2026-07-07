@@ -11,8 +11,12 @@ import { resetCopyLinkButton } from "./deeplinks.js";
 
 export async function createGame(gameType) {
   setError("lobby-error", "");
-  const res = await api(`/lobby/create/${gameType}`, { method: "POST", body: {} });
+  // Optional host-chosen lobby name; the server trims it and treats a blank value as unnamed.
+  const name = $("lobby-name").value.trim();
+  const query = name ? `?name=${encodeURIComponent(name)}` : "";
+  const res = await api(`/lobby/create/${gameType}${query}`, { method: "POST", body: {} });
   if (!res.ok) return flashError("lobby-error", res.data?.error || res.data || "Could not create game");
+  $("lobby-name").value = "";
   await enterGame({ roomId: res.data.roomId, gameType, isHost: true });
 }
 
@@ -56,11 +60,13 @@ export async function refreshLobbies() {
     const li = document.createElement("li");
 
     const watching = entry.spectatorCount > 0 ? ` — ${entry.spectatorCount} watching` : "";
+    const named = lobby.name ? `${lobby.name} — ` : ""; // host-chosen label leads the line when present
     const meta = document.createElement("span");
     meta.className = "meta";
+    // textContent (not innerHTML) renders the player-supplied name as literal text, so it can't inject markup.
     meta.textContent = phase
-      ? `${GAMES[type].label} — hosted by ${hostName} — ${phase}${watching}`
-      : `${GAMES[type].label} — hosted by ${hostName} — ${count}/${max} players${watching}`;
+      ? `${named}${GAMES[type].label} — hosted by ${hostName} — ${phase}${watching}`
+      : `${named}${GAMES[type].label} — hosted by ${hostName} — ${count}/${max} players${watching}`;
 
     li.appendChild(meta);
 
@@ -170,7 +176,8 @@ function renderMySessions(data) {
     const youHost = Boolean(session.me) && l.hostId === session.me.id;
     const count = Object.keys(l.players).length;
     const phase = l.status === "Finished" ? "finished — chat/rematch" : `lobby (${count}/${GAMES[type].maxPlayers})`;
-    const label = `${GAMES[type].label} — ${phase}${youHost ? " · you host" : ""}`;
+    const named = l.name ? `${l.name} — ` : "";
+    const label = `${named}${GAMES[type].label} — ${phase}${youHost ? " · you host" : ""}`;
     ul.appendChild(sessionRow(label, "Return", () => enterGame({ roomId: l.roomId, gameType: type, isHost: youHost })));
   }
 }

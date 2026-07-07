@@ -67,7 +67,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val responseProbe = typedKit.createTestProbe[GameManager.GameResponse]()
 
       // a lobby alice can subscribe to once her WebSocket session is registered
-      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, None, responseProbe.ref)
       val roomId = responseProbe.expectMessageType[GameManager.LobbyCreated].roomId
 
       val wsClient = WSProbe()
@@ -97,7 +97,7 @@ class WebSocketRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val token = createTestToken(alice)
       val responseProbe = typedKit.createTestProbe[GameManager.GameResponse]()
 
-      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, responseProbe.ref)
+      typedSystem ! GameManager.CreateLobby(GameType.TicTacToe, alice, None, responseProbe.ref)
       val roomId = responseProbe.expectMessageType[GameManager.LobbyCreated].roomId
 
       val wsClient = WSProbe()

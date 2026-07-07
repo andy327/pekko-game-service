@@ -46,8 +46,9 @@ object GameManager {
 
   // --- Lobby commands (forwarded verbatim to LobbyManager) ---
 
-  /** Create a new lobby; replies with [[LobbyCreated]]. */
-  final case class CreateLobby(gameType: GameType, host: Player, replyTo: ActorRef[GameResponse]) extends Command
+  /** Create a new lobby, optionally named `name`; replies with [[LobbyCreated]]. */
+  final case class CreateLobby(gameType: GameType, host: Player, name: Option[String], replyTo: ActorRef[GameResponse])
+      extends Command
 
   /** Join an existing lobby; replies with [[LobbyJoined]] or a [[LobbyErrorResponse]]. */
   final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
@@ -564,9 +565,9 @@ object GameManager {
   )(implicit runtime: IORuntime): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
-        case CreateLobby(gameType, host, replyTo) =>
+        case CreateLobby(gameType, host, name, replyTo) =>
           val adapter = context.messageAdapter[GameResponse](LobbyResponseIntercepted(_, host.id, replyTo))
-          lobbyManager ! LobbyManager.CreateLobby(gameType, host, adapter)
+          lobbyManager ! LobbyManager.CreateLobby(gameType, host, name, adapter)
           Behaviors.same
 
         case JoinLobby(roomId, player, replyTo) =>
