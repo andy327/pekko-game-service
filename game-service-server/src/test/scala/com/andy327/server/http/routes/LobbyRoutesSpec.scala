@@ -79,6 +79,37 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
         responseAs[String] should include("Invalid game type")
       }
 
+    "create a lobby with a host-chosen name" in {
+      val roomId = Post("/lobby/create/tictactoe?name=Friday%20night").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+
+      Get(s"/lobby/$roomId") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[LobbyMetadata].name shouldBe Some("Friday night")
+      }
+    }
+
+    "trim a lobby name and treat a blank name as unnamed" in {
+      val roomId = Post("/lobby/create/tictactoe?name=%20%20").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+
+      Get(s"/lobby/$roomId") ~> routes ~> check {
+        responseAs[LobbyMetadata].name shouldBe None
+      }
+    }
+
+    "reject creating a lobby with a name that is too long" in {
+      val longName = "x" * (LobbyRoutes.MaxNameLength + 1)
+      Post(s"/lobby/create/tictactoe?name=$longName").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("at most")
+      }
+    }
+
     "join a lobby with a second player" in {
       val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].roomId
@@ -349,7 +380,7 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
     "return 500 for unexpected responses" in {
       val fakeId = UUID.randomUUID()
       val unexpectedBehavior = Behaviors.receiveMessage[GameManager.Command] {
-        case GameManager.CreateLobby(_, _, replyTo) =>
+        case GameManager.CreateLobby(_, _, _, replyTo) =>
           replyTo ! GameManager.Ready // triggers /create fallback
           Behaviors.same
 

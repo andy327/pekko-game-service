@@ -40,6 +40,16 @@ class LobbyCodecsSpec extends AnyWordSpec with Matchers {
       LobbyCodecs.deserialize(LobbyCodecs.serialize(lobby)) shouldBe Right(lobby)
     }
 
+    "round-trip a lobby with a name" in {
+      val lobby = baseLobby.copy(name = Some("Friday night"))
+      LobbyCodecs.deserialize(LobbyCodecs.serialize(lobby)) shouldBe Right(lobby)
+    }
+
+    "default name to None when decoding legacy JSON that predates the field" in {
+      val legacyJson = LobbyCodecs.serialize(baseLobby).replaceAll(""",?"name":null""", "")
+      LobbyCodecs.deserialize(legacyJson) shouldBe Right(baseLobby.copy(name = None))
+    }
+
     "return Left for a lobby JSON containing an unknown status value" in {
       val json = LobbyCodecs.serialize(baseLobby).replace("WaitingForPlayers", "Exploded")
       LobbyCodecs.deserialize(json) shouldBe a[Left[_, _]]

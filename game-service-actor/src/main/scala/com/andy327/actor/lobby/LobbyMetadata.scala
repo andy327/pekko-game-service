@@ -14,13 +14,23 @@ object LobbyMetadata {
     *
     * @param gameType the type of game (e.g., TicTacToe)
     * @param host the player who is creating and hosting the lobby
+    * @param name optional host-chosen display name for the lobby
     * @return a new LobbyMetadata instance representing the initialized lobby
     */
-  def newLobby(gameType: GameType, host: Player): LobbyMetadata = {
+  def newLobby(gameType: GameType, host: Player, name: Option[String] = None): LobbyMetadata = {
     val roomId = UUID.randomUUID()
     val players = Map(host.id -> host)
     val now = Instant.now()
-    LobbyMetadata(roomId, gameType, players, host.id, GameLifecycleStatus.WaitingForPlayers, now, lastActivityAt = now)
+    LobbyMetadata(
+      roomId,
+      gameType,
+      players,
+      host.id,
+      GameLifecycleStatus.WaitingForPlayers,
+      now,
+      lastActivityAt = now,
+      name = name
+    )
   }
 }
 
@@ -40,6 +50,8 @@ object LobbyMetadata {
   *                   rotate the seating so the first-move seat alternates across rematches
   * @param lastActivityAt server time of the last activity in this room (start, leave, chat, match end); used to reap
   *                       idle post-game (Finished) rooms
+  * @param name optional host-chosen display name for the lobby, shown in the lobby list so friends can recognize the
+  *             room; when absent, clients fall back to a default "{host}'s {game}" label
   */
 case class LobbyMetadata(
     roomId: RoomId,
@@ -50,5 +62,6 @@ case class LobbyMetadata(
     createdAt: Instant,
     currentMatchId: Option[MatchId] = None,
     matchCount: Int = 0,
-    lastActivityAt: Instant = Instant.EPOCH
+    lastActivityAt: Instant = Instant.EPOCH,
+    name: Option[String] = None
 )
