@@ -22,7 +22,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 
 **Built**
 
-- 🔐 Credentialed accounts — register, log in, and change password (Argon2-hashed), issuing expiring JWTs for player actions
+- 🔐 Credentialed accounts — register, log in, change password (Argon2-hashed), and log out, issuing expiring JWTs for player actions; server-side token revocation, plus per-IP rate-limiting and per-account lockout on the auth endpoints
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
 - 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
 - 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, Mastermind, Liar's Dice, and Texas Hold 'Em
@@ -36,6 +36,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 - 🧭 Live participation lookup — a player can ask "what am I in right now?" to re-discover their joined lobbies and active games after reconnecting
 - 💾 Durable game state with write-through caching and restart recovery
 - 📊 Metrics & analytics — game-lifecycle events aggregated into Prometheus metrics at a /metrics endpoint
+- 🖥️ Bundled web client — a no-build-step HTML/JS frontend served same-origin by the service, so the whole thing is playable in a browser with no separate deploy
 
 **Planned** (see [Roadmap](#roadmap))
 
@@ -81,8 +82,9 @@ The system runs as a single service instance, fronted by a reverse proxy, backed
 - **Reverse Proxy / TLS** — terminates HTTPS, proxies HTTP + WebSocket traffic to the service, and serves as the public endpoint. (Becomes a true load balancer once the service scales horizontally.)
 - **Game Service (Pekko ActorSystem)** — the application. A `GameManager` supervises a `LobbyManager`, a `PlayerManager` (one `PlayerActor` per connected client), one game actor per active match, and a persistence actor. The Pekko HTTP route layer handles REST + WebSocket endpoints and JWT validation.
 - **PostgreSQL** — durable system of record: game snapshots, an append-only move log, user accounts, and per-player game history.
-- **Redis** — write-through game-state cache, lobby store, and chat ring buffer.
+- **Redis** — write-through game-state cache, lobby store, chat ring buffer, and the auth-hardening stores: per-account token-revocation cutoffs and per-IP/per-account rate-limit & lockout counters (all self-expiring via TTL).
 - **Analytics** — game actors publish domain events (game started, move made, game completed, chat sent) to a `game-analytics` Redis pub/sub channel; a decoupled consumer folds them into Prometheus metrics exposed at `GET /metrics`.
+- **Web client** — a static, no-build-step HTML/JS UI bundled on the service's classpath and served same-origin, so the browser client and API ship as a single artifact with no CORS handling.
 
 For the actor supervision tree, the move-flow sequence, and design rationale, see the [Design deep-dive](#design-deep-dive).
 
@@ -106,11 +108,11 @@ You'll need a JDK (17+), [sbt](https://www.scala-sbt.org/), and Docker (for Post
 ```
 $ git clone https://github.com/andy327/pekko-game-service.git
 $ cd pekko-game-service/
-$ docker-compose up -d          # starts PostgreSQL and Redis
+$ docker-compose up -d  # starts PostgreSQL and Redis
 $ sbt run
 ```
 
-That's it — the service listens on `http://localhost:8080`. The schema is created on first boot, and the bundled defaults match the `docker-compose.yml` credentials, so there's nothing to configure for local play.
+That's it — the service listens on `http://localhost:8080`. The schema is created on first boot, and the bundled defaults match the `docker-compose.yml` credentials, so there's nothing to configure for local play. Open that URL in a browser to play through the bundled web client, or drive the REST API directly as shown below.
 
 ### Configuration
 
@@ -312,6 +314,8 @@ On the producing side, `RedisAnalyticsPublisher` serializes each event and publi
 
 Two deliberate choices shape this. The metrics are intentionally low-cardinality — keyed on `game_type` and `outcome` (won/draw/forfeit), never on player identity, so the series count stays bounded. And the thing on the wire is the producer's own `GameEvent`, not a rendered board view, so no per-player or hidden state ever reaches the analytics path. "Analytics" is really just the name of this one consumer; the event seam itself is generic, which is what would make adding a second listener — an audit log, a player-stats writer — a matter of subscribing rather than touching the actors.
 
+For debugging, an optional actor **message tracer** captures a sampled ring buffer of the messages flowing between actors and streams them (plus every subsequent event) to an authenticated `GET /ws/trace` socket that the web client can visualize live. It's configured under the `pekko-game-service.tracing` stanza and disabled by default — when off, no interceptor is installed and no trace events are allocated, so there's zero per-message overhead in production.
+
 ### Adding a new game type
 
 New games plug in without touching the actor or HTTP plumbing. Write the pure game model (a `Game` implementation in `game-service-model`), then add two small pieces in the actor module:
@@ -329,7 +333,7 @@ Then register the pair in `GameRegistry.forType`. That single `case` is the only
 - `game-service-model` — pure game logic: the `Game` trait and per-game implementations (no I/O).
 - `game-service-persistence` — the persistence layer: Doobie/PostgreSQL and Redis repositories, plus Circe codecs.
 - `game-service-actor` — the actor system and domain orchestration: `GameManager`, `LobbyManager`, `PlayerManager`, the per-game actors, the persistence actor, the game registry/modules, the lobby and chat domains, per-viewer state projection, and the game-event emit seam.
-- `game-service-server` — the transport edge: Pekko HTTP routes, JWT auth, the JSON protocol, WebSocket delivery, and the analytics consumer (Prometheus metrics).
+- `game-service-server` — the transport edge: Pekko HTTP routes, JWT auth (with Redis-backed token revocation and rate-limiting), the JSON protocol, WebSocket delivery, the bundled static web client, and the analytics consumer (Prometheus metrics).
 
 ## Testing
 
