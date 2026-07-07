@@ -12,12 +12,12 @@ import org.apache.pekko.http.scaladsl.server.Route
   *
   * Route Summary:
   *   - GET / - the application shell (`web/index.html`)
-  *   - GET /{file} - any other asset under `web/` (e.g. `app.js`, `style.css`)
+  *   - GET /{file} - any other asset under `web/` (e.g. `main.js`, the ES modules it imports, `style.css`)
   */
 class StaticRoutes {
 
   /** Classpath resources carry a fixed, ancient `Last-Modified`, which browsers turn into a multi-year heuristic
-    * freshness window — so an updated `app.js`/`index.html` is served from cache and never picked up. `no-cache` forces
+    * freshness window — so an updated `main.js`/`index.html` is served from cache and never picked up. `no-cache` forces
     * the browser to revalidate every request; the resource directives still answer conditional GETs with a cheap `304`,
     * so this costs a round-trip but no payload when the asset is unchanged.
     */

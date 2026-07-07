@@ -20,14 +20,14 @@ class StaticRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       }
 
     "serve the client script with a JavaScript content type" in
-      Get("/app.js") ~> routes ~> check {
+      Get("/main.js") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         mediaType.subType shouldBe "javascript"
         responseAs[String] should include("createGame")
       }
 
     "tell browsers to revalidate assets so an updated UI is never served stale" in
-      Get("/app.js") ~> routes ~> check {
+      Get("/main.js") ~> routes ~> check {
         header[`Cache-Control`].map(_.directives) shouldBe Some(Seq(CacheDirectives.`no-cache`))
       }
 
