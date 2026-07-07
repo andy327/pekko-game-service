@@ -305,6 +305,7 @@ async function refreshLobbies() {
 // calls the matching unsubscribe endpoint.
 function prepareGameView({ roomId, gameType, isHost, isSpectator = false, isLive = false }) {
   session.game = { roomId, gameType, isHost, isSpectator, isLive };
+  holdemPreAction = null; // drop any armed Hold 'Em pre-action from a previous game
   $("game-title").textContent = GAMES[gameType].label;
   $("board").innerHTML = "";
   $("column-controls").innerHTML = "";
@@ -1142,6 +1143,12 @@ async function submitLiarsDiceMove(body) {
 // showdown reveal, and betting controls. The server validates every bet/raise amount and rejects an illegal one.
 const HOLDEM_SUITS = { S: "♠", H: "♥", C: "♣", D: "♦" };
 
+// The Hold 'Em pre-action ("advance action") the viewer has armed while waiting for the turn to reach them, or null.
+// It is a client-only convenience — nothing is sent until it is the viewer's turn, at which point the armed choice is
+// auto-submitted as a normal in-turn move. Shape: { kind, street, button, currentBet, toCall } where the last four are
+// the betting context captured when it was armed, used to invalidate a choice the action has since outrun.
+let holdemPreAction = null;
+
 function renderTexasHoldEmBoard(state) {
   const board = $("board");
   board.classList.remove("bs-active");
@@ -1157,10 +1164,13 @@ function renderTexasHoldEmBoard(state) {
   else if (spectating) setStatus(`Spectating — ${state.currentPlayer} to act`);
   else setStatus(myTurn ? "Your turn to act." : `${state.currentPlayer}'s turn…`);
 
-  // The community cards (revealed cards face-up, the rest face-down) and the pot.
+  // The community cards (revealed cards face-up, the rest face-down) and the pot. Once the sit-and-go is over no new
+  // hand is dealt, so the top table still refers to the final hand — show its full showdown run-out here rather than
+  // the street-limited live board (which stalls face-down when players get all-in early).
+  const topBoard = over && state.handResult ? state.handResult.board : state.board;
   const cards = document.createElement("div");
   cards.className = "holdem-board";
-  for (let i = 0; i < 5; i++) cards.appendChild(makeHoldemCard(i < state.board.length ? state.board[i] : null));
+  for (let i = 0; i < 5; i++) cards.appendChild(makeHoldemCard(i < topBoard.length ? topBoard[i] : null));
   board.appendChild(cards);
 
   const pot = document.createElement("div");
@@ -1182,8 +1192,9 @@ function renderTexasHoldEmBoard(state) {
   });
   board.appendChild(table);
 
-  // The most recent hand's showdown reveal — the one moment hole cards come up.
-  if (state.handResult) board.appendChild(renderHoldemResult(state.handResult));
+  // The most recent hand's showdown reveal — the one moment hole cards come up. Its board row is shown only mid-game,
+  // when the top strip has already moved on to the next hand; once the game is over the top strip shows this board.
+  if (state.handResult) board.appendChild(renderHoldemResult(state.handResult, !over));
 
   // The viewer's own hole cards.
   if (state.holeCards && state.holeCards.length) {
@@ -1197,7 +1208,23 @@ function renderTexasHoldEmBoard(state) {
     board.appendChild(hand);
   }
 
-  if (myTurn) board.appendChild(makeHoldemControls(state));
+  const me = state.seats.find((s) => s.seat === state.viewerSeat);
+  const canPreAct = !over && !spectating && Boolean(me) && !me.folded && !me.allIn;
+
+  if (myTurn) {
+    // Fire a still-valid armed pre-action as this turn's move; the manual controls stay so a rejected auto-move (or a
+    // change of mind) leaves the player able to act. The pre-action is consumed either way.
+    const armed = holdemPreAction;
+    holdemPreAction = null;
+    if (armed) {
+      const move = holdemPreActionMove(state, armed);
+      if (move) submitTexasHoldEmMove(move);
+    }
+    board.appendChild(makeHoldemControls(state));
+  } else {
+    reconcileHoldemPreAction(state, canPreAct);
+    if (canPreAct) board.appendChild(makeHoldemPreActions(state));
+  }
 }
 
 // A single card face from its text form ("AS", "TD"), or a face-down card for a null (unrevealed) slot.
@@ -1217,9 +1244,20 @@ function makeHoldemCard(card) {
 }
 
 // The showdown reveal: who won each pot and with what, plus the hole cards of everyone who reached the showdown.
-function renderHoldemResult(result) {
+function renderHoldemResult(result, showBoard) {
   const box = document.createElement("div");
   box.className = "holdem-reveal";
+
+  // The full five-card run-out at the showdown, including streets that never came up in the live board when the hand
+  // ended early (e.g. everyone all-in before the river). Shown only mid-game; once the game is over the top strip
+  // carries this board instead, so rendering it here too would just duplicate it.
+  if (showBoard && result.board && result.board.length) {
+    const cards = document.createElement("div");
+    cards.className = "holdem-board holdem-reveal-board";
+    result.board.forEach((c) => cards.appendChild(makeHoldemCard(c)));
+    box.appendChild(cards);
+  }
+
   result.awards.forEach((a) => {
     const p = document.createElement("p");
     p.className = "holdem-reveal-summary";
@@ -1312,6 +1350,69 @@ async function submitTexasHoldEmMove(body) {
   setError("game-error", "");
   const res = await api(`/${game.gameType}/${game.roomId}/move`, { method: "POST", body });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Move rejected");
+}
+
+// The concrete move an armed pre-action becomes now that it is the viewer's turn, or null if the betting has changed
+// enough that the choice no longer applies (e.g. a plain Check or an exact Call after someone raised) and should be
+// dropped rather than fired. Check/Fold and Call Any are conditional by design and always resolve to a legal move.
+function holdemPreActionMove(state, pa) {
+  switch (pa.kind) {
+    case "fold":       return { action: "fold" };
+    case "check-fold": return state.toCall === 0 ? { action: "check" } : { action: "fold" };
+    case "check":      return state.toCall === 0 ? { action: "check" } : null;
+    case "call":       return state.toCall > 0 && state.toCall === pa.toCall ? { action: "call" } : null;
+    case "call-any":   return state.toCall > 0 ? { action: "call" } : { action: "check" };
+    default:           return null;
+  }
+}
+
+// Drops an armed pre-action the betting has outrun before the viewer's turn: a new street or hand (button moved), the
+// viewer no longer able to act, or — for the amount-specific Check and exact Call — any change to the current bet.
+function reconcileHoldemPreAction(state, canPreAct) {
+  const pa = holdemPreAction;
+  if (!pa) return;
+  const betMoved = (pa.kind === "check" || pa.kind === "call") && state.currentBet !== pa.currentBet;
+  if (!canPreAct || state.street !== pa.street || state.button !== pa.button || betMoved) holdemPreAction = null;
+}
+
+// The pre-action toggles offered while it is not the viewer's turn: Check/Fold + Check when they can currently check,
+// otherwise Fold + exact Call + Call Any. Clicking one arms it (capturing the betting context); clicking it again, or
+// choosing another, re-arms. The armed toggle is highlighted; it fires automatically once the turn arrives.
+function makeHoldemPreActions(state) {
+  const wrap = document.createElement("div");
+  wrap.className = "holdem-preactions";
+
+  const label = document.createElement("div");
+  label.className = "holdem-preaction-label";
+  label.textContent = "Pre-select your move — fires when it's your turn:";
+  wrap.appendChild(label);
+
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const me = state.seats.find((s) => s.seat === state.viewerSeat) || { stack: 0 };
+  const kinds =
+    state.toCall === 0
+      ? [["check-fold", "Check/Fold"], ["check", "Check"]]
+      : [["fold", "Fold"], ["call", `Call ${Math.min(state.toCall, me.stack)}`], ["call-any", "Call Any"]];
+
+  kinds.forEach(([kind, text]) => {
+    const btn = document.createElement("button");
+    btn.textContent = text;
+    btn.className = "holdem-preaction";
+    if (holdemPreAction && holdemPreAction.kind === kind) btn.classList.add("armed");
+    btn.onclick = () => {
+      holdemPreAction =
+        holdemPreAction && holdemPreAction.kind === kind
+          ? null
+          : { kind, street: state.street, button: state.button, currentBet: state.currentBet, toCall: state.toCall };
+      renderTexasHoldEmBoard(state); // rebuild so the highlighted toggle reflects the new armed choice
+    };
+    row.appendChild(btn);
+  });
+
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function renderLiarsDiceBoard(state) {

@@ -442,7 +442,16 @@ button:disabled { opacity: 0.5; cursor: default; }
   border: 1px solid var(--line);
   border-radius: 0.4rem;
 }
+.holdem-reveal-board { margin: 0 0 0.6rem; }
 .holdem-reveal-summary { margin: 0 0 0.4rem; font-size: 0.9rem; }
 .holdem-controls { margin-top: 0.75rem; }
 .holdem-bet-row { gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
 .holdem-amount { width: 6rem; }
+.holdem-preactions { margin-top: 0.75rem; }
+.holdem-preaction-label { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+.holdem-preaction { background: var(--panel); } /* secondary look until armed, so the armed toggle stands out */
+.holdem-preaction.armed {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
