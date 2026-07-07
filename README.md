@@ -6,6 +6,8 @@
 
 > A multiplayer, turn-based game backend in Scala/Pekko — real-time WebSocket play, durable game state, and a pluggable game-type model.
 
+<img src="docs/images/liarsdice.gif" alt="Liar's Dice gameplay" width="800">
+
 [![Play Now!](https://img.shields.io/badge/Play%20Now!-green?style=for-the-badge&logo=render)](https://pekko-game-service.onrender.com/)
 
 ## Overview
