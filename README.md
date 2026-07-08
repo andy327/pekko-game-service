@@ -22,7 +22,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 
 **Built**
 
-- 🔐 Credentialed accounts — register, log in, change password (Argon2-hashed), and log out, issuing expiring JWTs for player actions; server-side token revocation, plus per-IP rate-limiting and per-account lockout on the auth endpoints
+- 🔐 Credentialed accounts — register, log in, change password (Argon2-hashed), reset a forgotten password and verify the email address (single-use tokens emailed out-of-band), and log out, issuing expiring JWTs for player actions; server-side token revocation, plus per-IP rate-limiting and per-account lockout on the auth endpoints
 - 🏛️ Full lobby lifecycle — create, join, leave, list, and start matches
 - 🔁 Post-game rooms — a finished match keeps its room alive for chat, and the host can start a same-roster rematch; idle/empty rooms are evicted automatically
 - 🎲 Multiple game types — Tic-Tac-Toe, Connect Four, Battleship, Pig, Mastermind, Liar's Dice, and Texas Hold 'Em
@@ -82,7 +82,7 @@ The system runs as a single service instance, fronted by a reverse proxy, backed
 - **Reverse Proxy / TLS** — terminates HTTPS, proxies HTTP + WebSocket traffic to the service, and serves as the public endpoint. (Becomes a true load balancer once the service scales horizontally.)
 - **Game Service (Pekko ActorSystem)** — the application. A `GameManager` supervises a `LobbyManager`, a `PlayerManager` (one `PlayerActor` per connected client), one game actor per active match, and a persistence actor. The Pekko HTTP route layer handles REST + WebSocket endpoints and JWT validation.
 - **PostgreSQL** — durable system of record: game snapshots, an append-only move log, user accounts, and per-player game history.
-- **Redis** — write-through game-state cache, lobby store, chat ring buffer, and the auth-hardening stores: per-account token-revocation cutoffs and per-IP/per-account rate-limit & lockout counters (all self-expiring via TTL).
+- **Redis** — write-through game-state cache, lobby store, chat ring buffer, and the auth-hardening stores: per-account token-revocation cutoffs, per-IP/per-account rate-limit & lockout counters, and single-use password-reset/email-verification token hashes (all self-expiring via TTL).
 - **Analytics** — game actors publish domain events (game started, move made, game completed, chat sent) to a `game-analytics` Redis pub/sub channel; a decoupled consumer folds them into Prometheus metrics exposed at `GET /metrics`.
 - **Web client** — a static, no-build-step HTML/JS UI bundled on the service's classpath and served same-origin, so the browser client and API ship as a single artifact with no CORS handling.
 
@@ -129,6 +129,10 @@ Every setting has a working default for local development and can be overridden 
 | `CHAT_MAX_MESSAGES` | `100` | Per-match chat backscroll retained for `GET /chat` |
 | `ARGON2_MEMORY_KIB` / `ARGON2_ITERATIONS` / `ARGON2_PARALLELISM` | `19456` / `2` / `1` | Argon2id password-hashing cost (OWASP baseline) |
 | `AUTH_RATE_LIMIT_ENABLED` | `true` | Master switch for auth throttling/lockout; the window, per-IP limit, and lockout thresholds are further tunable under `auth.rate-limit` |
+| `EMAIL_PROVIDER` | `noop` | Outbound email sender: `resend` delivers via the Resend API, anything else drops mail (local/dev, CI) |
+| `EMAIL_FROM` / `EMAIL_BASE_URL` | `no-reply@example.com` / `http://localhost:8080` | `From` address and the origin the reset/verification links point back to |
+| `RESEND_API_KEY` | — | Resend API key, used only when `EMAIL_PROVIDER=resend` |
+| `AUTH_RESET_TOKEN_TTL` / `AUTH_VERIFICATION_TOKEN_TTL` | `1h` / `24h` | Lifetime of a password-reset / email-verification token |
 
 Per-turn timeouts are configured under the `pekko-game-service.turn-timeouts` HOCON stanza rather than an environment variable: each key is a game type and its value a duration (e.g. `texasholdem = 60s`). A game type with no entry has no turn clock and waits indefinitely, so the feature is opt-in — the shipped default enables only Texas Hold 'Em.
 
@@ -176,13 +180,17 @@ All gameplay endpoints require a `Authorization: Bearer <jwt>` header; obtain a 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/auth/register` | Create an account (`username`, `email`, `password`) and receive a JWT |
+| `POST` | `/auth/register` | Create an account (`username`, `email`, `password`), receive a JWT, and email a verification link |
 | `POST` | `/auth/token` | Authenticate with `email` + `password` and receive a JWT |
 | `POST` | `/auth/password` | Change the authenticated account's password (revokes the account's existing tokens) |
+| `POST` | `/auth/forgot-password` | Email a single-use reset link for an account (always `202`, never reveals whether the email exists) |
+| `POST` | `/auth/reset-password` | Set a new password with a reset token, revoking the account's existing tokens |
+| `POST` | `/auth/verify` | Verify an email address with a token from the verification email |
+| `POST` | `/auth/verify/resend` | Email a fresh verification link (always `202`, never reveals whether the email exists) |
 | `POST` | `/auth/logout` | Revoke the account's outstanding tokens ("log out everywhere") |
-| `GET`  | `/auth/whoami` | Return the caller's player `id` and `name` decoded from the token |
+| `GET`  | `/auth/whoami` | Return the caller's player `id`, `name`, and `verified` flag decoded from the token |
 
-The credential endpoints (`/auth/register`, `/auth/token`, `/auth/password`) are rate limited per client IP, and repeated failed logins temporarily lock the account; exceeding a limit returns `429 Too Many Requests` with a `Retry-After` header. Logout and password change revoke the account's already-issued tokens, so they stop being accepted before they expire.
+The credential endpoints (`/auth/register`, `/auth/token`, `/auth/password`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify`, `/auth/verify/resend`) are rate limited per client IP, and repeated failed logins temporarily lock the account; exceeding a limit returns `429 Too Many Requests` with a `Retry-After` header. Logout, password change, and password reset revoke the account's already-issued tokens, so they stop being accepted before they expire. Password reset and verification tokens are single-use, short-lived, stored only as hashes, and emailed out-of-band via the `EmailSender` seam (a no-op provider by default, Resend in production); `forgot-password` and `verify/resend` always answer `202` regardless of whether the address is registered, so they never reveal account existence. Email verification is non-blocking — an unverified account can still log in and play; `verified` is surfaced on `whoami` as a flag.
 
 ### Lobbies
 
@@ -358,7 +366,7 @@ $ sbt actor/test    # a single module
 Planned work, in rough priority order:
 
 - **Horizontal scaling (Pekko Cluster Sharding)** — today the service is single-instance (lobbies, game actors, and player sessions live in one JVM). The target is to shard game and lobby entities across a Pekko cluster so play is location-transparent across nodes. Cluster messaging would carry cross-instance delivery between game actors and player sessions directly, while the analytics event stream survives unchanged. Kept deliberately out of the main architecture diagram above so it reflects what's actually deployed.
-- **Authentication hardening** — the credentialed auth in place covers registration, login, and password change, with Argon2id hashing, short-lived tokens, and login timing-equalization to blunt email enumeration. **Token revocation** is now implemented: since JWTs are stateless, each account keeps a Redis-backed "revoked-before" cutoff (self-expiring after the token TTL) that logout and password change advance to now, and the authenticator rejects any token issued before it — so those actions invalidate already-issued tokens instead of waiting for expiry. **Rate limiting and lockout** are also in place: a per-IP fixed-window throttle on the auth endpoints plus a per-account lockout after repeated failed logins, both Redis-backed and returning `429` with `Retry-After` (tunable under `auth.rate-limit`). Still deliberately deferred: **password reset** (forgot-password) — needs an out-of-band channel (email) and a single-use, TTL'd reset-token store (a natural fit for Redis), so it's gated on an email integration; and **email-address verification** at registration, which reuses that same email seam.
+- **Block-until-verified accounts** — email verification ships non-blocking: an unverified account can still log in and play, with `verified` surfaced on `whoami`. A stricter mode that gates login until the address is verified is left as a later `auth.verification` toggle. (The rest of the auth-hardening arc — token revocation, rate-limiting and lockout, password reset, and verification itself — is already in place; see the [Auth](#auth) section.)
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
 - **More game types** — additional turn-based games beyond the current seven.
 - **AI opponent** — a bot player for single-player matches and testing.
