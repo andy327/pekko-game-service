@@ -63,6 +63,37 @@ class InMemoryUserRepositorySpec extends AnyWordSpec with Matchers {
       repo.findById(account.id).unsafeRunSync().flatMap(_.passwordHash) shouldBe Some("new")
     }
 
+    "create accounts unverified" in {
+      val account = repo.create("fred", "fred@example.com", Some("hash-f")).unsafeRunSync()
+        .getOrElse(fail("expected account creation to succeed"))
+      account.emailVerifiedAt shouldBe None
+    }
+
+    "mark an account verified, stamping a verification time" in {
+      val account = repo.create("gina", "gina@example.com", Some("hash-g")).unsafeRunSync()
+        .getOrElse(fail("expected account creation to succeed"))
+
+      repo.markVerified(account.id).unsafeRunSync()
+
+      repo.findById(account.id).unsafeRunSync().flatMap(_.emailVerifiedAt) shouldBe defined
+    }
+
+    "keep the original timestamp when an already-verified account is re-verified (idempotent)" in {
+      val account = repo.create("hank", "hank@example.com", Some("hash-h")).unsafeRunSync()
+        .getOrElse(fail("expected account creation to succeed"))
+
+      repo.markVerified(account.id).unsafeRunSync()
+      val first = repo.findById(account.id).unsafeRunSync().flatMap(_.emailVerifiedAt)
+      repo.markVerified(account.id).unsafeRunSync()
+      val second = repo.findById(account.id).unsafeRunSync().flatMap(_.emailVerifiedAt)
+
+      first shouldBe defined
+      second shouldBe first
+    }
+
+    "treat marking an unknown account verified as a no-op" in
+      repo.markVerified(UUID.randomUUID()).unsafeRunSync() // must not throw or create a row
+
     "return None for an unknown email or id" in {
       repo.findByEmail("nobody@example.com").unsafeRunSync() shouldBe None
       repo.findById(UUID.randomUUID()).unsafeRunSync() shouldBe None
