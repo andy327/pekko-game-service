@@ -55,7 +55,7 @@ import com.andy327.server.auth.{
   RevocationStore,
   SingleUseTokenStore
 }
-import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, EmailConfig}
+import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, AuthVerificationConfig, EmailConfig}
 import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.routes.{
   AuthRoutes,
@@ -118,10 +118,12 @@ object GameServer {
       val revocationStore = new RedisRevocationStore(redis)
       val authenticator = new JwtAuthenticator(revocationStore = revocationStore)
 
-      // Password reset: an email sender (Resend or no-op, per config) and a Redis-backed single-use reset-token store
+      // Email flows: a sender (Resend or no-op, per config) and a Redis-backed single-use token store shared by the
+      // password-reset and email-verification tokens (namespaced by purpose)
       val emailSender = EmailSender.fromConfig(EmailConfig.fromConfig(config))
-      val resetTokenStore = new RedisSingleUseTokenStore(redis)
+      val emailTokenStore = new RedisSingleUseTokenStore(redis)
       val resetConfig = AuthResetConfig.fromConfig(config)
+      val verificationConfig = AuthVerificationConfig.fromConfig(config)
 
       // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
       val registry = new CollectorRegistry()
@@ -154,8 +156,9 @@ object GameServer {
           authenticator,
           revocationStore,
           emailSender,
-          resetTokenStore,
-          resetConfig
+          emailTokenStore,
+          resetConfig,
+          verificationConfig
         ).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -191,9 +194,11 @@ object GameServer {
     * @param authRateLimitConfig throttle and lockout thresholds
     * @param authenticator JWT bearer-token directive; must share its revocation store with `revocationStore`
     * @param revocationStore per-account token-revocation cutoffs; defaults to a no-op, so nothing is ever revoked
-    * @param emailSender transactional email sender for password reset; defaults to a no-op, so nothing is sent
-    * @param resetTokenStore single-use password-reset token store; defaults to in-memory
+    * @param emailSender transactional email sender for password reset and verification; defaults to a no-op, so
+    *   nothing is sent
+    * @param emailTokenStore single-use token store shared by the reset and verification flows; defaults to in-memory
     * @param resetConfig password-reset policy (token TTL)
+    * @param verificationConfig email-verification policy (token TTL)
     * @param runtime cats-effect runtime used to run the effectful startup
     * @return the started actor system and the bound HTTP server
     */
@@ -214,8 +219,9 @@ object GameServer {
       authenticator: JwtAuthenticator = new JwtAuthenticator(),
       revocationStore: RevocationStore = NoOpRevocationStore,
       emailSender: EmailSender = NoOpEmailSender,
-      resetTokenStore: SingleUseTokenStore = new InMemorySingleUseTokenStore,
-      resetConfig: AuthResetConfig = AuthResetConfig.fromConfig()
+      emailTokenStore: SingleUseTokenStore = new InMemorySingleUseTokenStore,
+      resetConfig: AuthResetConfig = AuthResetConfig.fromConfig(),
+      verificationConfig: AuthVerificationConfig = AuthVerificationConfig.fromConfig()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
     // Default the identity provider to one backed by the same account store the reset routes read from.
     val resolvedIdentityProvider =
@@ -240,8 +246,9 @@ object GameServer {
         revocationStore,
         userRepo,
         emailSender,
-        resetTokenStore,
-        resetConfig
+        emailTokenStore,
+        resetConfig,
+        verificationConfig
       ).routes,
       new PlayerRoutes(system, playerHistoryRepo, authenticator).routes,
       new LobbyRoutes(system, authenticator).routes,

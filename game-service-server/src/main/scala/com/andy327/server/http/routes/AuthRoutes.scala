@@ -30,7 +30,7 @@ import com.andy327.server.auth.{
   TokenPurpose,
   UserContext
 }
-import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, JwtConfig}
+import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, AuthVerificationConfig, JwtConfig}
 import com.andy327.server.http.auth.{
   AuthValidation,
   ChangePasswordRequest,
@@ -38,7 +38,10 @@ import com.andy327.server.http.auth.{
   JwtAuthenticator,
   LoginRequest,
   RegisterRequest,
-  ResetPasswordRequest
+  ResendVerificationRequest,
+  ResetPasswordRequest,
+  VerifyEmailRequest,
+  WhoamiResponse
 }
 import com.andy327.server.http.json.JsonProtocol._
 
@@ -58,13 +61,18 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - POST /auth/password - Change the authenticated account's password
   *   - POST /auth/forgot-password - Email a single-use reset link for an account (always 202, never reveals existence)
   *   - POST /auth/reset-password - Set a new password using a reset token, revoking the account's older tokens
+  *   - POST /auth/verify - Verify an email address using a token from the verification email
+  *   - POST /auth/verify/resend - Email a fresh verification link for an account (always 202, never reveals existence)
   *   - POST /auth/logout - Revoke the account's outstanding tokens (log out everywhere)
-  *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
+  *   - GET /auth/whoami - Return the player's ID and name (and email-verification flag) from the Authorization token
   *
-  * @param userRepo account lookups for the reset flow; must be the same store backing `identityProvider`
-  * @param emailSender delivers the reset email; defaults to a no-op so nothing is sent unless a provider is wired
-  * @param tokenStore mints and consumes single-use reset tokens
+  * @param userRepo account lookups for the reset/verify flows and the whoami flag; must be the same store backing
+  *   `identityProvider`
+  * @param emailSender delivers the reset and verification emails; defaults to a no-op so nothing is sent unless a
+  *   provider is wired
+  * @param tokenStore mints and consumes single-use reset and verification tokens (keyed by purpose)
   * @param resetConfig reset-token policy (TTL)
+  * @param verificationConfig verification-token policy (TTL)
   */
 class AuthRoutes(
     identityProvider: IdentityProvider,
@@ -75,7 +83,8 @@ class AuthRoutes(
     userRepo: UserRepository = new InMemoryUserRepository,
     emailSender: EmailSender = NoOpEmailSender,
     tokenStore: SingleUseTokenStore = new InMemorySingleUseTokenStore,
-    resetConfig: AuthResetConfig = AuthResetConfig.fromConfig()
+    resetConfig: AuthResetConfig = AuthResetConfig.fromConfig(),
+    verificationConfig: AuthVerificationConfig = AuthVerificationConfig.fromConfig()
 )(implicit runtime: IORuntime) {
   private val logger = LoggerFactory.getLogger(getClass)
   private val jwtIssuer = JwtIssuer.fromConfig()
@@ -83,8 +92,20 @@ class AuthRoutes(
   /** The deliberately non-committal 202 body, identical for registered and unregistered addresses. */
   private val ForgotPasswordMessage = "If that email is registered, a reset link has been sent"
 
+  /** The deliberately non-committal 202 body for resend, identical whether or not the address needs verification. */
+  private val ResendVerificationMessage = "If that email needs verification, a new link has been sent"
+
   private def tokenFor(account: Account): String =
     jwtIssuer.issue(UserContext(account.id.toString, account.username))
+
+  /** Issues a verification token for `account` and emails it, swallowing any failure so a send outage never fails the
+    * enclosing request. Used on registration and on resend.
+    */
+  private def sendVerification(account: Account): IO[Unit] =
+    tokenStore
+      .issue(TokenPurpose.EmailVerification, account.id, verificationConfig.tokenTtl)
+      .flatMap(emailSender.sendEmailVerification(account.email, _))
+      .handleErrorWith(t => IO(logger.warn("verification email dispatch failed", t)))
 
   /** The originating client IP, preferring the first `X-Forwarded-For` entry (the real client when behind a proxy such
     * as Render), then the direct remote address, and finally the literal `"unknown"` when neither is available.
@@ -128,6 +149,8 @@ class AuthRoutes(
       * - 400: a field is blank, malformed, or out of range
       * - 409: the email is already registered
       * - 429: too many requests from this IP; retry after the `Retry-After` header
+      *
+      * On success a verification email is dispatched; failure to send it never fails the registration.
       */
     path("register") {
       post {
@@ -138,7 +161,11 @@ class AuthRoutes(
                 case Left(error) =>
                   complete(StatusCodes.BadRequest -> Map("error" -> error))
                 case Right(valid) =>
-                  onSuccess(identityProvider.register(valid.username, valid.email, valid.password).unsafeToFuture()) {
+                  val registered = identityProvider.register(valid.username, valid.email, valid.password).flatMap {
+                    case created @ Right(account) => sendVerification(account).as(created)
+                    case rejected @ Left(_)       => IO.pure(rejected)
+                  }
+                  onSuccess(registered.unsafeToFuture()) {
                     case Right(account) =>
                       complete(StatusCodes.Created -> Map("token" -> tokenFor(account)))
                     case Left(RegisterError.EmailAlreadyRegistered) =>
@@ -300,6 +327,71 @@ class AuthRoutes(
         }
       }
     } ~
+    /** Verifies an email address using a token from the verification email.
+      *
+      * - Body: `VerifyEmailRequest` — `token`
+      * - 204: the address is verified; also returned when the account was already verified (idempotent)
+      * - 400: the token is blank, unknown, expired, or already used
+      * - 429: too many requests from this IP; retry after the `Retry-After` header
+      */
+    path("verify") {
+      post {
+        clientIp { ip =>
+          ipThrottle("verify", ip) {
+            entity(as[VerifyEmailRequest]) { req =>
+              AuthValidation.validateVerifyEmail(req) match {
+                case Left(error) =>
+                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                case Right(_) =>
+                  val verified: IO[Boolean] = tokenStore.consume(TokenPurpose.EmailVerification, req.token).flatMap {
+                    // markVerified is idempotent, so a fresh token for an already-verified account still 204s.
+                    case Some(accountId) => userRepo.markVerified(accountId).as(true)
+                    case None            => IO.pure(false)
+                  }
+                  onSuccess(verified.unsafeToFuture()) {
+                    case true  => complete(StatusCodes.NoContent)
+                    case false =>
+                      complete(StatusCodes.BadRequest -> Map("error" -> "Invalid or expired verification token"))
+                  }
+              }
+            }
+          }
+        }
+      }
+    } ~
+    /** Resends a verification email for an address, if it belongs to an as-yet-unverified account.
+      *
+      * - Body: `ResendVerificationRequest` — `email`
+      * - 202: always, whether or not the email is registered or already verified, so existence is never revealed
+      * - 429: too many requests from this IP; retry after the `Retry-After` header
+      *
+      * A registered, unverified address is mailed a fresh token; anything else (unknown, blank, already verified) is
+      * silently ignored, and any dispatch failure is swallowed so the outcome stays a uniform 202.
+      */
+    path("verify" / "resend") {
+      post {
+        clientIp { ip =>
+          ipThrottle("verify-resend", ip) {
+            entity(as[ResendVerificationRequest]) { req =>
+              val email = AuthValidation.normalizeResendVerification(req).email
+              val dispatch: IO[Unit] =
+                if (email.isEmpty) IO.unit
+                else
+                  userRepo.findByEmail(email).flatMap {
+                    case Some(account) if account.emailVerifiedAt.isEmpty => sendVerification(account)
+                    case _                                                => IO.unit
+                  }
+              val settled = dispatch
+                .handleErrorWith(t => IO(logger.warn("verify-resend dispatch failed", t)))
+                .as(StatusCodes.Accepted)
+              onSuccess(settled.unsafeToFuture())(status =>
+                complete(status -> Map("status" -> ResendVerificationMessage))
+              )
+            }
+          }
+        }
+      }
+    } ~
     /** Logs the caller out by revoking every token their account currently holds ("log out everywhere").
       *
       * - Auth: Bearer token required
@@ -313,18 +405,21 @@ class AuthRoutes(
         }
       }
     } ~
-    /** Returns the identity of the currently authenticated player.
+    /** Returns the identity of the currently authenticated player, with their email-verification flag.
       *
-      * Validates the Bearer token, decodes it into a `UserContext`, and returns the player's UUID and name.
+      * Validates the Bearer token, decodes it into a `UserContext`, and looks up the account's verification state.
       *
       * - Auth: Bearer token required
-      * - 200: `Player` with the authenticated player's `id` (UUID) and `name` (String)
+      * - 200: `WhoamiResponse` — the player's `id` (UUID), `name` (String), and `verified` (Boolean)
       * - 401: missing token, invalid or expired token, undecodable payload, or malformed player ID
+      *
+      * `verified` is `false` for an account that can't be found, which for a validly-signed token means it was deleted.
       */
     path("whoami") {
       authenticator.authenticatePlayer { player =>
         get {
-          complete(player)
+          val verified = userRepo.findById(player.id).map(_.exists(_.emailVerifiedAt.isDefined))
+          onSuccess(verified.unsafeToFuture())(v => complete(WhoamiResponse(player.id, player.name, v)))
         }
       }
     }

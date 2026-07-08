@@ -38,3 +38,17 @@ case class ForgotPasswordRequest(email: String)
   * @param newPassword the replacement password, hashed server-side before storage
   */
 case class ResetPasswordRequest(token: String, newPassword: String)
+
+/** Body of `POST /auth/verify` — confirm an email address using a token from a verification email. The account is
+  * identified by the token, not the body.
+  *
+  * @param token the single-use verification token delivered by email
+  */
+case class VerifyEmailRequest(token: String)
+
+/** Body of `POST /auth/verify/resend` — request a fresh verification email by address. The endpoint answers the same
+  * way whether or not the email is registered (or already verified), so this never confirms account existence.
+  *
+  * @param email the address to send a new verification link to, if it belongs to an unverified account
+  */
+case class ResendVerificationRequest(email: String)

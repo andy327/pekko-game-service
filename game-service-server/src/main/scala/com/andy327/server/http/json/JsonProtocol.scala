@@ -49,7 +49,10 @@ import com.andy327.server.http.auth.{
   PlayerGameSummary,
   PlayerHistory,
   RegisterRequest,
-  ResetPasswordRequest
+  ResendVerificationRequest,
+  ResetPasswordRequest,
+  VerifyEmailRequest,
+  WhoamiResponse
 }
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
@@ -77,6 +80,13 @@ object JsonProtocol extends CirceSupport {
   implicit val forgotPasswordRequestCodec: Codec[ForgotPasswordRequest] = deriveCodec[ForgotPasswordRequest]
 
   implicit val resetPasswordRequestCodec: Codec[ResetPasswordRequest] = deriveCodec[ResetPasswordRequest]
+
+  implicit val verifyEmailRequestCodec: Codec[VerifyEmailRequest] = deriveCodec[VerifyEmailRequest]
+
+  implicit val resendVerificationRequestCodec: Codec[ResendVerificationRequest] =
+    deriveCodec[ResendVerificationRequest]
+
+  implicit val whoamiResponseCodec: Codec[WhoamiResponse] = deriveCodec[WhoamiResponse]
 
   implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
 
@@ -176,6 +186,10 @@ object JsonProtocol extends CirceSupport {
     circeUnmarshaller[ForgotPasswordRequest]
   implicit val resetPasswordRequestUnmarshaller: FromEntityUnmarshaller[ResetPasswordRequest] =
     circeUnmarshaller[ResetPasswordRequest]
+  implicit val verifyEmailRequestUnmarshaller: FromEntityUnmarshaller[VerifyEmailRequest] =
+    circeUnmarshaller[VerifyEmailRequest]
+  implicit val resendVerificationRequestUnmarshaller: FromEntityUnmarshaller[ResendVerificationRequest] =
+    circeUnmarshaller[ResendVerificationRequest]
   implicit val lobbyMetadataUnmarshaller: FromEntityUnmarshaller[LobbyMetadata] = circeUnmarshaller[LobbyMetadata]
   implicit val lobbyCreatedUnmarshaller: FromEntityUnmarshaller[LobbyCreated] = circeUnmarshaller[LobbyCreated]
   implicit val lobbyJoinedUnmarshaller: FromEntityUnmarshaller[LobbyJoined] = circeUnmarshaller[LobbyJoined]

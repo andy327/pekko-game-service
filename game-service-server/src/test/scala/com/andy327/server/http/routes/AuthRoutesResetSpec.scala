@@ -99,9 +99,9 @@ class AuthRoutesResetSpec extends AnyWordSpec with Matchers with ScalatestRouteT
         status shouldBe StatusCodes.Accepted
       }
 
-      val sent = setup.emailSender.sent.unsafeRunSync()
+      // Registration also emails a verification link, so filter to the reset email this endpoint sent.
+      val sent = setup.emailSender.sent.unsafeRunSync().filter(_.kind == EmailKind.PasswordReset)
       sent should have size 1
-      sent.head.kind shouldBe EmailKind.PasswordReset
       sent.head.to shouldBe "alice@example.com"
       sent.head.token should not be empty
     }
@@ -115,9 +115,10 @@ class AuthRoutesResetSpec extends AnyWordSpec with Matchers with ScalatestRouteT
       val unknown = Post("/auth/forgot-password", entityFor(ForgotPasswordRequest("nobody@example.com"))) ~>
         setup.routes ~> check { status shouldBe StatusCodes.Accepted; responseAs[String] }
 
-      // Identical response body for registered and unregistered, and no email sent for the unknown address.
+      // Identical response body for registered and unregistered, and a reset email only for the registered address.
       unknown shouldBe known
-      setup.emailSender.sent.unsafeRunSync().map(_.to) shouldBe Vector("alice@example.com")
+      setup.emailSender.sent.unsafeRunSync().filter(_.kind == EmailKind.PasswordReset).map(_.to) shouldBe
+        Vector("alice@example.com")
     }
 
     "answer 202 for a blank email without attempting a lookup or send" in {

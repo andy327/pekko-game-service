@@ -114,4 +114,23 @@ class AuthValidationSpec extends AnyWordSpec with Matchers {
         Left("Password must be at least 8 characters")
     }
   }
+
+  "AuthValidation.validateVerifyEmail" should {
+    "accept a present token" in {
+      AuthValidation.validateVerifyEmail(VerifyEmailRequest("tok")) shouldBe Right(())
+    }
+
+    "reject a blank token" in {
+      AuthValidation.validateVerifyEmail(VerifyEmailRequest("")) shouldBe Left("Token must not be blank")
+    }
+  }
+
+  "AuthValidation.normalizeResendVerification" should {
+    "trim the email and never reject" in {
+      AuthValidation.normalizeResendVerification(ResendVerificationRequest("  alice@example.com  ")) shouldBe
+        ResendVerificationRequest("alice@example.com")
+      AuthValidation.normalizeResendVerification(ResendVerificationRequest("not-an-email")) shouldBe
+        ResendVerificationRequest("not-an-email")
+    }
+  }
 }
