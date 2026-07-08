@@ -36,7 +36,7 @@ class InMemoryUserRepository extends UserRepository {
       if (current.values.exists(_.email.equalsIgnoreCase(email)))
         (current, Left(CreateError.EmailAlreadyExists))
       else {
-        val account = Account(UUID.randomUUID(), username, email, passwordHash, Instant.now())
+        val account = Account(UUID.randomUUID(), username, email, passwordHash, Instant.now(), emailVerifiedAt = None)
         (current + (account.id -> account), Right(account))
       }
     }
@@ -45,4 +45,16 @@ class InMemoryUserRepository extends UserRepository {
     accounts.update(current =>
       current.get(id).fold(current)(account => current + (id -> account.copy(passwordHash = Some(passwordHash))))
     )
+
+  override def markVerified(id: UUID): IO[Unit] =
+    IO(Instant.now()).flatMap { now =>
+      accounts.update { current =>
+        current.get(id) match {
+          // Only stamp an as-yet-unverified account, so re-verifying keeps the original time.
+          case Some(account) if account.emailVerifiedAt.isEmpty =>
+            current + (id -> account.copy(emailVerifiedAt = Some(now)))
+          case _ => current
+        }
+      }
+    }
 }

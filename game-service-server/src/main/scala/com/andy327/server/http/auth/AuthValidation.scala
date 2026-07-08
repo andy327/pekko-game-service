@@ -51,6 +51,29 @@ object AuthValidation {
     if (req.currentPassword.isEmpty) Left("Current password must not be blank")
     else passwordError(req.newPassword).toLeft(())
 
+  /** Normalizes a forgot-password request by trimming the email. It never rejects: the endpoint answers 202 regardless,
+    * so surfacing a validation error here would reveal whether an address is even well-formed.
+    */
+  def normalizeForgotPassword(req: ForgotPasswordRequest): ForgotPasswordRequest =
+    ForgotPasswordRequest(req.email.trim)
+
+  /** Validates a reset-password request: the token must be present, and the new password must satisfy the same length
+    * rules as registration.
+    */
+  def validateResetPassword(req: ResetPasswordRequest): Either[String, Unit] =
+    if (req.token.isEmpty) Left("Token must not be blank")
+    else passwordError(req.newPassword).toLeft(())
+
+  /** Validates an email-verification request: the token must be present. */
+  def validateVerifyEmail(req: VerifyEmailRequest): Either[String, Unit] =
+    if (req.token.isEmpty) Left("Token must not be blank") else Right(())
+
+  /** Normalizes a resend-verification request by trimming the email. Like [[normalizeForgotPassword]] it never rejects,
+    * since the endpoint answers 202 regardless and must not reveal whether an address is well-formed or registered.
+    */
+  def normalizeResendVerification(req: ResendVerificationRequest): ResendVerificationRequest =
+    ResendVerificationRequest(req.email.trim)
+
   /** The length-rule violation for a candidate password, if any — shared by registration and password change. */
   private def passwordError(password: String): Option[String] =
     if (password.length < MinPasswordLength) Some(s"Password must be at least $MinPasswordLength characters")

@@ -13,14 +13,17 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.persistence.db.InMemoryUserRepository
 import com.andy327.server.auth.{PasswordHasher, PasswordIdentityProvider}
-import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest}
+import com.andy327.server.http.auth.{ChangePasswordRequest, LoginRequest, RegisterRequest, WhoamiResponse}
 import com.andy327.server.http.json.JsonProtocol._
 
 class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
-  // Fresh in-memory accounts per test; small Argon2 parameters keep hashing fast.
-  private def newRoutes: Route =
-    new AuthRoutes(new PasswordIdentityProvider(new InMemoryUserRepository, new PasswordHasher(256, 1, 1))).routes
+  // Fresh in-memory accounts per test; small Argon2 parameters keep hashing fast. The routes share the account store
+  // with the identity provider, so lookups such as whoami's verification flag see the accounts registration created.
+  private def newRoutes: Route = {
+    val userRepo = new InMemoryUserRepository
+    new AuthRoutes(new PasswordIdentityProvider(userRepo, new PasswordHasher(256, 1, 1)), userRepo = userRepo).routes
+  }
 
   /** Decodes a flat string-valued JSON object response, e.g. `{"token":"..."}` or `{"id":..,"name":..}`. */
   private def fieldsOf(body: String): Map[String, String] =
@@ -182,9 +185,10 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
       Get("/auth/whoami").withHeaders(RawHeader("Authorization", s"Bearer $token")) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        val whoami = fieldsOf(responseAs[String])
-        whoami("name") shouldBe "bob"
-        whoami("id").length should be > 10
+        val whoami = decode[WhoamiResponse](responseAs[String]).getOrElse(fail("expected a WhoamiResponse"))
+        whoami.name shouldBe "bob"
+        whoami.id.toString.length should be > 10
+        whoami.verified shouldBe false // a freshly registered account is unverified
       }
     }
 

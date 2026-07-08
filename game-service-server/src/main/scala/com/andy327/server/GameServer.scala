@@ -35,21 +35,27 @@ import com.andy327.persistence.db.{
   InMemoryPlayerHistoryRepository,
   InMemoryUserRepository,
   MoveHistoryRepository,
-  PlayerHistoryRepository
+  PlayerHistoryRepository,
+  UserRepository
 }
 import com.andy327.server.analytics.{AnalyticsConsumer, GameMetrics, RedisAnalyticsPublisher}
 import com.andy327.server.auth.{
   AuthRateLimiter,
+  EmailSender,
   IdentityProvider,
+  InMemorySingleUseTokenStore,
   NoOpAuthRateLimiter,
+  NoOpEmailSender,
   NoOpRevocationStore,
   PasswordHasher,
   PasswordIdentityProvider,
   RedisAuthRateLimiter,
   RedisRevocationStore,
-  RevocationStore
+  RedisSingleUseTokenStore,
+  RevocationStore,
+  SingleUseTokenStore
 }
-import com.andy327.server.config.AuthRateLimitConfig
+import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, AuthVerificationConfig, EmailConfig}
 import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.routes.{
   AuthRoutes,
@@ -63,12 +69,22 @@ import com.andy327.server.http.routes.{
 }
 import com.andy327.server.pubsub.RedisPubSubResource
 
-/** GameServer is the main entry point of the game-service. It initializes the database, actor system, and HTTP server.
+/** Entry point and composition root of the game-service: it wires the persistence, actor, and HTTP layers together and
+  * starts the server.
+  *
+  * Two entry points share the same wiring. [[main]] is the production one — it opens the Redis, Postgres, and Redis
+  * pub/sub resources and injects the backend-backed collaborators. [[startServer]] is the reusable boot underneath it:
+  * every external collaborator is a parameter defaulting to an in-memory or no-op stand-in, so a test can start the
+  * whole server without any external infrastructure.
   */
 object GameServer {
   private val logger = LoggerFactory.getLogger(getClass)
 
   // $COVERAGE-OFF$ bootstrap wiring and JVM entry point
+  /** Production entry point: loads configuration, opens the Postgres/Redis/pub-sub resources for the lifetime of the
+    * process, initializes the schemas, starts the analytics consumer, and hands the backend-backed collaborators to
+    * [[startServer]], then blocks until the actor system terminates.
+    */
   def main(args: Array[String]): Unit = {
     // Load configuration from application.conf
     val config: Config = ConfigFactory.load()
@@ -102,6 +118,13 @@ object GameServer {
       val revocationStore = new RedisRevocationStore(redis)
       val authenticator = new JwtAuthenticator(revocationStore = revocationStore)
 
+      // Email flows: a sender (Resend or no-op, per config) and a Redis-backed single-use token store shared by the
+      // password-reset and email-verification tokens (namespaced by purpose)
+      val emailSender = EmailSender.fromConfig(EmailConfig.fromConfig(config))
+      val emailTokenStore = new RedisSingleUseTokenStore(redis)
+      val resetConfig = AuthResetConfig.fromConfig(config)
+      val verificationConfig = AuthVerificationConfig.fromConfig(config)
+
       // Analytics: publisher emits to the game-analytics channel; consumer folds events into the /metrics registry
       val registry = new CollectorRegistry()
       val metrics = new GameMetrics(registry)
@@ -124,13 +147,18 @@ object GameServer {
           moveRepo,
           chatRepo,
           playerHistoryRepo,
-          identityProvider,
+          userRepo,
+          Some(identityProvider),
           publisher,
           registry,
           authRateLimiter,
           rateLimitConfig,
           authenticator,
-          revocationStore
+          revocationStore,
+          emailSender,
+          emailTokenStore,
+          resetConfig,
+          verificationConfig
         ).flatMap { case (system, _) =>
           IO.blocking(Await.result(system.whenTerminated, Duration.Inf))
         }
@@ -138,7 +166,42 @@ object GameServer {
     }.unsafeRunSync()
   }
 
-  /** Starts the actor system and HTTP server and returns both. Can be reused in tests. */
+  /** Builds the actor system and HTTP routes, binds the server, and returns both. Reused by tests, which is why every
+    * external collaborator is a parameter: the defaults are in-memory or no-op stand-ins that need no Redis or
+    * Postgres, while [[main]] passes the backend-backed implementations.
+    *
+    * A few collaborators come in matched pairs that must share state, or the feature they back silently no-ops:
+    * `userRepo` with the identity provider (the reset routes read accounts through `userRepo` while the provider writes
+    * them), and `revocationStore` with `authenticator` (logout/reset write revocation cutoffs the authenticator must
+    * read to reject a token). The defaults are self-consistent; when overriding one half of a pair, pass the matching
+    * other half. `identityProvider` is an `Option` so that, left unset, it is built over `userRepo` and is consistent
+    * by construction.
+    *
+    * @param host interface the HTTP server binds to
+    * @param port TCP port to bind; `0` selects an ephemeral port, which tests use to avoid collisions
+    * @param gameRepo authoritative game-state store (write-through Redis over Postgres in production)
+    * @param lobbyRepo pre-game lobby store
+    * @param moveRepo per-game move-history store
+    * @param chatRepo per-match chat ring buffer; defaults to a no-op that retains nothing
+    * @param playerHistoryRepo completed-match win/loss/draw records; defaults to in-memory
+    * @param userRepo account store the auth routes read; defaults to in-memory. Must be the store backing the identity
+    *   provider (see above)
+    * @param identityProvider credential verification and account creation; when `None`, a password provider over
+    *   `userRepo` is used
+    * @param publisher analytics event sink; defaults to a no-op, so no metrics are emitted
+    * @param metricsRegistry Prometheus registry backing the `/metrics` endpoint
+    * @param authRateLimiter throttle/lockout backend for the auth endpoints; defaults to a no-op (no limiting)
+    * @param authRateLimitConfig throttle and lockout thresholds
+    * @param authenticator JWT bearer-token directive; must share its revocation store with `revocationStore`
+    * @param revocationStore per-account token-revocation cutoffs; defaults to a no-op, so nothing is ever revoked
+    * @param emailSender transactional email sender for password reset and verification; defaults to a no-op, so
+    *   nothing is sent
+    * @param emailTokenStore single-use token store shared by the reset and verification flows; defaults to in-memory
+    * @param resetConfig password-reset policy (token TTL)
+    * @param verificationConfig email-verification policy (token TTL)
+    * @param runtime cats-effect runtime used to run the effectful startup
+    * @return the started actor system and the bound HTTP server
+    */
   def startServer(
       host: String,
       port: Int,
@@ -147,15 +210,23 @@ object GameServer {
       moveRepo: MoveHistoryRepository,
       chatRepo: ChatRepository = NoOpChatRepository,
       playerHistoryRepo: PlayerHistoryRepository = new InMemoryPlayerHistoryRepository,
-      identityProvider: IdentityProvider =
-        new PasswordIdentityProvider(new InMemoryUserRepository, PasswordHasher.fromConfig()),
+      userRepo: UserRepository = new InMemoryUserRepository,
+      identityProvider: Option[IdentityProvider] = None,
       publisher: EventPublisher = NoOpEventPublisher,
       metricsRegistry: CollectorRegistry = new CollectorRegistry(),
       authRateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
       authRateLimitConfig: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
       authenticator: JwtAuthenticator = new JwtAuthenticator(),
-      revocationStore: RevocationStore = NoOpRevocationStore
+      revocationStore: RevocationStore = NoOpRevocationStore,
+      emailSender: EmailSender = NoOpEmailSender,
+      emailTokenStore: SingleUseTokenStore = new InMemorySingleUseTokenStore,
+      resetConfig: AuthResetConfig = AuthResetConfig.fromConfig(),
+      verificationConfig: AuthVerificationConfig = AuthVerificationConfig.fromConfig()
   )(implicit runtime: IORuntime): IO[(ActorSystem[GameManager.Command], Http.ServerBinding)] = IO.defer {
+    // Default the identity provider to one backed by the same account store the reset routes read from.
+    val resolvedIdentityProvider =
+      identityProvider.getOrElse(new PasswordIdentityProvider(userRepo, PasswordHasher.fromConfig()))
+
     val rootBehavior = Behaviors.setup[GameManager.Command] { context =>
       val persistActor = context.spawn(PostgresActor(gameRepo, moveRepo, playerHistoryRepo), "postgres-persistence")
       GameManager(persistActor, gameRepo, lobbyRepo, moveRepo, chatRepo, publisher)
@@ -167,7 +238,18 @@ object GameServer {
 
     // HTTP routes
     val routes = concat(
-      new AuthRoutes(identityProvider, authRateLimiter, authRateLimitConfig, authenticator, revocationStore).routes,
+      new AuthRoutes(
+        resolvedIdentityProvider,
+        authRateLimiter,
+        authRateLimitConfig,
+        authenticator,
+        revocationStore,
+        userRepo,
+        emailSender,
+        emailTokenStore,
+        resetConfig,
+        verificationConfig
+      ).routes,
       new PlayerRoutes(system, playerHistoryRepo, authenticator).routes,
       new LobbyRoutes(system, authenticator).routes,
       new GameRoutes(GameType.TicTacToe, system, authenticator).routes,

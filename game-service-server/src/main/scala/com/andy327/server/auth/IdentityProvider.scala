@@ -54,4 +54,9 @@ trait IdentityProvider {
       currentPassword: String,
       newPassword: String
   ): IO[Either[ChangePasswordError, Unit]]
+
+  /** Sets a new password for `accountId` without checking a current one — for a flow that has already authorized the
+    * caller out of band (a consumed single-use reset token). A no-op if the account no longer exists.
+    */
+  def resetPassword(accountId: UUID, newPassword: String): IO[Unit]
 }

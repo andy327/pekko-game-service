@@ -21,10 +21,12 @@ import com.andy327.persistence.db.{Account, UserRepository}
 class PostgresUserRepository(xa: Transactor[IO]) extends UserRepository {
 
   /** Tuple shape of an `accounts` row, mapped to [[Account]] without relying on case-class derivation. */
-  private type Row = (UUID, String, String, Option[String], Instant)
-  private def toAccount(row: Row): Account = Account(row._1, row._2, row._3, row._4, row._5)
+  private type Row = (UUID, String, String, Option[String], Instant, Option[Instant])
+  private def toAccount(row: Row): Account = Account(row._1, row._2, row._3, row._4, row._5, row._6)
 
-  /** Creates the 'accounts' table and case-insensitive email uniqueness index if they don't already exist. */
+  /** Creates the 'accounts' table and case-insensitive email uniqueness index if they don't already exist, and adds
+    * the `email_verified_at` column to a table predating it (an additive migration, safe to run every startup).
+    */
   override def initialize(): IO[Unit] =
     (for {
       _ <- sql"""
@@ -37,19 +39,23 @@ class PostgresUserRepository(xa: Transactor[IO]) extends UserRepository {
         )
       """.update.run
       _ <- sql"""
+        ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ
+      """.update.run
+      _ <- sql"""
         CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_lower_idx ON accounts (lower(email))
       """.update.run
     } yield ()).transact(xa)
 
   override def findById(id: UUID): IO[Option[Account]] =
-    sql"SELECT id, username, email, password_hash, created_at FROM accounts WHERE id = $id"
+    sql"SELECT id, username, email, password_hash, created_at, email_verified_at FROM accounts WHERE id = $id"
       .query[Row]
       .option
       .transact(xa)
       .map(_.map(toAccount))
 
   override def findByEmail(email: String): IO[Option[Account]] =
-    sql"SELECT id, username, email, password_hash, created_at FROM accounts WHERE lower(email) = lower($email)"
+    sql"""SELECT id, username, email, password_hash, created_at, email_verified_at
+          FROM accounts WHERE lower(email) = lower($email)"""
       .query[Row]
       .option
       .transact(xa)
@@ -72,10 +78,16 @@ class PostgresUserRepository(xa: Transactor[IO]) extends UserRepository {
     """.update
       .withUniqueGeneratedKeys[Instant]("created_at")
       .attemptSomeSqlState { case sqlstate.class23.UNIQUE_VIOLATION => CreateError.EmailAlreadyExists }
-      .map(_.map(createdAt => Account(id, username, email, passwordHash, createdAt)))
+      .map(_.map(createdAt => Account(id, username, email, passwordHash, createdAt, emailVerifiedAt = None)))
       .transact(xa)
   }
 
   override def updatePasswordHash(id: UUID, passwordHash: String): IO[Unit] =
     sql"UPDATE accounts SET password_hash = $passwordHash WHERE id = $id".update.run.transact(xa).void
+
+  /** Stamps `email_verified_at` only while it is still null, so re-verifying an account keeps the original time. */
+  override def markVerified(id: UUID): IO[Unit] =
+    sql"UPDATE accounts SET email_verified_at = now() WHERE id = $id AND email_verified_at IS NULL".update.run
+      .transact(xa)
+      .void
 }

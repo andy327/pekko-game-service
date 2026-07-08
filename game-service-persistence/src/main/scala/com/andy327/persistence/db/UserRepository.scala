@@ -16,13 +16,15 @@ import cats.effect.IO
   * @param email login identifier; unique case-insensitively across accounts
   * @param passwordHash opaque password hash, or `None` for passwordless accounts
   * @param createdAt server timestamp when the account was created
+  * @param emailVerifiedAt server timestamp when the email was verified, or `None` if it has not been verified
   */
 final case class Account(
     id: UUID,
     username: String,
     email: String,
     passwordHash: Option[String],
-    createdAt: Instant
+    createdAt: Instant,
+    emailVerifiedAt: Option[Instant]
 )
 
 object UserRepository {
@@ -69,4 +71,9 @@ trait UserRepository {
     * password change). A no-op if the account does not exist.
     */
   def updatePasswordHash(id: UUID, passwordHash: String): IO[Unit]
+
+  /** Mark an account's email address as verified, stamping the verification time. Idempotent: an already-verified
+    * account keeps its original timestamp, and a missing account is a no-op.
+    */
+  def markVerified(id: UUID): IO[Unit]
 }

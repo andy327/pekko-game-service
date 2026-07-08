@@ -1,7 +1,6 @@
 package com.andy327.server.http.routes
 
 import java.time.{Clock, Instant, ZoneOffset}
-import java.util.UUID
 
 import cats.effect.unsafe.implicits.global
 
@@ -24,7 +23,7 @@ import com.andy327.server.auth.{
   UserContext
 }
 import com.andy327.server.config.JwtConfig
-import com.andy327.server.http.auth.{ChangePasswordRequest, JwtAuthenticator, RegisterRequest}
+import com.andy327.server.http.auth.{ChangePasswordRequest, JwtAuthenticator, RegisterRequest, WhoamiResponse}
 import com.andy327.server.http.json.JsonProtocol._
 
 class AuthRoutesRevocationSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
@@ -86,7 +85,7 @@ class AuthRoutesRevocationSpec extends AnyWordSpec with Matchers with ScalatestR
         }
       val id = Get("/auth/whoami").withHeaders(bearer(token)) ~> routes ~> check {
         status shouldBe StatusCodes.OK
-        UUID.fromString(fieldsOf(responseAs[String])("id"))
+        decode[WhoamiResponse](responseAs[String]).getOrElse(fail("expected a WhoamiResponse")).id
       }
 
       store.revokedBefore(id).unsafeRunSync() shouldBe None
