@@ -1,11 +1,13 @@
 // Global settings
 ThisBuild / organization := "com.andy327"
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.13.16"
+ThisBuild / scalaVersion := "2.13.18"
 
 // Required for Scalafix semantic rules
 ThisBuild / semanticdbEnabled := true
-ThisBuild / semanticdbVersion := scalafixSemanticdb.revision
+// scalafix 0.14.3 bakes in semanticdb 4.13.5, which has no build for Scala 2.13.18; 4.13.9 is the
+// first scalameta release to publish semanticdb-scalac for 2.13.18
+ThisBuild / semanticdbVersion := "4.13.9"
 
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
@@ -21,6 +23,7 @@ addCommandAlias("ci", ";clean;scalafixAll --check;scalafmtCheckAll;scalafmtSbtCh
 val baseName = "game-service"
 
 val versions: Map[String, String] = Map(
+  "cats-effect" -> "3.7.0",
   "circe" -> "0.14.6",
   "dimafeng" -> "0.43.0",
   "doobie" -> "1.0.0-RC8",
@@ -29,7 +32,7 @@ val versions: Map[String, String] = Map(
   "pekko" -> "1.1.3",
   "pekko-http" -> "1.2.0",
   "prometheus" -> "0.16.0",
-  "redis4cats" -> "1.7.2",
+  "redis4cats" -> "2.0.5",
   "scaffeine" -> "5.3.0",
   "scalatest" -> "3.2.19",
   "slf4j" -> "2.0.17",
@@ -53,6 +56,7 @@ lazy val persistence = (project in file(s"$baseName-persistence"))
     Test / fork := true,
     Test / envVars += ("TESTCONTAINERS_RYUK_DISABLED" -> "true"),
     libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-effect" % versions("cats-effect"),
       "org.tpolecat" %% "doobie-core" % versions("doobie"),
       "org.tpolecat" %% "doobie-postgres" % versions("doobie"),
       "org.tpolecat" %% "doobie-hikari" % versions("doobie"),
@@ -81,6 +85,7 @@ lazy val actor = (project in file(s"$baseName-actor"))
     Test / javaOptions += "-Dapi.version=1.41",
     libraryDependencies ++= Seq(
       "org.apache.pekko" %% "pekko-actor-typed" % versions("pekko"),
+      "org.typelevel" %% "cats-effect" % versions("cats-effect"),
       "io.circe" %% "circe-core" % versions("circe"),
       "io.circe" %% "circe-generic" % versions("circe"),
       "io.circe" %% "circe-parser" % versions("circe"),
@@ -117,6 +122,7 @@ lazy val server = (project in file(s"$baseName-server"))
       "org.apache.pekko" %% "pekko-http" % versions("pekko-http"),
       "org.apache.pekko" %% "pekko-stream" % versions("pekko"),
       "org.apache.pekko" %% "pekko-stream-typed" % versions("pekko"),
+      "org.typelevel" %% "cats-effect" % versions("cats-effect"),
       "io.circe" %% "circe-core" % versions("circe"),
       "io.circe" %% "circe-generic" % versions("circe"),
       "io.circe" %% "circe-parser" % versions("circe"),
