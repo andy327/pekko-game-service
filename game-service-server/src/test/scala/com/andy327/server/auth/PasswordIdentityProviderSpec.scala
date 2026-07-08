@@ -122,4 +122,33 @@ class PasswordIdentityProviderSpec extends AnyWordSpec with Matchers with Option
         Left(ChangePasswordError.InvalidCurrentPassword)
     }
   }
+
+  "PasswordIdentityProvider.resetPassword" should {
+    "set a new password without a current one, so the new one logs in and the old one does not" in {
+      val users = new InMemoryUserRepository
+      val p = provider(users)
+      val account = p.register("alice", "alice@example.com", "oldpw123").unsafeRunSync().toOption.get
+
+      p.resetPassword(account.id, "newpw456").unsafeRunSync()
+
+      p.authenticate("alice@example.com", "newpw456").unsafeRunSync() shouldBe a[Right[_, _]]
+      p.authenticate("alice@example.com", "oldpw123").unsafeRunSync() shouldBe Left(LoginError.InvalidCredentials)
+    }
+
+    "store the new password as an Argon2 hash, not plaintext" in {
+      val users = new InMemoryUserRepository
+      val p = provider(users)
+      val account = p.register("alice", "alice@example.com", "oldpw123").unsafeRunSync().toOption.get
+
+      p.resetPassword(account.id, "newpw456").unsafeRunSync()
+
+      val stored = users.findById(account.id).unsafeRunSync().value.passwordHash.value
+      stored should startWith("$argon2id$")
+      stored should not be "newpw456"
+    }
+
+    "be a no-op for an unknown account id" in
+      // updatePasswordHash silently ignores a missing account, so this neither throws nor creates a row.
+      provider().resetPassword(java.util.UUID.randomUUID(), "newpw456").unsafeRunSync()
+  }
 }

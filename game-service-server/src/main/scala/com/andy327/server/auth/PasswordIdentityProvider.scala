@@ -63,6 +63,9 @@ class PasswordIdentityProvider(users: UserRepository, hasher: PasswordHasher) ex
       case None => IO.pure(Left(ChangePasswordError.InvalidCurrentPassword))
     }
 
+  override def resetPassword(accountId: UUID, newPassword: String): IO[Unit] =
+    IO(hasher.hash(newPassword)).flatMap(users.updatePasswordHash(accountId, _))
+
   /** Rejects with [[LoginError.InvalidCredentials]] after a decoy verification, so the no-account and wrong-password
     * paths take comparable time and don't reveal whether an email is registered.
     */

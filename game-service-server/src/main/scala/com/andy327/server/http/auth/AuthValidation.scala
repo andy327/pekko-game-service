@@ -51,6 +51,19 @@ object AuthValidation {
     if (req.currentPassword.isEmpty) Left("Current password must not be blank")
     else passwordError(req.newPassword).toLeft(())
 
+  /** Normalizes a forgot-password request by trimming the email. It never rejects: the endpoint answers 202 regardless,
+    * so surfacing a validation error here would reveal whether an address is even well-formed.
+    */
+  def normalizeForgotPassword(req: ForgotPasswordRequest): ForgotPasswordRequest =
+    ForgotPasswordRequest(req.email.trim)
+
+  /** Validates a reset-password request: the token must be present, and the new password must satisfy the same length
+    * rules as registration.
+    */
+  def validateResetPassword(req: ResetPasswordRequest): Either[String, Unit] =
+    if (req.token.isEmpty) Left("Token must not be blank")
+    else passwordError(req.newPassword).toLeft(())
+
   /** The length-rule violation for a candidate password, if any — shared by registration and password change. */
   private def passwordError(password: String): Option[String] =
     if (password.length < MinPasswordLength) Some(s"Password must be at least $MinPasswordLength characters")

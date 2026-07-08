@@ -89,4 +89,29 @@ class AuthValidationSpec extends AnyWordSpec with Matchers {
       AuthValidation.validatePasswordChange(ChangePasswordRequest("oldpw123", "a" * 129)).isLeft shouldBe true
     }
   }
+
+  "AuthValidation.normalizeForgotPassword" should {
+    "trim the email and never reject" in {
+      AuthValidation.normalizeForgotPassword(ForgotPasswordRequest("  alice@example.com  ")) shouldBe
+        ForgotPasswordRequest("alice@example.com")
+      AuthValidation.normalizeForgotPassword(ForgotPasswordRequest("not-an-email")) shouldBe
+        ForgotPasswordRequest("not-an-email")
+    }
+  }
+
+  "AuthValidation.validateResetPassword" should {
+    "accept a present token and a valid new password" in {
+      AuthValidation.validateResetPassword(ResetPasswordRequest("tok", "newpw456")) shouldBe Right(())
+    }
+
+    "reject a blank token" in {
+      AuthValidation.validateResetPassword(ResetPasswordRequest("", "newpw456")) shouldBe
+        Left("Token must not be blank")
+    }
+
+    "reject a too-short new password (same rule as registration)" in {
+      AuthValidation.validateResetPassword(ResetPasswordRequest("tok", "short")) shouldBe
+        Left("Password must be at least 8 characters")
+    }
+  }
 }

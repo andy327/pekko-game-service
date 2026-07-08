@@ -23,3 +23,18 @@ case class LoginRequest(email: String, password: String)
   * @param newPassword the replacement password, hashed server-side before storage
   */
 case class ChangePasswordRequest(currentPassword: String, newPassword: String)
+
+/** Body of `POST /auth/forgot-password` — request a reset link for an account by email. The endpoint answers the same
+  * way whether or not the email is registered, so this never confirms account existence.
+  *
+  * @param email the address to send a reset link to, if it belongs to an account
+  */
+case class ForgotPasswordRequest(email: String)
+
+/** Body of `POST /auth/reset-password` — set a new password using a token from a reset email. The account is identified
+  * by the token, not the body.
+  *
+  * @param token the single-use reset token delivered by email
+  * @param newPassword the replacement password, hashed server-side before storage
+  */
+case class ResetPasswordRequest(token: String, newPassword: String)

@@ -2,6 +2,9 @@ package com.andy327.server.http.routes
 
 import java.time.Instant
 
+import org.slf4j.LoggerFactory
+
+import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 
 import org.apache.pekko.http.scaladsl.model.headers.`Retry-After`
@@ -10,25 +13,32 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.{Directive1, Route}
 
 import com.andy327.actor.lobby.Player
-import com.andy327.persistence.db.Account
+import com.andy327.persistence.db.{Account, InMemoryUserRepository, UserRepository}
 import com.andy327.server.auth.{
   AuthRateLimiter,
+  EmailSender,
   IdentityProvider,
+  InMemorySingleUseTokenStore,
   JwtIssuer,
   NoOpAuthRateLimiter,
+  NoOpEmailSender,
   NoOpRevocationStore,
   RateLimitOutcome,
   RegisterError,
   RevocationStore,
+  SingleUseTokenStore,
+  TokenPurpose,
   UserContext
 }
-import com.andy327.server.config.{AuthRateLimitConfig, JwtConfig}
+import com.andy327.server.config.{AuthRateLimitConfig, AuthResetConfig, JwtConfig}
 import com.andy327.server.http.auth.{
   AuthValidation,
   ChangePasswordRequest,
+  ForgotPasswordRequest,
   JwtAuthenticator,
   LoginRequest,
-  RegisterRequest
+  RegisterRequest,
+  ResetPasswordRequest
 }
 import com.andy327.server.http.json.JsonProtocol._
 
@@ -46,17 +56,32 @@ import com.andy327.server.http.json.JsonProtocol._
   *   - POST /auth/register - Create an account and receive a signed JWT
   *   - POST /auth/token - Authenticate with credentials and receive a signed JWT
   *   - POST /auth/password - Change the authenticated account's password
+  *   - POST /auth/forgot-password - Email a single-use reset link for an account (always 202, never reveals existence)
+  *   - POST /auth/reset-password - Set a new password using a reset token, revoking the account's older tokens
   *   - POST /auth/logout - Revoke the account's outstanding tokens (log out everywhere)
   *   - GET /auth/whoami - Return the player's ID and name extracted from the Authorization token
+  *
+  * @param userRepo account lookups for the reset flow; must be the same store backing `identityProvider`
+  * @param emailSender delivers the reset email; defaults to a no-op so nothing is sent unless a provider is wired
+  * @param tokenStore mints and consumes single-use reset tokens
+  * @param resetConfig reset-token policy (TTL)
   */
 class AuthRoutes(
     identityProvider: IdentityProvider,
     rateLimiter: AuthRateLimiter = NoOpAuthRateLimiter,
     limits: AuthRateLimitConfig = AuthRateLimitConfig.fromConfig(),
     authenticator: JwtAuthenticator = new JwtAuthenticator(),
-    revocationStore: RevocationStore = NoOpRevocationStore
+    revocationStore: RevocationStore = NoOpRevocationStore,
+    userRepo: UserRepository = new InMemoryUserRepository,
+    emailSender: EmailSender = NoOpEmailSender,
+    tokenStore: SingleUseTokenStore = new InMemorySingleUseTokenStore,
+    resetConfig: AuthResetConfig = AuthResetConfig.fromConfig()
 )(implicit runtime: IORuntime) {
+  private val logger = LoggerFactory.getLogger(getClass)
   private val jwtIssuer = JwtIssuer.fromConfig()
+
+  /** The deliberately non-committal 202 body, identical for registered and unregistered addresses. */
+  private val ForgotPasswordMessage = "If that email is registered, a reset link has been sent"
 
   private def tokenFor(account: Account): String =
     jwtIssuer.issue(UserContext(account.id.toString, account.username))
@@ -201,6 +226,74 @@ class AuthRoutes(
                       case Left(_) => complete(StatusCodes.Forbidden -> Map("error" -> "Current password is incorrect"))
                     }
                 }
+              }
+            }
+          }
+        }
+      }
+    } ~
+    /** Starts a password reset by emailing a single-use reset link to the account, if the address is registered.
+      *
+      * - Body: `ForgotPasswordRequest` — `email`
+      * - 202: always, whether or not the email is registered, so the response never reveals account existence
+      * - 429: too many requests from this IP; retry after the `Retry-After` header
+      *
+      * A registered address is mailed a fresh reset token; an unregistered (or blank) one is silently ignored. Any
+      * failure to mint or send is swallowed so the outcome stays a uniform 202.
+      */
+    path("forgot-password") {
+      post {
+        clientIp { ip =>
+          ipThrottle("forgot-password", ip) {
+            entity(as[ForgotPasswordRequest]) { req =>
+              val email = AuthValidation.normalizeForgotPassword(req).email
+              val dispatch: IO[Unit] =
+                if (email.isEmpty) IO.unit
+                else
+                  userRepo.findByEmail(email).flatMap {
+                    case Some(account) =>
+                      tokenStore
+                        .issue(TokenPurpose.PasswordReset, account.id, resetConfig.tokenTtl)
+                        .flatMap(emailSender.sendPasswordReset(account.email, _))
+                    case None => IO.unit
+                  }
+              // Swallow lookup/send failures: a 500 only on registered addresses would itself leak existence.
+              val settled = dispatch
+                .handleErrorWith(t => IO(logger.warn("forgot-password dispatch failed", t)))
+                .as(StatusCodes.Accepted)
+              onSuccess(settled.unsafeToFuture())(status => complete(status -> Map("status" -> ForgotPasswordMessage)))
+            }
+          }
+        }
+      }
+    } ~
+    /** Completes a password reset using a token from the reset email.
+      *
+      * - Body: `ResetPasswordRequest` — `token`, `newPassword`
+      * - 204: password set; the token is consumed and the account's tokens issued before now are revoked
+      * - 400: the token is blank/missing/expired/already used, or the new password is out of range
+      * - 429: too many requests from this IP; retry after the `Retry-After` header
+      */
+    path("reset-password") {
+      post {
+        clientIp { ip =>
+          ipThrottle("reset-password", ip) {
+            entity(as[ResetPasswordRequest]) { req =>
+              AuthValidation.validateResetPassword(req) match {
+                case Left(error) =>
+                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                case Right(_) =>
+                  val reset: IO[Boolean] = tokenStore.consume(TokenPurpose.PasswordReset, req.token).flatMap {
+                    case Some(accountId) =>
+                      // Set the new hash, then advance the revocation cutoff so pre-reset tokens stop being accepted.
+                      identityProvider.resetPassword(accountId, req.newPassword) *>
+                        revocationStore.revokeBefore(accountId, Instant.now(), JwtConfig.ttl).as(true)
+                    case None => IO.pure(false)
+                  }
+                  onSuccess(reset.unsafeToFuture()) {
+                    case true  => complete(StatusCodes.NoContent)
+                    case false => complete(StatusCodes.BadRequest -> Map("error" -> "Invalid or expired reset token"))
+                  }
               }
             }
           }
