@@ -8,6 +8,7 @@ import com.typesafe.config.ConfigFactory
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.syntax.parallel._
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
 import dev.profunktor.redis4cats.RedisCommands
@@ -49,6 +50,14 @@ class RedisSingleUseTokenStoreSpec extends AnyWordSpec with Matchers with ForAll
         first shouldBe Some(account)
         second shouldBe None
       }
+    }
+
+    "redeem a token exactly once even when many requests race to redeem it" in withStore { (store, _) =>
+      val account = UUID.randomUUID()
+      for {
+        token <- store.issue(TokenPurpose.PasswordReset, account, 1.hour)
+        results <- List.fill(32)(()).parTraverse(_ => store.consume(TokenPurpose.PasswordReset, token))
+      } yield results.count(_.contains(account)) shouldBe 1
     }
 
     "reject an unknown token and one presented under the wrong purpose" in withStore { (store, _) =>
