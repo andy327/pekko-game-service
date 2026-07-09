@@ -45,8 +45,6 @@ import com.andy327.server.http.auth.{
   ChangePasswordRequest,
   ForgotPasswordRequest,
   LoginRequest,
-  PlayerGameSummary,
-  PlayerHistory,
   RegisterRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
@@ -55,6 +53,7 @@ import com.andy327.server.http.auth.{
   WhoamiResponse
 }
 import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
+import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *

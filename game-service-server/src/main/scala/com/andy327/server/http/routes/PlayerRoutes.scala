@@ -14,9 +14,10 @@ import org.apache.pekko.util.Timeout
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, PlayerHistoryRepository}
-import com.andy327.server.http.auth.{JwtAuthenticator, PlayerGameSummary, PlayerHistory}
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
 import com.andy327.server.http.model.ErrorResponse
+import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 
 /** HTTP routes for a player's own data: their current participation and their completed-game history.
   *
