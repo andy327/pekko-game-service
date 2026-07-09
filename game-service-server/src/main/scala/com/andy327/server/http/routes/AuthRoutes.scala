@@ -40,6 +40,7 @@ import com.andy327.server.http.auth.{
   RegisterRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
+  TokenResponse,
   VerifyEmailRequest,
   WhoamiResponse
 }
@@ -168,7 +169,7 @@ class AuthRoutes(
                   }
                   onSuccess(registered.unsafeToFuture()) {
                     case Right(account) =>
-                      complete(StatusCodes.Created -> Map("token" -> tokenFor(account)))
+                      complete(StatusCodes.Created -> TokenResponse(tokenFor(account)))
                     case Left(RegisterError.EmailAlreadyRegistered) =>
                       complete(StatusCodes.Conflict -> ErrorResponse("Email already registered"))
                   }
@@ -214,7 +215,7 @@ class AuthRoutes(
                             .as(failure)
                       }
                       onSuccess(attempt.unsafeToFuture()) {
-                        case Right(account) => complete(Map("token" -> tokenFor(account)))
+                        case Right(account) => complete(TokenResponse(tokenFor(account)))
                         case Left(_)        =>
                           complete(StatusCodes.Unauthorized -> ErrorResponse("Invalid email or password"))
                       }

@@ -33,6 +33,7 @@ import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.MoveRecord
+import com.andy327.server.http.auth.TokenResponse
 import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
 
 /** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent
@@ -91,6 +92,12 @@ class SerializationSpec extends AnyWordSpec with Matchers {
   "MessageResponse codec" should {
     "serialize to an object with a single `message` field" in {
       MessageResponse("done").asJson shouldBe Json.obj("message" -> "done".asJson)
+    }
+  }
+
+  "TokenResponse codec" should {
+    "serialize to an object with a single `token` field" in {
+      TokenResponse("jwt").asJson shouldBe Json.obj("token" -> "jwt".asJson)
     }
   }
 

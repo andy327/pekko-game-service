@@ -50,6 +50,7 @@ import com.andy327.server.http.auth.{
   RegisterRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
+  TokenResponse,
   VerifyEmailRequest,
   WhoamiResponse
 }
@@ -85,6 +86,8 @@ object JsonProtocol extends CirceSupport {
 
   implicit val resendVerificationRequestCodec: Codec[ResendVerificationRequest] =
     deriveCodec[ResendVerificationRequest]
+
+  implicit val tokenResponseCodec: Codec[TokenResponse] = deriveCodec[TokenResponse]
 
   implicit val whoamiResponseCodec: Codec[WhoamiResponse] = deriveCodec[WhoamiResponse]
 
