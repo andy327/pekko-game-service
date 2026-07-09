@@ -58,11 +58,10 @@ import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *
   * Case-class codecs are derived via `deriveCodec`. The value codecs for `Player`, `GameLifecycleStatus`, and
-  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from
-  * `LobbyCodecs` and re-exported as members here, so the wire format is defined once and is
-  * shared by the HTTP layer and Redis persistence. [[playerEventEncoder]] is write-only (server-push only). Marshalling
-  * is provided by [[CirceSupport]]: any type with an `Encoder` can be `complete`d, any type with a `Decoder` read with
-  * `entity(as[A])`.
+  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from `LobbyCodecs` and re-exported
+  * as members here, so the wire format is defined once and is shared by the HTTP layer and Redis persistence.
+  * [[playerEventEncoder]] is write-only (server-push only). Marshalling is provided by [[CirceSupport]]: any type with
+  * an `Encoder` can be `complete`d, any type with a `Decoder` read with `entity(as[A])`.
   */
 object JsonProtocol extends CirceSupport {
 
