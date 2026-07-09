@@ -11,7 +11,6 @@ import org.apache.pekko.util.Timeout
 
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{
-  ErrorResponse,
   GameForfeited,
   GameResponse,
   GameStarted,
@@ -29,6 +28,7 @@ import com.andy327.actor.lobby.LobbyError
 import com.andy327.model.core.GameType
 import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.model.ErrorResponse
 import com.andy327.server.http.routes.RouteDirectives._
 
 /** LobbyRoutes defines the HTTP routes for interacting with multiplayer game lobbies.
@@ -80,14 +80,15 @@ class LobbyRoutes(
               case Some(s) => GameType.fromString(s).toRight(s"Unknown game type: $s").map(Some(_))
             }
             gameTypeResult match {
-              case Left(err)                            => complete(StatusCodes.BadRequest -> err)
-              case Right(_) if page < 1                 => complete(StatusCodes.BadRequest -> "page must be >= 1")
+              case Left(err)            => complete(StatusCodes.BadRequest -> ErrorResponse(err))
+              case Right(_) if page < 1 => complete(StatusCodes.BadRequest -> ErrorResponse("page must be >= 1"))
               case Right(_) if limit < 1 || limit > 100 =>
-                complete(StatusCodes.BadRequest -> "limit must be between 1 and 100")
+                complete(StatusCodes.BadRequest -> ErrorResponse("limit must be between 1 and 100"))
               case Right(gameTypeFilter) =>
                 onSuccess(system.ask[GameResponse](GameManager.ListLobbies(gameTypeFilter, page, limit, _))) {
                   case listed: LobbiesListed => complete(listed)
-                  case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                  case other                 =>
+                    complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
                 }
             }
         }
@@ -112,13 +113,14 @@ class LobbyRoutes(
           parameter("name".?) { nameParam =>
             authenticator.authenticatePlayer { player =>
               LobbyRoutes.normalizeName(nameParam) match {
-                case Left(err)   => complete(StatusCodes.BadRequest -> err)
+                case Left(err)   => complete(StatusCodes.BadRequest -> ErrorResponse(err))
                 case Right(name) =>
                   onSuccess(
                     system.ask[GameResponse](replyTo => GameManager.CreateLobby(gameType, player, name, replyTo))
                   ) {
                     case created: LobbyCreated => complete(created)
-                    case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                    case other                 =>
+                      complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
                   }
               }
             }
@@ -140,8 +142,8 @@ class LobbyRoutes(
           get {
             onSuccess(system.ask[GameResponse](replyTo => GameManager.GetLobbyInfo(roomId, replyTo))) {
               case LobbyInfo(metadata)       => complete(metadata)
-              case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
-              case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+              case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+              case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
             }
           } ~
           /** Cancels a pre-game lobby. Only the host may call this; it ends the lobby for everyone (subscribers
@@ -161,8 +163,8 @@ class LobbyRoutes(
             authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.CancelLobby(roomId, player.id, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
-                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           }
@@ -183,8 +185,8 @@ class LobbyRoutes(
             authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.JoinLobby(roomId, player, replyTo))) {
                 case joined: LobbyJoined       => complete(joined)
-                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           }
@@ -211,9 +213,9 @@ class LobbyRoutes(
               onSuccess(system.ask[GameResponse](replyTo => GameManager.LeaveLobby(roomId, player, replyTo))) {
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case GameForfeited(_, state)   => complete(state)
-                case MoveRejected(msg)         => complete(StatusCodes.Conflict -> msg)
-                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case MoveRejected(msg)         => complete(StatusCodes.Conflict -> ErrorResponse(msg))
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           }
@@ -235,8 +237,8 @@ class LobbyRoutes(
             authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](replyTo => GameManager.StartGame(roomId, player.id, replyTo))) {
                 case gs @ GameStarted(_)       => complete(gs)
-                case LobbyErrorResponse(error) => complete(statusFor(error) -> error.message)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           }
@@ -260,10 +262,10 @@ class LobbyRoutes(
               onSuccess(
                 system.ask[GameResponse](replyTo => GameManager.SubscribePlayerToLobby(roomId, player.id, replyTo))
               ) {
-                case ack: SubscribeAcknowledged => complete(ack)
-                case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
-                case LobbyErrorResponse(error)  => complete(statusFor(error) -> error.message)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case ack: SubscribeAcknowledged     => complete(ack)
+                case GameManager.ErrorResponse(msg) => complete(StatusCodes.BadRequest -> ErrorResponse(msg))
+                case LobbyErrorResponse(error)      => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           } ~
@@ -284,7 +286,7 @@ class LobbyRoutes(
                 system.ask[GameResponse](replyTo => GameManager.UnsubscribePlayerFromLobby(roomId, player.id, replyTo))
               ) {
                 case ack: UnsubscribeAcknowledged => complete(ack)
-                case other => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }
             }
           }

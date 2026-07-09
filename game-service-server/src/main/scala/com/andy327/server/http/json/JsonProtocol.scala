@@ -9,7 +9,6 @@ import com.andy327.actor.chat.ChatCodecs
 import com.andy327.actor.core.GameManager.{
   ActiveGameSummary,
   ChatHistory,
-  ErrorResponse,
   GameStarted,
   LobbiesListed,
   LobbyCreated,
@@ -54,6 +53,7 @@ import com.andy327.server.http.auth.{
   VerifyEmailRequest,
   WhoamiResponse
 }
+import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *
@@ -88,6 +88,13 @@ object JsonProtocol extends CirceSupport {
 
   implicit val whoamiResponseCodec: Codec[WhoamiResponse] = deriveCodec[WhoamiResponse]
 
+  // Shared HTTP envelopes: ErrorResponse is the single body for every non-2xx response; MessageResponse carries an
+  // advisory note on a 2xx with nothing else to return. Both are neutral wire types, translated from actor replies at
+  // the route boundary so this protocol never marshals an actor message directly.
+  implicit val errorResponseCodec: Codec[ErrorResponse] = deriveCodec[ErrorResponse]
+
+  implicit val messageResponseCodec: Codec[MessageResponse] = deriveCodec[MessageResponse]
+
   implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
 
   implicit val lobbyJoinedCodec: Codec[LobbyJoined] = deriveCodec[LobbyJoined]
@@ -99,8 +106,6 @@ object JsonProtocol extends CirceSupport {
   implicit val lobbySummaryCodec: Codec[LobbySummary] = deriveCodec[LobbySummary]
 
   implicit val lobbiesListedCodec: Codec[LobbiesListed] = deriveCodec[LobbiesListed]
-
-  implicit val errorResponseCodec: Codec[ErrorResponse] = deriveCodec[ErrorResponse]
 
   implicit val subscribeAcknowledgedCodec: Codec[SubscribeAcknowledged] = deriveCodec[SubscribeAcknowledged]
 

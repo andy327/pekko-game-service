@@ -44,6 +44,7 @@ import com.andy327.server.http.auth.{
   WhoamiResponse
 }
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
 
 /** HTTP routes for registration, authentication, and token issuance.
   *
@@ -126,7 +127,7 @@ class AuthRoutes(
   /** A 429 response carrying a `Retry-After` header (at least one second) and a JSON error body. */
   private def tooManyRequests(message: String, retryAfter: scala.concurrent.duration.FiniteDuration): Route =
     respondWithHeader(`Retry-After`(math.max(1L, retryAfter.toSeconds))) {
-      complete(StatusCodes.TooManyRequests -> Map("error" -> message))
+      complete(StatusCodes.TooManyRequests -> ErrorResponse(message))
     }
 
   /** Lockout key for an account, normalized to lower case so it matches regardless of how the email was cased. */
@@ -159,7 +160,7 @@ class AuthRoutes(
             entity(as[RegisterRequest]) { req =>
               AuthValidation.validateRegister(req) match {
                 case Left(error) =>
-                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                  complete(StatusCodes.BadRequest -> ErrorResponse(error))
                 case Right(valid) =>
                   val registered = identityProvider.register(valid.username, valid.email, valid.password).flatMap {
                     case created @ Right(account) => sendVerification(account).as(created)
@@ -169,7 +170,7 @@ class AuthRoutes(
                     case Right(account) =>
                       complete(StatusCodes.Created -> Map("token" -> tokenFor(account)))
                     case Left(RegisterError.EmailAlreadyRegistered) =>
-                      complete(StatusCodes.Conflict -> Map("error" -> "Email already registered"))
+                      complete(StatusCodes.Conflict -> ErrorResponse("Email already registered"))
                   }
               }
             }
@@ -192,7 +193,7 @@ class AuthRoutes(
             entity(as[LoginRequest]) { req =>
               AuthValidation.validateLogin(req) match {
                 case Left(error) =>
-                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                  complete(StatusCodes.BadRequest -> ErrorResponse(error))
                 case Right(valid) =>
                   val lockKey = lockoutKey(valid.email)
                   onSuccess(rateLimiter.lockStatus(lockKey).unsafeToFuture()) {
@@ -215,7 +216,7 @@ class AuthRoutes(
                       onSuccess(attempt.unsafeToFuture()) {
                         case Right(account) => complete(Map("token" -> tokenFor(account)))
                         case Left(_)        =>
-                          complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid email or password"))
+                          complete(StatusCodes.Unauthorized -> ErrorResponse("Invalid email or password"))
                       }
                   }
               }
@@ -244,13 +245,13 @@ class AuthRoutes(
               entity(as[ChangePasswordRequest]) { req =>
                 AuthValidation.validatePasswordChange(req) match {
                   case Left(error) =>
-                    complete(StatusCodes.BadRequest -> Map("error" -> error))
+                    complete(StatusCodes.BadRequest -> ErrorResponse(error))
                   case Right(_) =>
                     onSuccess(
                       identityProvider.changePassword(player.id, req.currentPassword, req.newPassword).unsafeToFuture()
                     ) {
                       case Right(_) => revokeTokensThen(player, StatusCodes.NoContent)
-                      case Left(_) => complete(StatusCodes.Forbidden -> Map("error" -> "Current password is incorrect"))
+                      case Left(_)  => complete(StatusCodes.Forbidden -> ErrorResponse("Current password is incorrect"))
                     }
                 }
               }
@@ -288,7 +289,7 @@ class AuthRoutes(
               val settled = dispatch
                 .handleErrorWith(t => IO(logger.warn("forgot-password dispatch failed", t)))
                 .as(StatusCodes.Accepted)
-              onSuccess(settled.unsafeToFuture())(status => complete(status -> Map("status" -> ForgotPasswordMessage)))
+              onSuccess(settled.unsafeToFuture())(status => complete(status -> MessageResponse(ForgotPasswordMessage)))
             }
           }
         }
@@ -308,7 +309,7 @@ class AuthRoutes(
             entity(as[ResetPasswordRequest]) { req =>
               AuthValidation.validateResetPassword(req) match {
                 case Left(error) =>
-                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                  complete(StatusCodes.BadRequest -> ErrorResponse(error))
                 case Right(_) =>
                   val reset: IO[Boolean] = tokenStore.consume(TokenPurpose.PasswordReset, req.token).flatMap {
                     case Some(accountId) =>
@@ -319,7 +320,7 @@ class AuthRoutes(
                   }
                   onSuccess(reset.unsafeToFuture()) {
                     case true  => complete(StatusCodes.NoContent)
-                    case false => complete(StatusCodes.BadRequest -> Map("error" -> "Invalid or expired reset token"))
+                    case false => complete(StatusCodes.BadRequest -> ErrorResponse("Invalid or expired reset token"))
                   }
               }
             }
@@ -341,7 +342,7 @@ class AuthRoutes(
             entity(as[VerifyEmailRequest]) { req =>
               AuthValidation.validateVerifyEmail(req) match {
                 case Left(error) =>
-                  complete(StatusCodes.BadRequest -> Map("error" -> error))
+                  complete(StatusCodes.BadRequest -> ErrorResponse(error))
                 case Right(_) =>
                   val verified: IO[Boolean] = tokenStore.consume(TokenPurpose.EmailVerification, req.token).flatMap {
                     // markVerified is idempotent, so a fresh token for an already-verified account still 204s.
@@ -351,7 +352,7 @@ class AuthRoutes(
                   onSuccess(verified.unsafeToFuture()) {
                     case true  => complete(StatusCodes.NoContent)
                     case false =>
-                      complete(StatusCodes.BadRequest -> Map("error" -> "Invalid or expired verification token"))
+                      complete(StatusCodes.BadRequest -> ErrorResponse("Invalid or expired verification token"))
                   }
               }
             }
@@ -385,7 +386,7 @@ class AuthRoutes(
                 .handleErrorWith(t => IO(logger.warn("verify-resend dispatch failed", t)))
                 .as(StatusCodes.Accepted)
               onSuccess(settled.unsafeToFuture())(status =>
-                complete(status -> Map("status" -> ResendVerificationMessage))
+                complete(status -> MessageResponse(ResendVerificationMessage))
               )
             }
           }
