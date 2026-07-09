@@ -9,7 +9,6 @@ import com.andy327.actor.chat.ChatCodecs
 import com.andy327.actor.core.GameManager.{
   ActiveGameSummary,
   ChatHistory,
-  ErrorResponse,
   GameStarted,
   LobbiesListed,
   LobbyCreated,
@@ -46,23 +45,23 @@ import com.andy327.server.http.auth.{
   ChangePasswordRequest,
   ForgotPasswordRequest,
   LoginRequest,
-  PlayerGameSummary,
-  PlayerHistory,
   RegisterRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
+  TokenResponse,
   VerifyEmailRequest,
   WhoamiResponse
 }
+import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
+import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *
   * Case-class codecs are derived via `deriveCodec`. The value codecs for `Player`, `GameLifecycleStatus`, and
-  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from
-  * `LobbyCodecs` and re-exported as members here, so the wire format is defined once and is
-  * shared by the HTTP layer and Redis persistence. [[playerEventEncoder]] is write-only (server-push only). Marshalling
-  * is provided by [[CirceSupport]]: any type with an `Encoder` can be `complete`d, any type with a `Decoder` read with
-  * `entity(as[A])`.
+  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from `LobbyCodecs` and re-exported
+  * as members here, so the wire format is defined once and is shared by the HTTP layer and Redis persistence.
+  * [[playerEventEncoder]] is write-only (server-push only). Marshalling is provided by [[CirceSupport]]: any type with
+  * an `Encoder` can be `complete`d, any type with a `Decoder` read with `entity(as[A])`.
   */
 object JsonProtocol extends CirceSupport {
 
@@ -71,52 +70,44 @@ object JsonProtocol extends CirceSupport {
   implicit val gameLifecycleStatusCodec: Codec[GameLifecycleStatus] = LobbyCodecs.statusCodec
   implicit val lobbyMetadataCodec: Codec[LobbyMetadata] = LobbyCodecs.lobbyMetadataCodec
 
+  // Auth request bodies.
   implicit val registerRequestCodec: Codec[RegisterRequest] = deriveCodec[RegisterRequest]
-
   implicit val loginRequestCodec: Codec[LoginRequest] = deriveCodec[LoginRequest]
-
   implicit val changePasswordRequestCodec: Codec[ChangePasswordRequest] = deriveCodec[ChangePasswordRequest]
-
   implicit val forgotPasswordRequestCodec: Codec[ForgotPasswordRequest] = deriveCodec[ForgotPasswordRequest]
-
   implicit val resetPasswordRequestCodec: Codec[ResetPasswordRequest] = deriveCodec[ResetPasswordRequest]
-
   implicit val verifyEmailRequestCodec: Codec[VerifyEmailRequest] = deriveCodec[VerifyEmailRequest]
-
   implicit val resendVerificationRequestCodec: Codec[ResendVerificationRequest] =
     deriveCodec[ResendVerificationRequest]
 
+  // Auth response bodies.
+  implicit val tokenResponseCodec: Codec[TokenResponse] = deriveCodec[TokenResponse]
   implicit val whoamiResponseCodec: Codec[WhoamiResponse] = deriveCodec[WhoamiResponse]
 
-  implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
-
-  implicit val lobbyJoinedCodec: Codec[LobbyJoined] = deriveCodec[LobbyJoined]
-
-  implicit val lobbyLeftCodec: Codec[LobbyLeft] = deriveCodec[LobbyLeft]
-
-  implicit val gameStartedCodec: Codec[GameStarted] = deriveCodec[GameStarted]
-
-  implicit val lobbySummaryCodec: Codec[LobbySummary] = deriveCodec[LobbySummary]
-
-  implicit val lobbiesListedCodec: Codec[LobbiesListed] = deriveCodec[LobbiesListed]
-
+  // Shared HTTP envelopes: ErrorResponse is the single body for every non-2xx response; MessageResponse carries an
+  // advisory note on a 2xx with nothing else to return. Both are neutral wire types, translated from actor replies at
+  // the route boundary so this protocol never marshals an actor message directly.
   implicit val errorResponseCodec: Codec[ErrorResponse] = deriveCodec[ErrorResponse]
+  implicit val messageResponseCodec: Codec[MessageResponse] = deriveCodec[MessageResponse]
 
+  // Lobby and game responses completed directly by the routes.
+  implicit val lobbyCreatedCodec: Codec[LobbyCreated] = deriveCodec[LobbyCreated]
+  implicit val lobbyJoinedCodec: Codec[LobbyJoined] = deriveCodec[LobbyJoined]
+  implicit val lobbyLeftCodec: Codec[LobbyLeft] = deriveCodec[LobbyLeft]
+  implicit val gameStartedCodec: Codec[GameStarted] = deriveCodec[GameStarted]
+  implicit val lobbySummaryCodec: Codec[LobbySummary] = deriveCodec[LobbySummary]
+  implicit val lobbiesListedCodec: Codec[LobbiesListed] = deriveCodec[LobbiesListed]
   implicit val subscribeAcknowledgedCodec: Codec[SubscribeAcknowledged] = deriveCodec[SubscribeAcknowledged]
-
   implicit val unsubscribeAcknowledgedCodec: Codec[UnsubscribeAcknowledged] = deriveCodec[UnsubscribeAcknowledged]
-
   implicit val moveRecordCodec: Codec[MoveRecord] = deriveCodec[MoveRecord]
+  implicit val moveHistoryCodec: Codec[MoveHistory] = deriveCodec[MoveHistory]
 
   // Write-only: pushed over the debug trace WebSocket (TraceRoutes), never read back from a request body.
   implicit val traceEventEncoder: Encoder[TraceEvent] = deriveEncoder[TraceEvent]
 
-  implicit val moveHistoryCodec: Codec[MoveHistory] = deriveCodec[MoveHistory]
-
   // Chat history records use the plain (untagged) chat-message form from ChatCodecs — see its scaladoc for how this
   // differs from the tagged ChatMessage envelope that playerEventEncoder emits for live WebSocket push.
   implicit val chatMessageCodec: Codec[PlayerEvent.ChatMessage] = ChatCodecs.chatMessageCodec
-
   implicit val chatHistoryCodec: Codec[ChatHistory] = deriveCodec[ChatHistory]
 
   // Player history: a GameResult travels as its stable lower-case label ("win"/"loss"/"draw"); the GameType field
@@ -125,41 +116,26 @@ object JsonProtocol extends CirceSupport {
     Decoder.decodeString.emap(s => GameResult.fromLabel(s).toRight(s"Unknown GameResult: $s")),
     Encoder.encodeString.contramap[GameResult](_.label)
   )
-
   implicit val playerGameSummaryCodec: Codec[PlayerGameSummary] = deriveCodec[PlayerGameSummary]
-
   implicit val playerHistoryCodec: Codec[PlayerHistory] = deriveCodec[PlayerHistory]
 
   // Player sessions: the live "what am I in?" view, completed directly like LobbiesListed. ActiveGameSummary reuses the
   // canonical GameType wire format; the lobbies field reuses the shared LobbyMetadata codec, matching the /lobby shape.
   implicit val activeGameSummaryCodec: Codec[ActiveGameSummary] = deriveCodec[ActiveGameSummary]
-
   implicit val playerSessionsCodec: Codec[PlayerSessions] = deriveCodec[PlayerSessions]
 
   // Game state views
-
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
-
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
-
   implicit val pigStateCodec: Codec[PigState] = deriveCodec[PigState]
-
   implicit val guessResultCodec: Codec[GuessResult] = deriveCodec[GuessResult]
-
   implicit val mastermindStateCodec: Codec[MastermindState] = deriveCodec[MastermindState]
-
   implicit val bidViewCodec: Codec[BidView] = deriveCodec[BidView]
-
   implicit val revealViewCodec: Codec[RevealView] = deriveCodec[RevealView]
-
   implicit val liarsDiceStateCodec: Codec[LiarsDiceState] = deriveCodec[LiarsDiceState]
-
   implicit val holdEmSeatCodec: Codec[HoldEmSeat] = deriveCodec[HoldEmSeat]
-
   implicit val holdEmPotAwardCodec: Codec[HoldEmPotAward] = deriveCodec[HoldEmPotAward]
-
   implicit val holdEmHandResultCodec: Codec[HoldEmHandResult] = deriveCodec[HoldEmHandResult]
-
   implicit val holdEmStateCodec: Codec[HoldEmState] = deriveCodec[HoldEmState]
 
   /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`; Battleship has its own

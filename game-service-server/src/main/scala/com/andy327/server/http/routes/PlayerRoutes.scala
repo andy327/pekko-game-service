@@ -14,8 +14,10 @@ import org.apache.pekko.util.Timeout
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{GameResponse, PlayerSessions}
 import com.andy327.persistence.db.{InMemoryPlayerHistoryRepository, PlayerHistoryRepository}
-import com.andy327.server.http.auth.{JwtAuthenticator, PlayerGameSummary, PlayerHistory}
+import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.model.ErrorResponse
+import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 
 /** HTTP routes for a player's own data: their current participation and their completed-game history.
   *
@@ -55,7 +57,7 @@ class PlayerRoutes(
         authenticator.authenticatePlayer { player =>
           onSuccess(system.ask[GameResponse](GameManager.GetPlayerSessions(player.id, _))) {
             case sessions: PlayerSessions => complete(sessions)
-            case other                    => complete(StatusCodes.InternalServerError -> s"Unexpected response: $other")
+            case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
           }
         }
       }

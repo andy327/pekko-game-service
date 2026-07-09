@@ -16,6 +16,7 @@ import com.andy327.actor.lobby.Player
 import com.andy327.server.auth.{NoOpRevocationStore, RevocationStore, UserContext}
 import com.andy327.server.config.JwtConfig
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.model.ErrorResponse
 
 /** Authenticates players from JWT bearer tokens, as an injectable component.
   *
@@ -68,10 +69,10 @@ class JwtAuthenticator(
       case _ if allowQueryParam =>
         parameter("access_token".?).flatMap {
           case Some(token) => provide(token)
-          case None        => complete(StatusCodes.Unauthorized -> Map("error" -> "Missing access token"))
+          case None        => complete(StatusCodes.Unauthorized -> ErrorResponse("Missing access token"))
         }
       case _ =>
-        complete(StatusCodes.Unauthorized -> Map("error" -> "Missing Authorization header"))
+        complete(StatusCodes.Unauthorized -> ErrorResponse("Missing Authorization header"))
     }
 
   /** Validates a raw JWT and provides the [[Player]] it identifies, or rejects with an Unauthorized response. */
@@ -85,12 +86,12 @@ class JwtAuthenticator(
             // Parse the player id string into a UUID, then build a Player
             playerFromContext(userContext) match {
               case Some(player) => rejectIfRevoked(player, claim.issuedAt)
-              case None         => complete(StatusCodes.Unauthorized -> Map("error" -> "Invalid player ID or name"))
+              case None         => complete(StatusCodes.Unauthorized -> ErrorResponse("Invalid player ID or name"))
             }
-          case Left(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Token payload could not be parsed"))
+          case Left(_) => complete(StatusCodes.Unauthorized -> ErrorResponse("Token payload could not be parsed"))
         }
 
-      case Failure(_) => complete(StatusCodes.Unauthorized -> Map("error" -> "Token is invalid or expired"))
+      case Failure(_) => complete(StatusCodes.Unauthorized -> ErrorResponse("Token is invalid or expired"))
     }
 
   /** Provides the player unless their account has a revocation cutoff at or after the token's issued-at, in which case
@@ -100,7 +101,7 @@ class JwtAuthenticator(
   private def rejectIfRevoked(player: Player, issuedAt: Option[Long]): Directive1[Player] =
     onSuccess(revocationStore.revokedBefore(player.id).unsafeToFuture()).flatMap {
       case Some(cutoff) if issuedAt.forall(_ * 1000 < cutoff.toEpochMilli) =>
-        complete(StatusCodes.Unauthorized -> Map("error" -> "Token has been revoked"))
+        complete(StatusCodes.Unauthorized -> ErrorResponse("Token has been revoked"))
       case _ => provide(player)
     }
 

@@ -25,8 +25,8 @@ import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameType, RoomId}
 import com.andy327.persistence.db.InMemoryPlayerHistoryRepository
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
-import com.andy327.server.http.auth.PlayerHistory
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.player.PlayerHistory
 import com.andy327.server.testutil.AuthTestHelper.createTestToken
 
 class PlayerRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {

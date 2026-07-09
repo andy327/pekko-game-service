@@ -10,14 +10,7 @@ import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.core.GameManager.{
-  ErrorResponse,
-  LobbyCreated,
-  LobbyJoined,
-  LobbyLeft,
-  MoveHistory,
-  SubscribeAcknowledged
-}
+import com.andy327.actor.core.GameManager.{LobbyCreated, LobbyJoined, LobbyLeft, MoveHistory, SubscribeAcknowledged}
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
@@ -40,6 +33,8 @@ import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.MoveRecord
+import com.andy327.server.http.auth.TokenResponse
+import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
 
 /** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent
   * encoder. The reused value codecs (Player, GameType, GameLifecycleStatus, LobbyMetadata) are tested at their source
@@ -87,6 +82,22 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "round-trip serialize and deserialize" in {
       val error = ErrorResponse("Something went wrong")
       error.asJson.as[ErrorResponse] shouldBe Right(error)
+    }
+
+    "serialize to an object with a single `error` field" in {
+      ErrorResponse("nope").asJson shouldBe Json.obj("error" -> "nope".asJson)
+    }
+  }
+
+  "MessageResponse codec" should {
+    "serialize to an object with a single `message` field" in {
+      MessageResponse("done").asJson shouldBe Json.obj("message" -> "done".asJson)
+    }
+  }
+
+  "TokenResponse codec" should {
+    "serialize to an object with a single `token` field" in {
+      TokenResponse("jwt").asJson shouldBe Json.obj("token" -> "jwt".asJson)
     }
   }
 

@@ -17,7 +17,6 @@ import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{
   ChatHistory,
   Command,
-  ErrorResponse,
   GameNotFound,
   GameResponse,
   GameStatus,
@@ -30,6 +29,7 @@ import com.andy327.actor.game.{GameOperation, GameRegistry}
 import com.andy327.model.core.GameType
 import com.andy327.server.http.auth.JwtAuthenticator
 import com.andy327.server.http.json.JsonProtocol._
+import com.andy327.server.http.model.ErrorResponse
 import com.andy327.server.http.routes.RouteDirectives._
 
 /** HTTP routes for managing a specific type of game.
@@ -110,15 +110,18 @@ class GameRoutes(
                   case Right(move) =>
                     val op = GameOperation.MakeMove(player.id, move)
                     onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(roomId, op, _))) {
-                      case GameStatus(state)  => complete(state)
-                      case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found for room $id")
-                      case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
-                      case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
-                      case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+                      case GameStatus(state) => complete(state)
+                      case GameNotFound(id)  =>
+                        complete(StatusCodes.NotFound -> ErrorResponse(s"No game found for room $id"))
+                      case MoveRejected(msg)              => complete(StatusCodes.Conflict -> ErrorResponse(msg))
+                      case GameManager.ErrorResponse(msg) =>
+                        complete(StatusCodes.InternalServerError -> ErrorResponse(msg))
+                      case unknown =>
+                        complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
                     }
 
                   case Left(decodingError) =>
-                    complete(StatusCodes.BadRequest -> s"Invalid JSON: $decodingError")
+                    complete(StatusCodes.BadRequest -> ErrorResponse(s"Invalid JSON: $decodingError"))
                 }
               }
             }
@@ -135,11 +138,12 @@ class GameRoutes(
         path("status") {
           get {
             onSuccess(system.ask[GameResponse](GameManager.RunGameOperation(roomId, GameOperation.GetState, _))) {
-              case GameStatus(state)  => complete(state)
-              case GameNotFound(id)   => complete(StatusCodes.NotFound -> s"No game found for room $id")
-              case MoveRejected(msg)  => complete(StatusCodes.Conflict -> msg)
-              case ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> msg)
-              case unknown            => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              case GameStatus(state) => complete(state)
+              case GameNotFound(id)  => complete(StatusCodes.NotFound -> ErrorResponse(s"No game found for room $id"))
+              case MoveRejected(msg) => complete(StatusCodes.Conflict -> ErrorResponse(msg))
+              case GameManager.ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> ErrorResponse(msg))
+              case unknown                        =>
+                complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
             }
           }
         } ~
@@ -156,9 +160,10 @@ class GameRoutes(
         path("history") {
           get {
             onSuccess(system.ask[GameResponse](GameManager.GetMoveHistory(roomId, _))) {
-              case history: MoveHistory => complete(history)
-              case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
-              case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              case history: MoveHistory           => complete(history)
+              case GameManager.ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> ErrorResponse(msg))
+              case unknown                        =>
+                complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
             }
           }
         } ~
@@ -175,9 +180,10 @@ class GameRoutes(
         path("chat") {
           get {
             onSuccess(system.ask[GameResponse](GameManager.GetChatHistory(roomId, _))) {
-              case history: ChatHistory => complete(history)
-              case ErrorResponse(msg)   => complete(StatusCodes.InternalServerError -> msg)
-              case unknown              => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+              case history: ChatHistory           => complete(history)
+              case GameManager.ErrorResponse(msg) => complete(StatusCodes.InternalServerError -> ErrorResponse(msg))
+              case unknown                        =>
+                complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
             }
           }
         } ~
@@ -196,9 +202,10 @@ class GameRoutes(
           post {
             authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](GameManager.SubscribePlayerToGame(roomId, player.id, _))) {
-                case ack: SubscribeAcknowledged => complete(ack)
-                case ErrorResponse(msg)         => complete(StatusCodes.BadRequest -> msg)
-                case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+                case ack: SubscribeAcknowledged     => complete(ack)
+                case GameManager.ErrorResponse(msg) => complete(StatusCodes.BadRequest -> ErrorResponse(msg))
+                case unknown                        =>
+                  complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
               }
             }
           } ~
@@ -218,7 +225,8 @@ class GameRoutes(
             authenticator.authenticatePlayer { player =>
               onSuccess(system.ask[GameResponse](GameManager.UnsubscribePlayerFromGame(roomId, player.id, _))) {
                 case ack: UnsubscribeAcknowledged => complete(ack)
-                case unknown => complete(StatusCodes.InternalServerError -> s"Unexpected response: $unknown")
+                case unknown                      =>
+                  complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $unknown"))
               }
             }
           }

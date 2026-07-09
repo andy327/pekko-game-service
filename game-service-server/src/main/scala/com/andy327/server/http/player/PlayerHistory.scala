@@ -1,4 +1,4 @@
-package com.andy327.server.http.auth
+package com.andy327.server.http.player
 
 import java.time.Instant
 
