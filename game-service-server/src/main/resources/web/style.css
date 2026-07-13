@@ -156,8 +156,34 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cell.disabled { cursor: default; }
 .cell.mark-X { color: var(--x); }
 .cell.mark-O { color: var(--o); }
-.cell.mark-R { color: var(--error); }
-.cell.mark-Y { color: #f5c451; }
+
+/* Connect Four: the classic blue board with circular slots holding red/yellow discs. The board grid gets the blue
+   panel and the R/Y cells become gradient discs (their letters hidden), so it reads like the physical game. */
+#board.c4-active {
+  background: #1c4fd6;
+  border: 2px solid #163fa8;
+  border-radius: 12px;
+  padding: 8px;
+  gap: 6px;
+  max-width: 380px;
+}
+#board.c4-active .cell {
+  border: none;
+  border-radius: 50%;
+  color: transparent; /* hide the underlying "R"/"Y" token; the disc carries the meaning */
+  background: #0f2a72; /* empty slot: a dark hole punched in the blue board */
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.45);
+}
+#board.c4-active .cell.mark-R,
+#board.c4-active .cell.mark-Y {
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.35), inset 0 -2px 3px rgba(255, 255, 255, 0.15);
+}
+#board.c4-active .cell.mark-R { background: radial-gradient(circle at 35% 30%, #ff7a6b, #d21f2c 72%); }
+#board.c4-active .cell.mark-Y { background: radial-gradient(circle at 35% 30%, #ffe58a, #f2b705 72%); }
+
+/* Tint the drop arrows with the disc that will fall, so the active player's color is obvious. */
+.col-btn-R { color: #ff6b6b; }
+.col-btn-Y { color: #f5c451; }
 
 /* Drop buttons for column-based games (Connect Four), aligned to the board columns. */
 #column-controls {
@@ -262,12 +288,84 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* Smaller cells for the 10×10 Battleship grids. */
 .bs-grid .cell { font-size: 0.55rem; border-radius: 2px; }
 
-/* Cell states — hit/miss use explicit backgrounds to override the generic .cell background. */
-.cell.mark-hit     { background: #8b1a1a; border-color: #a52020; }
-.cell.mark-miss    { background: #1a3a5c; border-color: #2c5d8f; }
+/* Cell states — each fired cell carries a peg so it reads by shape as well as color (clear even to colorblind eyes):
+   a bright red peg for a hit, a pale sunken peg for a miss, and nothing on open water. Ship segments (your own board)
+   are a solid rounded slug. */
+.bs-grid .cell { position: relative; }
+
+.cell.mark-hit     { background: #4a0f0f; border-color: #7a1a1a; }
+.cell.mark-miss    { background: #0f2740; border-color: #23486e; }
 .cell.mark-ship    { background: #3a4455; border-color: #505d72; }
 .cell.mark-water   { background: #0a1624; border-color: #152336; }
 .cell.mark-unknown { background: var(--bg); }
+
+/* A ship segment reads as a filled rounded slug tucked inside the cell. */
+.cell.mark-ship::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: 3px;
+  background: #6b7688;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
+}
+
+/* Hit: a glowing red peg. */
+.cell.mark-hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 52%;
+  height: 52%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9a6b, #e5342b 70%);
+  box-shadow: 0 0 4px 1px rgba(229, 52, 43, 0.75);
+}
+
+/* Miss: a small pale peg sunk into the water. */
+.cell.mark-miss::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  background: #aeb9c7;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+/* Pig: a score table, a turn-info line, and the last roll shown as a CSS-pip die. The content flows as a normal block
+   rather than the fixed cell grid the plain board uses. */
+#board.pig-active { display: block; max-width: none; }
+.pig-scores { border-collapse: collapse; margin: 0.5rem 0; }
+.pig-scores th, .pig-scores td { padding: 0.25rem 0.9rem; text-align: left; border-bottom: 1px solid var(--line); }
+.pig-scores th { color: var(--muted); font-weight: 600; }
+.pig-current { background: var(--accent-dim); }
+
+.pig-turn-info { display: flex; align-items: center; gap: 1.25rem; margin: 0.75rem 0; }
+.pig-last-roll { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pig-roll-label { color: var(--muted); }
+.pig-actions { display: flex; gap: 0.5rem; }
+
+/* Die drawn as CSS pips: a 3×3 grid with dots at the face's positions. A rolled 1 busts, so it comes up red. */
+.pig-die {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 3px;
+  box-sizing: border-box;
+  background: #f5f7fa;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.pig-pipcell { display: flex; align-items: center; justify-content: center; }
+.pig-pip { width: 42%; height: 42%; border-radius: 50%; background: #14171c; }
+.pig-die-bust { background: #c0272d; border-color: #7f1a1e; }
+.pig-die-bust .pig-pip { background: #ffffff; }
 
 /* Mastermind: colored code pegs, a guess history with black/white feedback, and a peg-picker. */
 .mm-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; }

@@ -20,6 +20,8 @@ export function renderBoard(state) {
   setError("game-error", "");
   $("board").classList.remove("ld-active"); // cleared here so switching away from Liar's Dice restores the board grid
   $("board").classList.remove("holdem-active"); // likewise for the free-sized Texas Hold 'Em table
+  $("board").classList.remove("c4-active"); // and the blue Connect Four board; re-added below only for column games
+  $("board").classList.remove("pig-active"); // and the free-flowing Pig layout
 
   // Games with a custom board install a renderer on their GAMES entry (games/*.js); the rest fall through to the shared
   // grid renderer below.
@@ -41,7 +43,10 @@ export function renderBoard(state) {
   const spectating = Boolean(session.game && session.game.isSpectator);
   const columnMode = Boolean(session.game && GAMES[session.game.gameType] && GAMES[session.game.gameType].columns);
 
-  renderColumnControls(columnMode ? cols : 0, rows, over || spectating);
+  // Column games (Connect Four) get the blue slotted-board look and disc pieces; the letters are hidden by CSS.
+  board.classList.toggle("c4-active", columnMode);
+
+  renderColumnControls(columnMode ? cols : 0, rows, over || spectating, state.currentPlayer);
 
   rows.forEach((cells, r) => {
     cells.forEach((mark, c) => {
@@ -61,15 +66,16 @@ export function renderBoard(state) {
 }
 
 // Render one drop button per column above the board (for column-based games). Pass cols=0 to clear the controls for
-// cell-click games. A column whose top cell is filled is full, so its button is disabled.
-function renderColumnControls(cols, rows, over) {
+// cell-click games. A column whose top cell is filled is full, so its button is disabled. `currentMark` (the token
+// about to drop, e.g. "R"/"Y") tints the arrows so you can see whose disc you're placing.
+function renderColumnControls(cols, rows, over, currentMark) {
   const controls = $("column-controls");
   controls.innerHTML = "";
   if (cols === 0) return;
   controls.style.setProperty("--cols", cols);
   for (let c = 0; c < cols; c++) {
     const btn = document.createElement("button");
-    btn.className = "col-btn";
+    btn.className = "col-btn" + (currentMark ? ` col-btn-${currentMark}` : "");
     btn.textContent = "▼";
     btn.disabled = over || (rows[0] && rows[0][c] !== ""); // column full when its top cell is occupied
     btn.onclick = () => submitMove(0, c); // row is ignored for column moves
