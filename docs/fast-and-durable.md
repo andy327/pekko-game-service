@@ -110,7 +110,7 @@ A cache is a fast copy of hot data kept in front of a slow store so reads don't 
 
 For this service the choice makes itself. Durability is the whole point of leaving Stage 0, so we can't compromise it — which rules out **write-behind** (a Redis crash could lose a move a player already saw acknowledged). And **cache-aside's** hand-managed invalidation is exactly the kind of subtle bug we'd rather design out. That leaves **write-through**, with one crucial detail: the database is written *first*.
 
-Here's the actual method — a cache that wraps the database and implements the same interface, so nothing above it even knows a cache exists:
+Here's the actual save method — the whole write-through guarantee is in the order of its two lines:
 
 ```scala
 override def saveGame(matchId, gameType, game): IO[Unit] = {
@@ -120,7 +120,7 @@ override def saveGame(matchId, gameType, game): IO[Unit] = {
 }
 ```
 
-The `*>` operator sequences two effects: run the left one, and *only if it finishes successfully*, run the right one and take its result. If the left one fails, the right one never runs. So this line guarantees two things: Postgres is written before Redis, and Redis is touched *only when the Postgres write succeeded.* That ordering gives us the key safety property — **the cache can never be ahead of the source of truth.**
+The `*>` operator sequences two effects: run the left one, and *only if it finishes successfully*, run the right one and take its result. If the left one fails, the right one never runs. So this statement guarantees two things: Postgres is written before Redis, and Redis is touched *only when the Postgres write succeeded.* That ordering gives us the key safety property — **the cache can never be ahead of the source of truth.**
 
 > **In the code:** the persistence layer is written in [Cats Effect](https://typelevel.org/cats-effect/), where a database call isn't run on the spot — it's a *value* that describes work to be done later (an `IO`). Because these descriptions are just values, we can combine them with operators that specify exactly how they run relative to each other; `*>` means "do this, then that."
 
