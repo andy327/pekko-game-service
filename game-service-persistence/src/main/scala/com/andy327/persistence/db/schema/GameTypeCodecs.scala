@@ -8,6 +8,7 @@ import io.circe.syntax._
 import io.circe.{Codec, Decoder, Encoder}
 
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
+import com.andy327.model.checkers.{Black => CheckersBlack, Checkers, Color => CheckersColor, Piece, Red => CheckersRed}
 import com.andy327.model.connectfour.{ConnectFour, Mark => ConnectFourMark, Red, Yellow}
 import com.andy327.model.core.{Game, GameType}
 import com.andy327.model.holdem.{Card, HandResult, PotAward, Street, TexasHoldEm}
@@ -33,6 +34,7 @@ object GameTypeCodecs {
       case "Mastermind"  => Right(GameType.Mastermind)
       case "LiarsDice"   => Right(GameType.LiarsDice)
       case "TexasHoldEm" => Right(GameType.TexasHoldEm)
+      case "Checkers"    => Right(GameType.Checkers)
       case other         => Left(s"Unknown GameType: $other")
     },
     Encoder.encodeString.contramap[GameType] {
@@ -43,6 +45,7 @@ object GameTypeCodecs {
       case GameType.Mastermind  => "Mastermind"
       case GameType.LiarsDice   => "LiarsDice"
       case GameType.TexasHoldEm => "TexasHoldEm"
+      case GameType.Checkers    => "Checkers"
     }
   )
 
@@ -138,6 +141,19 @@ object GameTypeCodecs {
   implicit val handResultCodec: Codec[HandResult] = deriveCodec[HandResult]
   implicit val texasHoldEmCodec: Codec[TexasHoldEm] = deriveCodec[TexasHoldEm]
 
+  implicit val checkersColorCodec: Codec[CheckersColor] = Codec.from(
+    Decoder.decodeString.emap {
+      case "R"   => Right(CheckersRed)
+      case "B"   => Right(CheckersBlack)
+      case other => Left(s"Invalid Checkers Color: expected 'R' or 'B', got '$other'")
+    },
+    Encoder.encodeString.contramap[CheckersColor](_.symbol)
+  )
+
+  // Declared in dependency order so each is in scope for the deriveCodec that needs it.
+  implicit val checkersPieceCodec: Codec[Piece] = deriveCodec[Piece]
+  implicit val checkersCodec: Codec[Checkers] = deriveCodec[Checkers]
+
   /** Serializes a game instance to a JSON string using the codec for the given GameType. */
   def serializeGame(gameType: GameType, game: Game[_, _, _, _, _]): String = gameType match {
     case GameType.TicTacToe   => game.asInstanceOf[TicTacToe].asJson.noSpaces
@@ -147,6 +163,7 @@ object GameTypeCodecs {
     case GameType.Mastermind  => game.asInstanceOf[Mastermind].asJson.noSpaces
     case GameType.LiarsDice   => game.asInstanceOf[LiarsDice].asJson.noSpaces
     case GameType.TexasHoldEm => game.asInstanceOf[TexasHoldEm].asJson.noSpaces
+    case GameType.Checkers    => game.asInstanceOf[Checkers].asJson.noSpaces
   }
 
   /** Deserializes a game state JSON string into a Game instance based on the provided GameType. */
@@ -159,5 +176,6 @@ object GameTypeCodecs {
       case GameType.Mastermind  => decode[Mastermind](json).left.map(err => new Exception(err))
       case GameType.LiarsDice   => decode[LiarsDice](json).left.map(err => new Exception(err))
       case GameType.TexasHoldEm => decode[TexasHoldEm](json).left.map(err => new Exception(err))
+      case GameType.Checkers    => decode[Checkers](json).left.map(err => new Exception(err))
     }
 }

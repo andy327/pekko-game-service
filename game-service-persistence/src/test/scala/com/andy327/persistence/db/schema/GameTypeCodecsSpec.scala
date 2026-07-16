@@ -10,6 +10,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.model.battleship.{Battleship, Coord, Fire, Player1, Player2, PlayerBoard, Ship}
+import com.andy327.model.checkers.{Checkers, Move => CheckersMove, Red => CheckersRed, Square}
 import com.andy327.model.connectfour.{ConnectFour, Drop, Red}
 import com.andy327.model.core.{GameType, PlayerId}
 import com.andy327.model.holdem.Action.{Bet, Call, Check, Fold}
@@ -27,6 +28,21 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
   val bob: PlayerId = UUID.randomUUID()
 
   "GameTypeCodecs" should {
+    "resolve every game-type name via GameType.fromString, and reject an unknown one" in {
+      val cases: Map[String, GameType] = Map(
+        "tictactoe" -> GameType.TicTacToe,
+        "connectfour" -> GameType.ConnectFour,
+        "battleship" -> GameType.Battleship,
+        "pig" -> GameType.Pig,
+        "mastermind" -> GameType.Mastermind,
+        "liarsdice" -> GameType.LiarsDice,
+        "texasholdem" -> GameType.TexasHoldEm,
+        "checkers" -> GameType.Checkers
+      )
+      cases.foreach { case (name, gameType) => GameType.fromString(name) shouldBe Some(gameType) }
+      GameType.fromString("nonexistent") shouldBe None
+    }
+
     "correctly encode and decode GameType.TicTacToe" in {
       val t: GameType = GameType.TicTacToe
       val json = t.asJson.noSpaces
@@ -144,10 +160,6 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
       result.isLeft shouldBe true
     }
 
-    "resolve \"pig\" via GameType.fromString" in {
-      GameType.fromString("pig") shouldBe Some(GameType.Pig)
-    }
-
     "correctly encode and decode GameType.Pig" in {
       val t: GameType = GameType.Pig
       val json = t.asJson.noSpaces
@@ -164,10 +176,6 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
     "return Left if Pig game JSON is invalid" in {
       val result = deserializeGame(GameType.Pig, """{ "not": "valid" }""")
       result.isLeft shouldBe true
-    }
-
-    "resolve mastermind via GameType.fromString" in {
-      GameType.fromString("mastermind") shouldBe Some(GameType.Mastermind)
     }
 
     "correctly encode and decode GameType.Mastermind" in {
@@ -233,10 +241,6 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
       deserializeGame(GameType.Mastermind, """{ "not": "valid" }""").isLeft shouldBe true
     }
 
-    "resolve liarsdice via GameType.fromString" in {
-      GameType.fromString("liarsdice") shouldBe Some(GameType.LiarsDice)
-    }
-
     "correctly encode and decode GameType.LiarsDice" in {
       val t: GameType = GameType.LiarsDice
       val json = t.asJson.noSpaces
@@ -267,10 +271,6 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
 
     "return Left if Liar's Dice game JSON is invalid" in {
       deserializeGame(GameType.LiarsDice, """{ "not": "valid" }""").isLeft shouldBe true
-    }
-
-    "resolve texasholdem via GameType.fromString" in {
-      GameType.fromString("texasholdem") shouldBe Some(GameType.TexasHoldEm)
     }
 
     "correctly encode and decode GameType.TexasHoldEm" in {
@@ -340,6 +340,35 @@ class GameTypeCodecsSpec extends AnyWordSpec with Matchers {
 
     "return Left if Texas Hold 'Em game JSON is invalid" in {
       deserializeGame(GameType.TexasHoldEm, """{ "not": "valid" }""").isLeft shouldBe true
+    }
+
+    "correctly encode and decode GameType.Checkers" in {
+      val t: GameType = GameType.Checkers
+      val json = t.asJson.noSpaces
+      json shouldBe "\"Checkers\""
+
+      decode[GameType](json) shouldBe Right(GameType.Checkers)
+    }
+
+    "round-trip a Checkers game through serializeGame and deserializeGame" in {
+      // play one slide and one capture so the snapshot exercises pawns, an empty square, and a king-free board
+      val game = Checkers
+        .empty(alice, bob)
+        .play(CheckersRed, CheckersMove(Square(5, 0), List(Square(4, 1))))
+        .toOption
+        .get
+      val json = serializeGame(GameType.Checkers, game)
+      deserializeGame(GameType.Checkers, json) shouldBe Right(game)
+    }
+
+    "fail to decode an invalid Checkers Color" in {
+      val baseJson = Checkers.empty(alice, bob).asJson.noSpaces
+      val corrupted = baseJson.replace("\"currentPlayer\":\"R\"", "\"currentPlayer\":\"Z\"")
+      deserializeGame(GameType.Checkers, corrupted).isLeft shouldBe true
+    }
+
+    "return Left if Checkers game JSON is invalid" in {
+      deserializeGame(GameType.Checkers, """{ "not": "valid" }""").isLeft shouldBe true
     }
   }
 }
