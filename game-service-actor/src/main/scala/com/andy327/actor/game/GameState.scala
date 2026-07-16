@@ -1,6 +1,7 @@
 package com.andy327.actor.game
 
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
+import com.andy327.model.checkers.{Checkers, Piece}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
 import com.andy327.model.holdem.TexasHoldEm
@@ -359,6 +360,23 @@ object GameStateView {
   /** Type class instance for serializing a Texas Hold 'Em game, projected per viewer (only the viewer's hole cards). */
   implicit val texasHoldEmView: GameStateView[TexasHoldEm, HoldEmState] =
     (game, viewer) => HoldEmState.of(game, viewer.flatMap(game.playerFor))
+
+  /** Type class instance for serializing a Checkers game into a GridGameState (same board for every viewer).
+    *
+    * Each cell token encodes both color and rank: a pawn as `r`/`b`, a king as `R`/`B`, an empty square as `""`.
+    */
+  implicit val checkersView: GameStateView[Checkers, GridGameState] =
+    (game, _) => {
+      val cells = game.board.map(_.map {
+        case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
+        case None                       => ""
+      })
+      val winner = game.gameStatus match {
+        case Won(color) => Some(color.symbol)
+        case _          => None
+      }
+      GridGameState(cells, game.currentPlayer.symbol, winner, draw = false)
+    }
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView

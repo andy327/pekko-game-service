@@ -1,5 +1,7 @@
 package com.andy327.actor.game
 
+import com.andy327.model.checkers.Square
+
 /** A sealed trait representing a generic move payload for any game type.
   *
   * Specific games define their own move payloads as case classes extending this trait. This enables game-agnostic
@@ -63,4 +65,14 @@ object MovePayload {
     * @param amount the total to bet or raise to, for a `bet` or `raise` action
     */
   final case class HoldEmAction(action: String, amount: Option[Int]) extends MovePayload
+
+  /** A move for Checkers: the piece's starting square followed by the ordered squares it lands on.
+    *
+    * A simple slide has a single landing square; a capture lists one landing square per jump, so a multi-jump spells
+    * out the whole chain. Each square is a `{"row":r,"col":c}` object.
+    *
+    * @param from the square the moving piece starts on
+    * @param steps the landing squares in order, one per hop
+    */
+  final case class CheckersMove(from: Square, steps: List[Square]) extends MovePayload
 }
