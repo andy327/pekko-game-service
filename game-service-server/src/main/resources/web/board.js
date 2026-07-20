@@ -22,6 +22,7 @@ export function renderBoard(state) {
   $("board").classList.remove("holdem-active"); // likewise for the free-sized Texas Hold 'Em table
   $("board").classList.remove("c4-active"); // and the blue Connect Four board; re-added below only for column games
   $("board").classList.remove("pig-active"); // and the free-flowing Pig layout
+  $("board").classList.remove("checkers-active"); // and the Checkers checkerboard
 
   // Games with a custom board install a renderer on their GAMES entry (games/*.js); the rest fall through to the shared
   // grid renderer below.

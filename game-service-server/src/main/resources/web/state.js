@@ -27,7 +27,8 @@ export const GAMES = {
   pig:         { label: "Pig",            maxPlayers: 8, pig: true },
   mastermind:  { label: "Mastermind",     maxPlayers: 2, mastermind: true },
   liarsdice:   { label: "Liar's Dice",    maxPlayers: 6, liarsdice: true },
-  texasholdem: { label: "Texas Hold 'Em", maxPlayers: 6, texasholdem: true }
+  texasholdem: { label: "Texas Hold 'Em", maxPlayers: 6, texasholdem: true },
+  checkers:    { label: "Checkers",       maxPlayers: 2, checkers: true }
 };
 
 // Terse element lookup by id, used pervasively across the UI modules.

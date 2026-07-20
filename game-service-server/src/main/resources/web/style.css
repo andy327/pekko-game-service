@@ -199,6 +199,74 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* When the drop buttons are present, pull the board up snug beneath them. */
 #column-controls:not(:empty) + #board { margin-top: 4px; }
 
+/* Checkers: an 8×8 board of alternating light/dark squares. Only the dark squares are ever played on; pieces render as
+   discs (red/black) and kings carry a crown. The r/R/b/B token text is hidden — the disc and crown carry the meaning. */
+#board.checkers-active {
+  gap: 0;
+  max-width: 440px;
+  padding: 6px;
+  border: 3px solid #3a2a1a;
+  border-radius: 6px;
+  background: #3a2a1a;
+}
+#board.checkers-active .cell {
+  border: none;
+  border-radius: 0;
+  color: transparent;
+  position: relative;
+}
+#board.checkers-active .cell.ck-light { background: #e8d0a9; }
+#board.checkers-active .cell.ck-dark  { background: #8a5a3b; }
+#board.checkers-active .cell.disabled { cursor: default; }
+
+/* Each occupied square draws its piece as a centered disc. */
+#board.checkers-active .cell[class*="mark-"]::before {
+  content: "";
+  position: absolute;
+  top: 15%;
+  left: 15%;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.3), inset 0 -3px 4px rgba(0, 0, 0, 0.4), 0 2px 3px rgba(0, 0, 0, 0.45);
+}
+#board.checkers-active .cell.mark-r::before,
+#board.checkers-active .cell.mark-R::before { background: radial-gradient(circle at 35% 30%, #ff7a6b, #c0202c 72%); }
+#board.checkers-active .cell.mark-b::before,
+#board.checkers-active .cell.mark-B::before { background: radial-gradient(circle at 35% 30%, #5c5c5c, #161616 72%); }
+
+/* Kings (uppercase tokens) get a crown over the disc. */
+#board.checkers-active .cell.mark-R::after,
+#board.checkers-active .cell.mark-B::after {
+  content: "♔";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffd966;
+  font-size: 1.1rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Highlights: the picked-up piece, each chosen jump landing, and a hover cue on a playable square. */
+#board.checkers-active .cell.ck-selected { box-shadow: inset 0 0 0 3px var(--accent); }
+#board.checkers-active .cell.ck-step { box-shadow: inset 0 0 0 3px #ffd966; }
+#board.checkers-active .cell.clickable:hover { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Submit/Cancel controls shown while a multi-jump is being assembled; spans the full width above the board. */
+.checkers-controls { grid-column: 1 / -1; display: flex; gap: 0.5rem; justify-content: center; }
+.ck-btn {
+  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+.ck-btn:hover { border-color: var(--accent); }
+.ck-cancel { opacity: 0.85; }
+
 .col-btn {
   padding: 0.3rem 0;
   font-size: 0.9rem;
