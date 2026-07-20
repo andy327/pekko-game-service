@@ -160,6 +160,74 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Finished
     }
 
+    "evict a deserted pre-game lobby past its grace period" in {
+      // the ghost-lobby case: everyone closed their browser without an explicit LeaveLobby, so the lobby is still
+      // seated but has no connected subscribers — it must not stay advertised as joinable forever
+      val f = newLobby() // Duration.Zero grace: empty is immediately stale
+      val (roomId, _) = createReadyLobby(f) // never subscribed, never started
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      val GameManager.LobbyInfo(metadata) = f.responseProbe.expectMessageType[GameManager.LobbyInfo]
+      metadata.status shouldBe GameLifecycleStatus.Cancelled
+    }
+
+    "drop an evicted pre-game lobby from the joinable lobby list" in {
+      val f = newLobby()
+      val listProbe = TestProbe[LobbyManager.LobbiesListed]()
+      val (roomId, _) = createReadyLobby(f)
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.ListLobbies(None, 1, 20, listProbe.ref)
+      listProbe.expectMessageType[LobbyManager.LobbiesListed].lobbies.map(_.metadata.roomId) should not contain roomId
+    }
+
+    "not evict a pre-game lobby with a connected subscriber" in {
+      // a lobby waiting on one more player may sit for a long time; someone is still there, so it must survive
+      val f = newLobby()
+      val (roomId, _) = createReadyLobby(f)
+      val sub = TestProbe[PlayerActor.Command]()
+      f.lm ! LobbyManager.SubscribeToLobby(roomId, alice.id, sub.ref, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.SubscribeAcknowledged]
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe
+        .expectMessageType[GameManager.LobbyInfo]
+        .metadata
+        .status shouldBe GameLifecycleStatus.ReadyToStart
+    }
+
+    "not evict a deserted pre-game lobby within its grace period" in {
+      // the browser-refresh blip: the last subscriber just dropped, so the room gets its grace before being reaped
+      val f = newLobby(emptyRoomGrace = 1.hour)
+      val (roomId, _) = createReadyLobby(f)
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe
+        .expectMessageType[GameManager.LobbyInfo]
+        .metadata
+        .status shouldBe GameLifecycleStatus.ReadyToStart
+    }
+
+    "not evict an in-progress lobby, which the game actor owns" in {
+      val f = newLobby() // Duration.Zero grace, and a started game has no lobby subscribers
+      val (roomId, _) = startGame(f)
+
+      f.lm ! LobbyManager.EvictIdleRooms
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe
+        .expectMessageType[GameManager.LobbyInfo]
+        .metadata
+        .status shouldBe GameLifecycleStatus.InProgress
+    }
+
     "reject a rematch attempt from a non-host" in {
       val f = newLobby()
       val (roomId, _) = startGame(f)

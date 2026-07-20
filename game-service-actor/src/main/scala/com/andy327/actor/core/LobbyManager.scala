@@ -136,8 +136,8 @@ object LobbyManager {
   /** Fan `event` (a chat message) out to the lobby's subscribers, used while the match is still in its lobby phase. */
   final private[core] case class BroadcastChat(roomId: RoomId, event: PlayerEvent) extends Command
 
-  /** Periodic self-tick that tears down post-game (Finished) rooms idle past [[finishedRoomTtl]], or empty (no
-    * connected subscribers) for at least [[emptyRoomGrace]].
+  /** Periodic self-tick that tears down post-game (Finished) rooms idle past [[finishedRoomTtl]], and any room —
+    * pre-game or post-game — left with no connected subscribers for at least [[emptyRoomGrace]].
     */
   final private[core] case object EvictIdleRooms extends Command
 
@@ -162,9 +162,12 @@ object LobbyManager {
   /** A post-game (Finished) room with no connected players, or idle for longer than this, is torn down. */
   val finishedRoomTtl: FiniteDuration = 30.minutes
 
-  /** A post-game (Finished) room with no connected players is torn down once it has *also* sat idle this long, so a
-    * momentary zero-subscriber blip (e.g. a player's browser tab reloading) isn't enough to evict it on the very next
-    * tick.
+  /** A room with no connected players is torn down once it has *also* sat idle this long, so a momentary
+    * zero-subscriber blip (e.g. a player's browser tab reloading) isn't enough to evict it on the very next tick.
+    *
+    * This is the only eviction rule that applies to pre-game lobbies, and it is what reaps a lobby whose players all
+    * closed their browsers without ever sending an explicit `LeaveLobby` — otherwise the lobby would linger, seated
+    * but deserted, and stay advertised as joinable forever.
     */
   val emptyRoomGrace: FiniteDuration = 2.minutes
 
@@ -207,6 +210,19 @@ object LobbyManager {
       event: PlayerEvent
   ): Unit =
     subscribers.getOrElse(roomId, Map.empty).values.foreach(_ ! PlayerActor.SendEvent(event))
+
+  /** Stamps `roomId`'s last-activity time, restarting the [[emptyRoomGrace]] clock that [[EvictIdleRooms]] measures.
+    *
+    * Every event that touches a room goes through this, including pure connection churn (subscribe/unsubscribe/
+    * disconnect), so that a room emptied by its last player leaving is measured from *that* moment rather than from
+    * whenever it was created — without it, a long-lived lobby would be evicted on the first tick after going empty,
+    * getting no grace at all. A no-op for an unknown room.
+    *
+    * Not persisted: this timestamp only drives in-memory eviction, so stamping it does not warrant a Redis write on
+    * every connect and disconnect.
+    */
+  private def touch(lobbies: Map[RoomId, LobbyMetadata], roomId: RoomId): Map[RoomId, LobbyMetadata] =
+    lobbies.updatedWith(roomId)(_.map(_.copy(lastActivityAt = Instant.now())))
 
   /** Connected subscribers for `roomId` who are not seated in `metadata.players` — i.e. watching but not playing. */
   private def spectatorCount(
@@ -267,7 +283,8 @@ object LobbyManager {
               val updatedStatus =
                 if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
                 else GameLifecycleStatus.WaitingForPlayers
-              val updatedMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
+              val updatedMetadata =
+                metadata.copy(players = updatedPlayers, status = updatedStatus, lastActivityAt = Instant.now())
               replyTo ! GameManager.LobbyJoined(roomId, updatedMetadata, player)
               fanOut(
                 subscribers,
@@ -308,7 +325,8 @@ object LobbyManager {
             val updatedStatus =
               if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
               else GameLifecycleStatus.WaitingForPlayers
-            val newMetadata = metadata.copy(players = updatedPlayers, status = updatedStatus)
+            val newMetadata =
+              metadata.copy(players = updatedPlayers, status = updatedStatus, lastActivityAt = Instant.now())
 
             if (!metadata.players.contains(player.id)) {
               context.log.info(s"Player ${player.name} already absent from lobby $roomId")
@@ -491,7 +509,7 @@ object LobbyManager {
               PlayerEvent.LobbyUpdated(metadata, spectatorCount(updatedSubscribers, roomId, metadata))
             )
             replyTo ! GameManager.SubscribeAcknowledged(roomId)
-            running(lobbies, recentlyEnded, updatedSubscribers, gameManager, lobbyRepo, emptyRoomGrace)
+            running(touch(lobbies, roomId), recentlyEnded, updatedSubscribers, gameManager, lobbyRepo, emptyRoomGrace)
           case None =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
             Behaviors.same
@@ -506,7 +524,7 @@ object LobbyManager {
           fanOut(updated, roomId, PlayerEvent.LobbyUpdated(metadata, spectatorCount(updated, roomId, metadata)))
         }
         replyTo ! GameManager.UnsubscribeAcknowledged(roomId)
-        running(lobbies, recentlyEnded, updated, gameManager, lobbyRepo, emptyRoomGrace)
+        running(touch(lobbies, roomId), recentlyEnded, updated, gameManager, lobbyRepo, emptyRoomGrace)
 
       case MatchEnded(roomId, returnedSubscribers) =>
         lobbies.get(roomId) match {
@@ -563,25 +581,33 @@ object LobbyManager {
         }
 
       case EvictIdleRooms =>
-        // a post-game room is torn down once it has sat idle past the TTL, or once everyone has left it AND it has also
-        // been idle past the (shorter) empty-room grace period — so a momentary zero-subscriber blip (e.g. a browser
-        // tab reloading right after the match ends) doesn't evict the room on the very next tick
+        // A room is torn down once everyone has left it AND it has also been idle past the empty-room grace period —
+        // so a momentary zero-subscriber blip (e.g. a browser tab reloading right after a match ends) doesn't evict it
+        // on the very next tick. Post-game rooms are additionally reaped once they sit idle past the (longer) TTL, even
+        // with someone still connected; pre-game lobbies are not, since a lobby can legitimately sit for a long time
+        // waiting on one more player to show up. InProgress rooms are never evicted here — the game actor owns them.
         val now = Instant.now().toEpochMilli
         val idleCutoff = now - finishedRoomTtl.toMillis
         val emptyCutoff = now - emptyRoomGrace.toMillis
         val stale = lobbies.filter { case (id, m) =>
-          m.status == GameLifecycleStatus.Finished &&
-          (m.lastActivityAt.toEpochMilli <= idleCutoff ||
-          (subscribers.getOrElse(id, Map.empty).isEmpty && m.lastActivityAt.toEpochMilli <= emptyCutoff))
+          val deserted = subscribers.getOrElse(id, Map.empty).isEmpty && m.lastActivityAt.toEpochMilli <= emptyCutoff
+          m.status match {
+            case GameLifecycleStatus.Finished => deserted || m.lastActivityAt.toEpochMilli <= idleCutoff
+            case status if status.isJoinable  => deserted
+            case _                            => false
+          }
         }
         if (stale.isEmpty) Behaviors.same
         else {
           stale.foreach { case (id, m) =>
-            context.log.info(s"Evicting idle/empty finished room $id")
+            context.log.info(s"Evicting idle/empty ${m.status} room $id")
             // tell any remaining watchers the room has closed, then retire it to the recently-ended cache
             fanOut(subscribers, id, PlayerEvent.GameEnded(GameLifecycleStatus.Cancelled))
             recentlyEnded.put(id, m.copy(status = GameLifecycleStatus.Cancelled))
-            // every evicted room here was Finished, so it always has a completedMatch entry for GameManager to drop
+            // a Finished room's record was already dropped when its match ended, but a pre-game lobby is still saved in
+            // Redis, so its now-dead record has to go too
+            if (m.status.isJoinable) persist(lobbyRepo.deleteLobby(id))
+            // a no-op for a pre-game lobby, which never completed a match; drops the completedMatch entry otherwise
             gameManager ! GameManager.RoomClosed(id)
           }
           running(
@@ -597,10 +623,13 @@ object LobbyManager {
   }.receiveSignal { case (context, Terminated(ref)) =>
     // a subscribed PlayerActor stopped (disconnect/reconnect); drop its now-dead ref from every lobby's subscriber set
     context.log.debug(s"Lobby subscriber $ref terminated; removing from all lobby subscriber sets")
-    val cleaned = subscribers.view
+    // split off just the rooms this subscriber was in; every other room passes through untouched
+    val (affected, unaffected) = subscribers.partition { case (_, refs) => refs.exists { case (_, r) => r == ref } }
+    val cleaned = unaffected ++ affected.view
       .mapValues(_.filterNot { case (_, r) => r == ref })
       .filter { case (_, refs) => refs.nonEmpty }
-      .toMap
-    running(lobbies, recentlyEnded, cleaned, gameManager, lobbyRepo, emptyRoomGrace)
+    // stamp the rooms this player dropped out of, so a room left empty by a disconnect gets its full grace period
+    // before EvictIdleRooms reaps it — this is the path a closed browser tab takes, since it sends no explicit leave
+    running(affected.keys.foldLeft(lobbies)(touch), recentlyEnded, cleaned, gameManager, lobbyRepo, emptyRoomGrace)
   }
 }
