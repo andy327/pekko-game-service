@@ -42,6 +42,7 @@ import "./games/battleship.js";
 import "./games/mastermind.js";
 import "./games/liarsdice.js";
 import "./games/holdem.js";
+import "./games/checkers.js";
 
 // --- Auth screen ---------------------------------------------------------------------------------------------------
 

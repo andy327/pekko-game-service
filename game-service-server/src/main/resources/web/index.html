@@ -59,6 +59,7 @@
       <button data-gametype="mastermind">Mastermind</button>
       <button data-gametype="liarsdice">Liar's Dice</button>
       <button data-gametype="texasholdem">Texas Hold 'Em</button>
+      <button data-gametype="checkers">Checkers</button>
     </div>
 
     <h3>Your games &amp; lobbies</h3>
@@ -77,6 +78,7 @@
         <option value="mastermind">Mastermind</option>
         <option value="liarsdice">Liar's Dice</option>
         <option value="texasholdem">Texas Hold 'Em</option>
+        <option value="checkers">Checkers</option>
       </select>
     </div>
     <ul id="lobby-list"></ul>
@@ -90,6 +92,7 @@
     <!-- Drop buttons for column-based games (Connect Four); empty (and hidden) for cell-click games. -->
     <div id="column-controls"></div>
     <div id="board"></div>
+    <div id="checkers-bar"></div>
     <!-- Shown once a match in this room has finished; offers a rematch (host) or a wait message (guest). -->
     <div id="post-game-bar" class="row hidden">
       <span id="post-game-status" class="status"></span>

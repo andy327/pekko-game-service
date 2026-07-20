@@ -259,6 +259,7 @@ object GameServer {
       new GameRoutes(GameType.Mastermind, system, authenticator).routes,
       new GameRoutes(GameType.LiarsDice, system, authenticator).routes,
       new GameRoutes(GameType.TexasHoldEm, system, authenticator).routes,
+      new GameRoutes(GameType.Checkers, system, authenticator).routes,
       new WebSocketRoutes(system, authenticator).routes,
       new TraceRoutes(system, authenticator).routes,
       new MetricsRoutes(metricsRegistry).routes,

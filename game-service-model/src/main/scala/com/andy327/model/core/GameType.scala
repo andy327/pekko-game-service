@@ -51,6 +51,11 @@ object GameType {
     val (minPlayers, maxPlayers) = (2, 6)
   }
 
+  /** A two-player game of Checkers (English draughts) on the dark squares of an 8×8 board. */
+  case object Checkers extends GameType {
+    val (minPlayers, maxPlayers) = (2, 2)
+  }
+
   /** Parses a string into a GameType instance.
     *
     * @param s the name of the game type (case-insensitive)
@@ -64,6 +69,7 @@ object GameType {
     case "mastermind"  => Some(Mastermind)
     case "liarsdice"   => Some(LiarsDice)
     case "texasholdem" => Some(TexasHoldEm)
+    case "checkers"    => Some(Checkers)
     case _             => None
   }
 }

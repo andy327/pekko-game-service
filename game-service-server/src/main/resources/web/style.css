@@ -7,6 +7,8 @@
   --accent: #4f9cf9;
   --accent-dim: #2f6dc0;
   --error: #ff6b6b;
+  --go: #2ea043;
+  --go-bright: #3fb950;
   --x: #ff8c5a;
   --o: #4f9cf9;
 }
@@ -198,6 +200,114 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* When the drop buttons are present, pull the board up snug beneath them. */
 #column-controls:not(:empty) + #board { margin-top: 4px; }
+
+/* Checkers: an 8×8 board of alternating light/dark squares. Only the dark squares are ever played on; pieces render as
+   discs (red/black) and kings carry a crown. The r/R/b/B token text is hidden — the disc and crown carry the meaning. */
+#board.checkers-active {
+  gap: 0;
+  max-width: 440px;
+  padding: 6px;
+  border: 3px solid #3a2a1a;
+  border-radius: 6px;
+  background: #3a2a1a;
+}
+#board.checkers-active .cell {
+  border: none;
+  border-radius: 0;
+  color: transparent;
+  position: relative;
+}
+#board.checkers-active .cell.ck-light { background: #e8d0a9; }
+#board.checkers-active .cell.ck-dark  { background: #8a5a3b; }
+#board.checkers-active .cell.disabled { cursor: default; }
+
+/* Each occupied square draws its piece as a centered disc. */
+#board.checkers-active .cell[class*="mark-"]::before {
+  content: "";
+  position: absolute;
+  top: 15%;
+  left: 15%;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.3), inset 0 -3px 4px rgba(0, 0, 0, 0.4), 0 2px 3px rgba(0, 0, 0, 0.45);
+}
+#board.checkers-active .cell.mark-r::before,
+#board.checkers-active .cell.mark-R::before { background: radial-gradient(circle at 35% 30%, #ff7a6b, #c0202c 72%); }
+#board.checkers-active .cell.mark-b::before,
+#board.checkers-active .cell.mark-B::before { background: radial-gradient(circle at 35% 30%, #5c5c5c, #161616 72%); }
+
+/* Kings (uppercase tokens) get a crown over the disc. */
+#board.checkers-active .cell.mark-R::after,
+#board.checkers-active .cell.mark-B::after {
+  content: "♔";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffd966;
+  font-size: 1.1rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Highlights: the picked-up piece, each chosen jump landing, and a hover cue on a playable square. */
+#board.checkers-active .cell.ck-selected { box-shadow: inset 0 0 0 3px var(--accent); }
+#board.checkers-active .cell.ck-step { box-shadow: inset 0 0 0 3px #ffd966; }
+#board.checkers-active .cell.clickable:hover { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* A small colored disc in the status line, telling you which side you are (and whose turn/win it announces). */
+.ck-chip {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.2em;
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+}
+.ck-chip-R { background: radial-gradient(circle at 35% 30%, #ff7a6b, #c0202c 72%); }
+.ck-chip-B { background: radial-gradient(circle at 35% 30%, #5c5c5c, #161616 72%); }
+
+/* A reserved strip below the Checkers board for the Submit/Cancel controls. Space is held only while a Checkers board
+   is shown, so the buttons appearing mid-jump never shift the board — and, being below it, never push the board down. */
+#board.checkers-active ~ #checkers-bar { min-height: 2.6rem; display: flex; align-items: center; margin-top: 0.4rem; }
+.checkers-controls { display: flex; gap: 0.5rem; align-items: center; }
+.ck-btn {
+  padding: 0.4rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Submit is the primary action, so it gets a filled green (distinct from the blue accent used for highlights) plus a
+   soft pulsing ring to draw the eye to it while a jump is waiting to be confirmed. */
+.ck-submit {
+  background: var(--go);
+  border-color: var(--go);
+  color: #fff;
+  animation: ck-pulse 1.6s ease-out infinite;
+}
+.ck-submit:hover { background: var(--go-bright); border-color: var(--go-bright); }
+
+@keyframes ck-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 7px rgba(63, 185, 80, 0); }
+}
+
+/* Cancel is the quiet secondary action. */
+.ck-cancel {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--text);
+}
+.ck-cancel:hover { border-color: var(--accent); }
+
+/* Respect users who prefer reduced motion: keep the color emphasis, drop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .ck-submit { animation: none; }
+}
 
 .col-btn {
   padding: 0.3rem 0;

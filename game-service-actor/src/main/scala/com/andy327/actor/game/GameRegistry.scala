@@ -1,10 +1,12 @@
 package com.andy327.actor.game
 
 import com.andy327.actor.battleship.BattleshipActor
+import com.andy327.actor.checkers.CheckersActor
 import com.andy327.actor.connectfour.ConnectFourActor
 import com.andy327.actor.core.GameActor
 import com.andy327.actor.game.modules.{
   BattleshipModule,
+  CheckersModule,
   ConnectFourModule,
   GameModule,
   LiarsDiceModule,
@@ -61,5 +63,6 @@ object GameRegistry {
     case GameType.Mastermind  => GameModuleBundle(MastermindModule, MastermindActor)
     case GameType.LiarsDice   => GameModuleBundle(LiarsDiceModule, LiarsDiceActor)
     case GameType.TexasHoldEm => GameModuleBundle(TexasHoldEmModule, TexasHoldEmActor)
+    case GameType.Checkers    => GameModuleBundle(CheckersModule, CheckersActor)
   }
 }

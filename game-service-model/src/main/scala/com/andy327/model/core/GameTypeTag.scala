@@ -1,6 +1,7 @@
 package com.andy327.model.core
 
 import com.andy327.model.battleship.Battleship
+import com.andy327.model.checkers.Checkers
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.holdem.TexasHoldEm
 import com.andy327.model.liarsdice.LiarsDice
@@ -51,5 +52,9 @@ object GameTypeTag {
 
   implicit val texasHoldEmTag: GameTypeTag[TexasHoldEm] = new GameTypeTag[TexasHoldEm] {
     override val value: GameType = GameType.TexasHoldEm
+  }
+
+  implicit val checkersTag: GameTypeTag[Checkers] = new GameTypeTag[Checkers] {
+    override val value: GameType = GameType.Checkers
   }
 }
