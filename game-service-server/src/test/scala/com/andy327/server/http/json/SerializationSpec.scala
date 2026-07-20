@@ -15,6 +15,7 @@ import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
   BidView,
+  CheckersState,
   GameState,
   GameStateConverters,
   GridGameState,
@@ -29,6 +30,7 @@ import com.andy327.actor.game.{
 }
 import com.andy327.actor.lobby._
 import com.andy327.model.battleship.Battleship
+import com.andy327.model.checkers.Checkers
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
 import com.andy327.model.tictactoe.TicTacToe
@@ -228,6 +230,18 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.downField("handResult").downField("shownHands").get[List[String]]("P1") shouldBe Right(
         List("AS", "AH")
       )
+    }
+
+    "encode a CheckersState branch, carrying the board and the viewer's own seat, and round-trip it" in {
+      val red = UUID.randomUUID()
+      val black = UUID.randomUUID()
+      val view = GameStateConverters.serializeGame(Checkers.empty(red, black), Some(red)) // rendered for Red
+      val state: GameState = view
+      val json = state.asJson
+      json.hcursor.get[String]("viewerSeat") shouldBe Right("R")
+      json.hcursor.get[String]("currentPlayer") shouldBe Right("R")
+      json.hcursor.downField("board").focus should be(defined)
+      json.as[CheckersState] shouldBe Right(view)
     }
   }
 
