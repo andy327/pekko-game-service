@@ -1,15 +1,16 @@
 // Checkers: an 8×8 checkerboard where a move is a piece plus the squares it lands on. Unlike the one-click grid games,
-// a move is built in two stages — pick up one of the side-to-move's pieces, then click where it goes — and a capture
-// can chain across several jumps in a single move, so this is a bespoke view rather than the shared grid renderer.
+// a move is built in two stages — pick up one of your pieces, then click where it goes — and a capture can chain across
+// several jumps in a single move, so this is a bespoke view rather than the shared grid renderer.
 //
-// The board only ever shows the side to move's pieces as pickable; the server is the source of truth for legality
-// (mandatory captures, complete jump chains, turn order), so an illegal attempt just surfaces its error and the
-// selection is kept so the player can adjust.
+// The server tags each view with the viewer's own color (`viewerSeat`), so the status line can say which side you are
+// and whose turn it is, and the board only lets you pick up pieces on your own turn. The server stays the source of
+// truth for legality (mandatory captures, complete jump chains); an illegal attempt surfaces its error and keeps the
+// selection so the player can adjust.
 //
 // Public surface: the renderer self-registers on GAMES.checkers.render (consumed by board.js).
 
 import { $, session, GAMES } from "../state.js";
-import { setStatus, setError, flashError } from "../view.js";
+import { setError, flashError } from "../view.js";
 import { api } from "../api.js";
 
 // The move being assembled: the picked-up piece's origin and the landing squares chosen so far (one per jump). Null
@@ -17,7 +18,8 @@ import { api } from "../api.js";
 let selection = null; // { origin: {r, c}, path: [{r, c}, ...] }
 let lastState = null;
 
-const colorName = (token) => (token === "R" ? "Red" : "Black"); // currentPlayer/winner tokens are "R"/"B"
+const colorName = (token) => (token === "R" ? "Red" : "Black"); // seat/currentPlayer tokens are "R"/"B"
+const chip = (token) => `<span class="ck-chip ck-chip-${token}"></span>`; // a small colored disc for the status line
 
 // A fresh server push means the board changed underneath us, so any half-built move is stale — reset it and redraw.
 export function renderCheckersBoard(state) {
@@ -35,14 +37,14 @@ function draw() {
   board.style.setProperty("--cols", 8);
   board.innerHTML = "";
   $("column-controls").innerHTML = "";
+  $("checkers-bar").innerHTML = "";
 
-  const over = Boolean(state.winner) || state.draw === true;
-  const spectating = Boolean(session.game && session.game.isSpectator);
-  const turn = state.currentPlayer;
+  const over = Boolean(state.winner);
+  const me = state.viewerSeat; // "R" | "B" | null (spectator)
+  const turn = state.currentPlayer; // "R" | "B"
+  const myTurn = !over && me !== null && me === turn;
 
-  if (state.winner) setStatus(`${colorName(state.winner)} wins!`);
-  else if (spectating) setStatus(`Spectating — turn: ${colorName(turn)}`);
-  else setStatus(`Turn: ${colorName(turn)}`);
+  renderStatus(state, me, turn, over);
 
   const stepKeys = new Set((selection ? selection.path : []).map((s) => `${s.r},${s.c}`));
 
@@ -54,8 +56,8 @@ function draw() {
       if (token) cls += ` mark-${token}`;
       if (selection && selection.origin.r === r && selection.origin.c === c) cls += " ck-selected";
       if (stepKeys.has(`${r},${c}`)) cls += " ck-step";
-      // Only the dark squares are ever in play; light squares and a finished/spectated game are inert.
-      const clickable = !over && !spectating && dark;
+      // You can only touch the dark squares, and only on your own turn.
+      const clickable = myTurn && dark;
       cls += clickable ? " clickable" : " disabled";
       cell.className = cls;
       if (clickable) cell.onclick = () => onCellClick(r, c);
@@ -67,11 +69,26 @@ function draw() {
   if (selection && selection.path.length) renderJumpControls();
 }
 
+// Writes the status line: who you are, and whether it's your move, the opponent's, or the game is over.
+function renderStatus(state, me, turn, over) {
+  const status = $("game-status");
+  if (over) {
+    const w = state.winner;
+    if (me) status.innerHTML = `${chip(w)} ${w === me ? "You win!" : `You lose — ${colorName(w)} wins.`}`;
+    else status.innerHTML = `${chip(w)} ${colorName(w)} wins!`;
+  } else if (me === null) {
+    status.innerHTML = `Spectating — ${chip(turn)} ${colorName(turn)} to move`;
+  } else {
+    const youAre = `${chip(me)} You are ${colorName(me)}`;
+    status.innerHTML = me === turn ? `${youAre} — your move` : `${youAre} — waiting for ${colorName(turn)}`;
+  }
+}
+
 // Handles a click on square (r, c): pick up a piece, extend a jump chain, or play a simple slide.
 function onCellClick(r, c) {
   const state = lastState;
   const token = state.board[r][c];
-  const mine = token && token.toUpperCase() === state.currentPlayer; // a piece of the side to move
+  const mine = token && token.toUpperCase() === state.currentPlayer; // a piece of the side to move (i.e. yours)
 
   if (!selection) {
     if (mine) {
@@ -107,13 +124,13 @@ function onCellClick(r, c) {
   // any other click is not a legal diagonal step — ignore it
 }
 
-// Submit/cancel controls shown while a jump chain is being built.
+// Submit/cancel controls, rendered into the reserved strip below the board so they never shift the board itself.
 function renderJumpControls() {
   const wrap = document.createElement("div");
   wrap.className = "checkers-controls";
 
   const submit = document.createElement("button");
-  submit.className = "ck-btn";
+  submit.className = "ck-btn ck-submit";
   submit.textContent = "Submit move";
   submit.onclick = () => submitMove(selection.origin, selection.path.slice());
 
@@ -127,7 +144,7 @@ function renderJumpControls() {
 
   wrap.appendChild(submit);
   wrap.appendChild(cancel);
-  $("column-controls").appendChild(wrap);
+  $("checkers-bar").appendChild(wrap);
 }
 
 // POSTs the assembled move as { from, steps } of {row, col} squares. A successful move re-renders via the WebSocket

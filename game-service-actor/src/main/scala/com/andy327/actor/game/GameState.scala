@@ -1,7 +1,7 @@
 package com.andy327.actor.game
 
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
-import com.andy327.model.checkers.{Checkers, Piece}
+import com.andy327.model.checkers.{Checkers, Color, Piece}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
 import com.andy327.model.holdem.TexasHoldEm
@@ -37,6 +37,37 @@ object GridGameState {
       case _         => None
     }
     GridGameState(cells, currentPlayer.toString, winner, status == Draw)
+  }
+}
+
+/** Serializable view of a Checkers game.
+  *
+  * The board is full information — every viewer sees the same pieces (`r`/`b` pawns, `R`/`B` kings, `""` empty). Unlike
+  * the shared [[GridGameState]], it also carries `viewerSeat`: the requesting viewer's own color (`"R"`/`"B"`, or `None`
+  * for a spectator), so the client can tell a player which side they are and whether it is their turn.
+  *
+  * @param viewerSeat the color the viewer plays (`"R"`/`"B"`), or `None` for a spectator
+  */
+case class CheckersState(
+    board: Vector[Vector[String]],
+    currentPlayer: String,
+    winner: Option[String],
+    viewerSeat: Option[String]
+) extends GameState
+
+object CheckersState {
+
+  /** Builds the view of `game` for the given viewer color (`None` = spectator). The board is identical for everyone. */
+  def of(game: Checkers, viewerSeat: Option[Color]): CheckersState = {
+    val cells = game.board.map(_.map {
+      case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
+      case None                       => ""
+    })
+    val winner = game.gameStatus match {
+      case Won(color) => Some(color.symbol)
+      case _          => None
+    }
+    CheckersState(cells, game.currentPlayer.symbol, winner, viewerSeat.map(_.symbol))
   }
 }
 
@@ -361,22 +392,11 @@ object GameStateView {
   implicit val texasHoldEmView: GameStateView[TexasHoldEm, HoldEmState] =
     (game, viewer) => HoldEmState.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Checkers game into a GridGameState (same board for every viewer).
-    *
-    * Each cell token encodes both color and rank: a pawn as `r`/`b`, a king as `R`/`B`, an empty square as `""`.
+  /** Type class instance for serializing a Checkers game. The board is the same for every viewer; the view is tagged
+    * with the viewer's own color so the client can show which side they are and whose turn it is.
     */
-  implicit val checkersView: GameStateView[Checkers, GridGameState] =
-    (game, _) => {
-      val cells = game.board.map(_.map {
-        case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
-        case None                       => ""
-      })
-      val winner = game.gameStatus match {
-        case Won(color) => Some(color.symbol)
-        case _          => None
-      }
-      GridGameState(cells, game.currentPlayer.symbol, winner, draw = false)
-    }
+  implicit val checkersView: GameStateView[Checkers, CheckersState] =
+    (game, viewer) => CheckersState.of(game, viewer.flatMap(game.playerFor))
 }
 
 /** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView

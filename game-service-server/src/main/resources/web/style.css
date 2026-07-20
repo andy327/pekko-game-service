@@ -7,6 +7,8 @@
   --accent: #4f9cf9;
   --accent-dim: #2f6dc0;
   --error: #ff6b6b;
+  --go: #2ea043;
+  --go-bright: #3fb950;
   --x: #ff8c5a;
   --o: #4f9cf9;
 }
@@ -254,18 +256,58 @@ button:disabled { opacity: 0.5; cursor: default; }
 #board.checkers-active .cell.ck-step { box-shadow: inset 0 0 0 3px #ffd966; }
 #board.checkers-active .cell.clickable:hover { box-shadow: inset 0 0 0 2px var(--accent); }
 
-/* Submit/Cancel controls shown while a multi-jump is being assembled; spans the full width above the board. */
-.checkers-controls { grid-column: 1 / -1; display: flex; gap: 0.5rem; justify-content: center; }
+/* A small colored disc in the status line, telling you which side you are (and whose turn/win it announces). */
+.ck-chip {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.2em;
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+}
+.ck-chip-R { background: radial-gradient(circle at 35% 30%, #ff7a6b, #c0202c 72%); }
+.ck-chip-B { background: radial-gradient(circle at 35% 30%, #5c5c5c, #161616 72%); }
+
+/* A reserved strip below the Checkers board for the Submit/Cancel controls. Space is held only while a Checkers board
+   is shown, so the buttons appearing mid-jump never shift the board — and, being below it, never push the board down. */
+#board.checkers-active ~ #checkers-bar { min-height: 2.6rem; display: flex; align-items: center; margin-top: 0.4rem; }
+.checkers-controls { display: flex; gap: 0.5rem; align-items: center; }
 .ck-btn {
-  padding: 0.3rem 0.9rem;
-  border: 1px solid var(--line);
+  padding: 0.4rem 1.1rem;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: var(--panel);
-  color: var(--fg);
+  font-weight: 600;
   cursor: pointer;
 }
-.ck-btn:hover { border-color: var(--accent); }
-.ck-cancel { opacity: 0.85; }
+
+/* Submit is the primary action, so it gets a filled green (distinct from the blue accent used for highlights) plus a
+   soft pulsing ring to draw the eye to it while a jump is waiting to be confirmed. */
+.ck-submit {
+  background: var(--go);
+  border-color: var(--go);
+  color: #fff;
+  animation: ck-pulse 1.6s ease-out infinite;
+}
+.ck-submit:hover { background: var(--go-bright); border-color: var(--go-bright); }
+
+@keyframes ck-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 7px rgba(63, 185, 80, 0); }
+}
+
+/* Cancel is the quiet secondary action. */
+.ck-cancel {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--text);
+}
+.ck-cancel:hover { border-color: var(--accent); }
+
+/* Respect users who prefer reduced motion: keep the color emphasis, drop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .ck-submit { animation: none; }
+}
 
 .col-btn {
   padding: 0.3rem 0;

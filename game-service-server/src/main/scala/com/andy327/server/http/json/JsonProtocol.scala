@@ -24,6 +24,7 @@ import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
   BidView,
+  CheckersState,
   GameState,
   GridGameState,
   GuessResult,
@@ -126,6 +127,7 @@ object JsonProtocol extends CirceSupport {
 
   // Game state views
   implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
+  implicit val checkersStateCodec: Codec[CheckersState] = deriveCodec[CheckersState]
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
   implicit val pigStateCodec: Codec[PigState] = deriveCodec[PigState]
   implicit val guessResultCodec: Codec[GuessResult] = deriveCodec[GuessResult]
@@ -144,6 +146,7 @@ object JsonProtocol extends CirceSupport {
     */
   implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
     case s: GridGameState   => s.asJson
+    case s: CheckersState   => s.asJson
     case s: BattleshipState => s.asJson
     case s: PigState        => s.asJson
     case s: MastermindState => s.asJson

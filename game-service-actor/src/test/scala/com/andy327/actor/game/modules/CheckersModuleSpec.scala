@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.checkers.CheckersActor
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, GridGameState, MovePayload}
+import com.andy327.actor.game.{CheckersState, GameOperation, GameRegistry, GameState, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.model.checkers.{Black, Checkers, Move, Piece, Red, Square}
 import com.andy327.model.core.{GameError, GameType}
@@ -64,7 +64,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Checkers game to GridGameState, rendering kings uppercase and pawns lowercase" in {
+    "serialize a Checkers game to CheckersState, rendering kings uppercase and pawns lowercase" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val empty = Vector.fill(Checkers.Size, Checkers.Size)(Option.empty[Piece])
@@ -73,11 +73,21 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val game = Checkers(alice.id, bob.id, board, Red, None, moveCount = 0)
 
       val state = CheckersModule.serialize(game, None)
-      state shouldBe a[GridGameState]
-      val grid = state.asInstanceOf[GridGameState]
-      grid.board(0)(1) shouldBe "R" // red king → uppercase
-      grid.board(5)(0) shouldBe "b" // black pawn → lowercase
-      grid.board(4)(4) shouldBe "" // empty square
+      state shouldBe a[CheckersState]
+      val view = state.asInstanceOf[CheckersState]
+      view.board(0)(1) shouldBe "R" // red king → uppercase
+      view.board(5)(0) shouldBe "b" // black pawn → lowercase
+      view.board(4)(4) shouldBe "" // empty square
+    }
+
+    "tag the serialized view with the requesting player's own color" in {
+      val alice = Player("alice") // seated Red (first)
+      val bob = Player("bob") // seated Black (second)
+      val game = Checkers.empty(alice.id, bob.id)
+
+      CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some("R")
+      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some("B")
+      CheckersModule.serialize(game, None).asInstanceOf[CheckersState].viewerSeat shouldBe None // spectator
     }
 
     "expose the Checkers bundle through the GameRegistry" in {

@@ -11,7 +11,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{GameState, GridGameState}
+import com.andy327.actor.game.{CheckersState, GameState}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.checkers.{Black, Checkers, Move, Piece, Red, Square}
@@ -50,7 +50,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(CheckersState(board, current, winner, viewerSeat)) = replyProbe.receiveMessage()
       board should have size 8
       board.head should have size 8
       board(5)(0) shouldBe "r" // Red pawn in its home rows
@@ -58,7 +58,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       board(3)(4) shouldBe "" // empty middle rank
       current shouldBe "R"
       winner shouldBe None
-      draw shouldBe false
+      viewerSeat shouldBe None // GetState renders the public view (no specific viewer)
     }
 
     "apply a valid move and switch currentPlayer" in {
@@ -67,10 +67,11 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 0), List(Square(4, 1))), replyProbe.ref)
 
-      val Right(GridGameState(board, current, _, _)) = replyProbe.receiveMessage()
+      val Right(CheckersState(board, current, _, viewerSeat)) = replyProbe.receiveMessage()
       board(4)(1) shouldBe "r"
       board(5)(0) shouldBe ""
       current shouldBe "B"
+      viewerSeat shouldBe Some("R") // the move reply is rendered for the acting player (Red)
     }
 
     "append an applied move to history as its {from, steps} JSON" in {
@@ -126,7 +127,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, _, _)) = replyProbe.receiveMessage()
+      val Right(CheckersState(board, current, _, _)) = replyProbe.receiveMessage()
       board(5)(2) shouldBe "r"
       current shouldBe "R"
     }
@@ -186,8 +187,9 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 2), List(Square(3, 4))), replyProbe.ref)
 
-      val Right(GridGameState(_, _, winner, _)) = replyProbe.receiveMessage()
+      val Right(CheckersState(_, _, winner, viewerSeat)) = replyProbe.receiveMessage()
       winner shouldBe Some("R")
+      viewerSeat shouldBe Some("R") // rendered for the acting player (Red)
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe
