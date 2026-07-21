@@ -100,9 +100,8 @@ final case class ConnectFour(
   /** Every move [[currentPlayer]] may legally play right now — a drop into each column that still has room, or nothing
     * once the game is over.
     *
-    * The dual of [[play]]'s validation: a column appears here exactly when `play` would accept a drop into it.
-    * Enumerating moves rather than only rejecting them lets callers that need to choose a move (or offer the choice) do
-    * so without restating the rules.
+    * The dual of [[play]]'s validation: a column appears here exactly when `play` would accept a drop into it, so a
+    * caller that chooses a move — or offers the choice — does not restate the rules.
     */
   def legalMoves: List[Drop] =
     if (gameStatus != InProgress) Nil

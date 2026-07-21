@@ -127,9 +127,9 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  // The grid view is write-only — see `gridGameStateEncoder` for why it cannot be decoded — so these cover the
-  // encoding direction only. GameStateWireSpec pins the full document; what is left here is the null handling the
-  // transport depends on.
+  // The grid view is write-only — see `gridGameStateEncoder` — so these cover the encoding direction only.
+  // GameStateWireSpec pins the whole document; these cover the symbol rendering and the null handling the transport
+  // depends on.
   "GridGameState encoder" should {
     "render marks by symbol, leaving unclaimed cells empty" in {
       val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
@@ -159,12 +159,13 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
     "encode a PigState branch" in {
       val state: GameState = PigState(
-        scores = Map("P1" -> 0, "P2" -> 0),
-        currentPlayer = "P1",
+        scores = Vector(0, 0),
+        currentPlayer = 0,
         turnScore = 0,
         lastRoll = None,
         winner = None,
-        viewerSeat = None
+        viewerSeat = None,
+        legalMoves = Nil
       )
       val json = state.asJson
       json.hcursor.downField("scores").focus should be(defined)

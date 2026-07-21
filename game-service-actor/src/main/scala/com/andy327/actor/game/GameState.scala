@@ -3,7 +3,7 @@ package com.andy327.actor.game
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat}
 import com.andy327.model.checkers.{Checkers, Color, Piece}
 import com.andy327.model.connectfour.ConnectFour
-import com.andy327.model.core.{Draw, Game, GameStatus, Mark, PlayerId, Won}
+import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, Mark, PlayerId, Won}
 import com.andy327.model.holdem.TexasHoldEm
 import com.andy327.model.liarsdice.{Bid, LiarsDice}
 import com.andy327.model.mastermind.{Codemaker, Mastermind, Role}
@@ -18,8 +18,8 @@ sealed trait GameState
 /** View of any grid-based game state, shared by every game whose state is a board of cells each holding an optional
   * mark.
   *
-  * Marks are kept as `Mark` rather than flattened to their symbols: rendering a mark to a string is the encoder's
-  * job, so a consumer that needs to reason about the board (rather than display it) does not have to parse it back.
+  * Cells carry the `Mark` itself, so a consumer reasoning about the board has the domain value in hand; rendering a
+  * mark to its symbol belongs to the encoder.
   *
   * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Carried for consumers
   *                   that choose or offer a move; not part of the wire format, so the encoder omits it.
@@ -123,30 +123,43 @@ object BattleshipState {
   }
 }
 
-/** Serializable view of a Pig game, pushed to all clients over WebSocket.
+/** View of a Pig game. Pig hides nothing, so every viewer sees the same state bar their own `viewerSeat`.
   *
-  * Scores are indexed in seat order: `"P1"` → index 0, `"P2"` → index 1, etc. `viewerSeat` identifies the viewer
-  * ("P1", "P2", …) or is `None` for a spectator. `lastRoll` is absent at the start of a turn (before any roll).
+  * Seats are zero-based indices — the token the model uses as its player type — and the encoder applies the
+  * `"P1"`/`"P2"` labels. `scores` is indexed in seat order, so `scores(0)` belongs to the seat that moved first.
+  *
+  * @param lastRoll the die value from the most recent roll, absent at the start of a turn
+  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Not part of the wire
+  *                   format, so the encoder omits it.
   */
 case class PigState(
-    scores: Map[String, Int],
-    currentPlayer: String,
+    scores: Vector[Int],
+    currentPlayer: Int,
     turnScore: Int,
     lastRoll: Option[Int],
-    winner: Option[String],
-    viewerSeat: Option[String]
+    winner: Option[Int],
+    viewerSeat: Option[Int],
+    legalMoves: List[MovePayload]
 ) extends GameState
 
 object PigState {
 
+  /** Pig's move set is the same on every turn: a player may always roll, and may always hold — banking nothing when
+    * their turn score is zero is a legal pass. The die a `Roll` carries is supplied by `PigModule`, so these payloads
+    * name the action alone and the module rolls for it.
+    */
+  private val TurnMoves: List[MovePayload] =
+    List(MovePayload.PigAction("roll"), MovePayload.PigAction("hold"))
+
   def of(game: Pig, viewerSeat: Option[Int]): PigState =
     PigState(
-      scores = game.playerIds.indices.map(i => Pig.seatLabel(i) -> game.scores(i)).toMap,
-      currentPlayer = Pig.seatLabel(game.currentSeat),
+      scores = game.scores,
+      currentPlayer = game.currentSeat,
       turnScore = game.turnScore,
       lastRoll = game.lastRoll,
-      winner = game.winner.map(Pig.seatLabel),
-      viewerSeat = viewerSeat.map(Pig.seatLabel)
+      winner = game.winner,
+      viewerSeat = viewerSeat,
+      legalMoves = if (game.gameStatus == InProgress) TurnMoves else Nil
     )
 }
 

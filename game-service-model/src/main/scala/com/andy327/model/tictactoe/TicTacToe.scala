@@ -76,9 +76,8 @@ final case class TicTacToe(
 
   /** Every move [[currentPlayer]] may legally play right now — each empty cell, or nothing once the game is over.
     *
-    * The dual of [[play]]'s validation: a location appears here exactly when `play` would accept it. Enumerating moves
-    * rather than only rejecting them lets callers that need to choose a move (or offer the choice) do so without
-    * restating the rules.
+    * The dual of [[play]]'s validation: a location appears here exactly when `play` would accept it, so a caller that
+    * chooses a move — or offers the choice — does not restate the rules.
     */
   def legalMoves: List[Location] =
     if (gameStatus != InProgress) Nil

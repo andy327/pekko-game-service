@@ -21,11 +21,10 @@ import com.andy327.model.tictactoe.{O, TicTacToe, X}
 
 /** Pins the exact JSON every game view puts on the wire.
   *
-  * Unlike the other serialization specs, which assert on individual fields, each case here fixes a whole game model and
-  * compares the encoded result against a literal document. That makes this the regression net for changes to the
-  * projection layer: a refactor is free to restructure the view types and their encoders, but if it alters a single
-  * byte the client sees, a case here fails. The models and the expected documents are therefore meant to stay frozen
-  * while the code between them changes.
+  * Each case fixes a whole game model and compares the encoded result against a literal document, making this the
+  * regression net for the projection layer: the view types and their encoders may be restructured freely, but if a
+  * single byte the client sees changes, a case here fails. The models and the expected documents are therefore meant
+  * to stay frozen while the code between them changes.
   *
   * Views are compared after `deepDropNullValues`, because that is what the transport applies before sending — see
   * `CirceSupport` for HTTP responses and `WebSocketRoutes.render` for pushed events. Asserting on the raw encoding
@@ -205,6 +204,28 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
           "turnScore": 7,
           "lastRoll": 4,
           "viewerSeat": "P2"
+        }
+      """)
+    }
+
+    "encode a finished game to its exact wire form, naming the winning seat" in {
+      val game = Pig(
+        playerIds = Vector(alice, bob),
+        scores = Vector(45, 100),
+        currentSeat = 1,
+        turnScore = 0,
+        lastRoll = None,
+        winner = Some(1),
+        moveCount = 31
+      )
+
+      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+        {
+          "scores": {"P1": 45, "P2": 100},
+          "currentPlayer": "P2",
+          "turnScore": 0,
+          "winner": "P2",
+          "viewerSeat": "P1"
         }
       """)
     }

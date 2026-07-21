@@ -106,13 +106,22 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
       val game = Pig.newGame(Seq(alice.id, bob.id))
       val state = PigModule.serialize(game, None)
       state shouldBe PigState(
-        scores = Map("P1" -> 0, "P2" -> 0),
-        currentPlayer = "P1",
+        scores = Vector(0, 0),
+        currentPlayer = 0,
         turnScore = 0,
         lastRoll = None,
         winner = None,
-        viewerSeat = None
+        viewerSeat = None,
+        legalMoves = List(MovePayload.PigAction("roll"), MovePayload.PigAction("hold"))
       )
+    }
+
+    "offer no moves in PigState once the game has ended" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = Pig.newGame(Seq(alice.id, bob.id))
+      val won = game.copy(winner = Some(0))
+      PigModule.serialize(won, None).asInstanceOf[PigState].legalMoves shouldBe empty
     }
 
     "set winner in PigState when the game has ended" in {
@@ -121,7 +130,7 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
       val game = Pig.newGame(Seq(alice.id, bob.id))
       val won = game.copy(winner = Some(0))
       val state = PigModule.serialize(won, None).asInstanceOf[PigState]
-      state.winner shouldBe Some("P1")
+      state.winner shouldBe Some(0)
     }
 
     "set viewerSeat when serializing for a known player" in {
@@ -129,7 +138,7 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val game = Pig.newGame(Seq(alice.id, bob.id))
       val state = PigModule.serialize(game, Some(alice.id)).asInstanceOf[PigState]
-      state.viewerSeat shouldBe Some("P1")
+      state.viewerSeat shouldBe Some(0)
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {

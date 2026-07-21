@@ -62,8 +62,8 @@ class PigActorSpec extends AnyWordSpecLike with Matchers {
         Right("hold")
 
       val after = state(actor, replyProbe)
-      after.currentPlayer shouldBe "P2"
-      after.scores("P1") shouldBe 0
+      after.currentPlayer shouldBe 1
+      after.scores(0) shouldBe 0
       after.turnScore shouldBe 0
       after.winner shouldBe None
     }
@@ -85,8 +85,8 @@ class PigActorSpec extends AnyWordSpecLike with Matchers {
         Right("hold")
 
       val after = state(actor, replyProbe)
-      after.currentPlayer shouldBe "P2"
-      after.scores("P1") shouldBe 4
+      after.currentPlayer shouldBe 1
+      after.scores(0) shouldBe 4
       after.turnScore shouldBe 0
     }
   }

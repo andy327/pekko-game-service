@@ -39,6 +39,7 @@ import com.andy327.actor.game.{
 }
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
+import com.andy327.model.pig.Pig
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
@@ -126,10 +127,9 @@ object JsonProtocol extends CirceSupport {
   implicit val playerSessionsCodec: Codec[PlayerSessions] = deriveCodec[PlayerSessions]
 
   // Game state views
-  /** Write-only: the grid view holds domain `Mark`s, which the wire flattens to their symbols (`""` for an empty
-    * cell). Decoding cannot invert that — the same `"R"` denotes a different game's mark — and nothing reads a view
-    * back, so only an encoder is provided. `legalMoves` is deliberately not emitted: it exists for consumers that
-    * choose a move, and adding it here would change the documented client contract.
+  /** Write-only: the wire flattens each `Mark` to its symbol (`""` for an empty cell), which decoding cannot invert,
+    * since the same `"R"` denotes a different game's mark. `legalMoves` is not emitted — it serves consumers that
+    * choose a move, and the client contract covers the board alone.
     */
   implicit val gridGameStateEncoder: Encoder[GridGameState] = Encoder.instance { view =>
     Json.obj(
@@ -141,7 +141,20 @@ object JsonProtocol extends CirceSupport {
   }
   implicit val checkersStateCodec: Codec[CheckersState] = deriveCodec[CheckersState]
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
-  implicit val pigStateCodec: Codec[PigState] = deriveCodec[PigState]
+
+  /** Write-only: seats travel as their `"P1"`/`"P2"` labels, which decoding cannot invert to seat indices without the
+    * roster size. `legalMoves` is not emitted.
+    */
+  implicit val pigStateEncoder: Encoder[PigState] = Encoder.instance { view =>
+    Json.obj(
+      "scores" -> view.scores.zipWithIndex.map { case (score, seat) => Pig.seatLabel(seat) -> score }.toMap.asJson,
+      "currentPlayer" -> Pig.seatLabel(view.currentPlayer).asJson,
+      "turnScore" -> view.turnScore.asJson,
+      "lastRoll" -> view.lastRoll.asJson,
+      "winner" -> view.winner.map(Pig.seatLabel).asJson,
+      "viewerSeat" -> view.viewerSeat.map(Pig.seatLabel).asJson
+    )
+  }
   implicit val guessResultCodec: Codec[GuessResult] = deriveCodec[GuessResult]
   implicit val mastermindStateCodec: Codec[MastermindState] = deriveCodec[MastermindState]
   implicit val bidViewCodec: Codec[BidView] = deriveCodec[BidView]
