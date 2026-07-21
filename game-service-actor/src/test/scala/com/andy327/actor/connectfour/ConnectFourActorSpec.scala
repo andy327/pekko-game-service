@@ -74,11 +74,11 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
       board should have size 6
       board.head should have size 7
-      board.flatten should contain only ""
-      current shouldBe "R"
+      board.flatten should contain only None
+      current shouldBe Red
       winner shouldBe None
       draw shouldBe false
     }
@@ -100,9 +100,9 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
-      board(5)(3) shouldBe "R" // Red dropped into col 3 — piece falls to bottom row
-      current shouldBe "Y"
+      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      board(5)(3) shouldBe Some(Red) // Red dropped into col 3 — piece falls to bottom row
+      current shouldBe Yellow
       winner shouldBe None
       draw shouldBe false
     }
@@ -159,15 +159,15 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), replyProbe.ref)
-      val Right(GridGameState(board1, current1, _, _)) = replyProbe.receiveMessage()
-      board1(5)(0) shouldBe "R" // piece falls to bottom row
-      current1 shouldBe "Y"
+      val Right(GridGameState(board1, current1, _, _, _)) = replyProbe.receiveMessage()
+      board1(5)(0) shouldBe Some(Red) // piece falls to bottom row
+      current1 shouldBe Yellow
 
       actor ! TurnBasedGameActor.MakeMove(bob, Drop(1), replyProbe.ref)
-      val Right(GridGameState(board2, current2, _, _)) = replyProbe.receiveMessage()
-      board2(5)(0) shouldBe "R"
-      board2(5)(1) shouldBe "Y"
-      current2 shouldBe "R"
+      val Right(GridGameState(board2, current2, _, _, _)) = replyProbe.receiveMessage()
+      board2(5)(0) shouldBe Some(Red)
+      board2(5)(1) shouldBe Some(Yellow)
+      current2 shouldBe Red
     }
 
     "append each applied move to history with an incrementing seq and the move payload" in {

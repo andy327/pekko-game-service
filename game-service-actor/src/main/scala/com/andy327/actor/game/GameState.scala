@@ -15,28 +15,37 @@ import com.andy327.model.tictactoe.TicTacToe
   */
 sealed trait GameState
 
-/** Serializable view of any grid-based game state, suitable for HTTP responses.
+/** View of any grid-based game state, shared by every game whose state is a board of cells each holding an optional
+  * mark.
   *
-  * Shared by every game whose state is a board of cells each holding an optional mark: cells carry the mark's symbol
-  * or `""` when empty, and the current player and winner are identified by their mark symbols.
+  * Marks are kept as `Mark` rather than flattened to their symbols: rendering a mark to a string is the encoder's
+  * job, so a consumer that needs to reason about the board (rather than display it) does not have to parse it back.
+  *
+  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Carried for consumers
+  *                   that choose or offer a move; not part of the wire format, so the encoder omits it.
   */
 case class GridGameState(
-    board: Vector[Vector[String]],
-    currentPlayer: String,
-    winner: Option[String],
-    draw: Boolean
+    board: Vector[Vector[Option[Mark]]],
+    currentPlayer: Mark,
+    winner: Option[Mark],
+    draw: Boolean,
+    legalMoves: List[MovePayload]
 ) extends GameState
 
 object GridGameState {
 
-  /** Builds the view from any board of optional marks plus the game's current player and status. */
-  def of(board: Vector[Vector[Option[Mark]]], currentPlayer: Mark, status: GameStatus[Mark]): GridGameState = {
-    val cells = board.map(_.map(_.map(_.toString).getOrElse(""))) // string-based representation for JSON
+  /** Builds the view from any board of optional marks plus the game's current player, status, and available moves. */
+  def of(
+      board: Vector[Vector[Option[Mark]]],
+      currentPlayer: Mark,
+      status: GameStatus[Mark],
+      legalMoves: List[MovePayload]
+  ): GridGameState = {
     val winner = status match {
-      case Won(mark) => Some(mark.toString)
+      case Won(mark) => Some(mark)
       case _         => None
     }
-    GridGameState(cells, currentPlayer.toString, winner, status == Draw)
+    GridGameState(board, currentPlayer, winner, status == Draw, legalMoves)
   }
 }
 
@@ -366,11 +375,23 @@ object GameStateView {
 
   /** Type class instance for serializing a TicTacToe game into a GridGameState (same board for every viewer). */
   implicit val ticTacToeView: GameStateView[TicTacToe, GridGameState] =
-    (game, _) => GridGameState.of(game.board, game.currentPlayer, game.gameStatus)
+    (game, _) =>
+      GridGameState.of(
+        game.board,
+        game.currentPlayer,
+        game.gameStatus,
+        game.legalMoves.map(loc => MovePayload.TicTacToeMove(loc.row, loc.col))
+      )
 
   /** Type class instance for serializing a ConnectFour game into a GridGameState (same board for every viewer). */
   implicit val connectFourView: GameStateView[ConnectFour, GridGameState] =
-    (game, _) => GridGameState.of(game.board, game.currentPlayer, game.gameStatus)
+    (game, _) =>
+      GridGameState.of(
+        game.board,
+        game.currentPlayer,
+        game.gameStatus,
+        game.legalMoves.map(drop => MovePayload.ConnectFourMove(drop.col))
+      )
 
   /** Type class instance for serializing a Battleship game, projected per viewer (fog-of-war for hidden boards). */
   implicit val battleshipView: GameStateView[Battleship, BattleshipState] =

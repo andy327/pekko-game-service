@@ -84,9 +84,9 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
-      board.flatten should contain only ""
-      current shouldBe "X"
+      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      board.flatten should contain only None
+      current shouldBe X
       winner shouldBe None
       draw shouldBe false
     }
@@ -119,10 +119,10 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
-      board(0)(0) shouldBe "X"
-      board(1)(1) shouldBe "O"
-      current shouldBe "X"
+      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      board(0)(0) shouldBe Some(X)
+      board(1)(1) shouldBe Some(O)
+      current shouldBe X
       winner shouldBe None
       draw shouldBe false
     }
@@ -190,15 +190,15 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      val Right(GridGameState(board1, current1, _, _)) = replyProbe.receiveMessage()
-      board1(0)(0) shouldBe "X"
-      current1 shouldBe "O"
+      val Right(GridGameState(board1, current1, _, _, _)) = replyProbe.receiveMessage()
+      board1(0)(0) shouldBe Some(X)
+      current1 shouldBe O
 
       actor ! TurnBasedGameActor.MakeMove(bob, Location(1, 1), replyProbe.ref)
-      val Right(GridGameState(board2, current2, _, _)) = replyProbe.receiveMessage()
-      board2(0)(0) shouldBe "X"
-      board2(1)(1) shouldBe "O"
-      current2 shouldBe "X"
+      val Right(GridGameState(board2, current2, _, _, _)) = replyProbe.receiveMessage()
+      board2(0)(0) shouldBe Some(X)
+      board2(1)(1) shouldBe Some(O)
+      current2 shouldBe X
     }
 
     "append each applied move to history with an incrementing seq and the move payload" in {
@@ -504,8 +504,8 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       // Bob (O) leaves the in-progress game → Alice (X) wins by forfeit
       actor ! TurnBasedGameActor.PlayerLeft(bob, replyProbe.ref)
-      val Right(GridGameState(_, _, winner, _)) = replyProbe.receiveMessage()
-      winner shouldBe Some("X")
+      val Right(GridGameState(_, _, winner, _, _)) = replyProbe.receiveMessage()
+      winner shouldBe Some(X)
 
       // a forfeit saves a final snapshot and records each player's result with the forfeit flag, but — unlike a move —
       // appends nothing to the history log

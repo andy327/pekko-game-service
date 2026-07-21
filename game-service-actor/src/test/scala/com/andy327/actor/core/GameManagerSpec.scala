@@ -26,7 +26,7 @@ import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, 
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tracing.{TraceCollector, TracingConfig}
 import com.andy327.model.core.{Game, GameType, MatchId, PlayerId, RoomId}
-import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.model.tictactoe.{O, TicTacToe, X}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 
 /** In-memory GameRepository for unit tests */
@@ -797,7 +797,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       // Bob (O) leaves the in-progress game — Alice (X) wins by forfeit
       gm ! GameManager.LeaveLobby(roomId, bob, responseProbe.ref)
       val forfeited = responseProbe.expectMessageType[GameManager.GameForfeited]
-      forfeited.state.asInstanceOf[GridGameState].winner shouldBe Some("X")
+      forfeited.state.asInstanceOf[GridGameState].winner shouldBe Some(X)
 
       // the room has moved to Finished (post-game) via the GameCompleted -> MatchEnded flow
       eventually {
@@ -872,8 +872,8 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       val updatedState = responseProbe.expectMessageType[GameManager.GameStatus]
 
       val view = updatedState.state.asInstanceOf[GridGameState]
-      view.board(0)(0) shouldBe "X"
-      view.currentPlayer shouldBe "O"
+      view.board(0)(0) shouldBe Some(X)
+      view.currentPlayer shouldBe O
     }
 
     "return an error when forwarding an invalid move to a game" in {

@@ -18,7 +18,6 @@ import com.andy327.actor.game.{
   CheckersState,
   GameState,
   GameStateConverters,
-  GridGameState,
   GuessResult,
   HoldEmHandResult,
   HoldEmPotAward,
@@ -128,15 +127,19 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "GridGameState codec" should {
-    "round-trip a TicTacToe view" in {
+  // The grid view is write-only — see `gridGameStateEncoder` for why it cannot be decoded — so these cover the
+  // encoding direction only. GameStateWireSpec pins the full document; what is left here is the null handling the
+  // transport depends on.
+  "GridGameState encoder" should {
+    "render marks by symbol, leaving unclaimed cells empty" in {
       val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
-      view.asJson.as[GridGameState] shouldBe Right(view)
+      val cells = view.asJson.hcursor.downField("board").as[Vector[Vector[String]]]
+      cells shouldBe Right(Vector.fill(3)(Vector.fill(3)("")))
     }
 
-    "round-trip a ConnectFour view" in {
+    "render a ConnectFour view through the same shared encoder" in {
       val view = GameStateConverters.serializeGame(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()), None)
-      view.asJson.as[GridGameState] shouldBe Right(view)
+      view.asJson.hcursor.get[String]("currentPlayer") shouldBe Right("R")
     }
 
     "omit an absent winner rather than serializing it as null" in {

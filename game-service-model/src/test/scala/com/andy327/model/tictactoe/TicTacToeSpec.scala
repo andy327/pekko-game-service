@@ -123,6 +123,40 @@ class TicTacToeSpec extends AnyWordSpec with Matchers {
       game.playerLeft(bob) shouldBe Left(GameError.GameOver)
     }
 
+    "offer every cell as a legal move on an empty board" in {
+      TicTacToe.empty(alice, bob).legalMoves should contain theSameElementsAs
+        (for { row <- 0 until 3; col <- 0 until 3 } yield Location(row, col))
+    }
+
+    "drop a cell from legalMoves once it is claimed" in {
+      val game = TicTacToe.empty(alice, bob).play(X, Location(1, 1)).toOption.get
+      game.legalMoves should have size 8
+      game.legalMoves should not contain Location(1, 1)
+    }
+
+    "agree with play about which moves are legal" in {
+      val game = TicTacToe.empty(alice, bob)
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 1)).toOption.get
+
+      // every enumerated move is accepted, and every rejected move is absent — the two are duals
+      game.legalMoves.foreach(loc => game.play(X, loc) shouldBe a[Right[_, _]])
+      val claimed = List(Location(0, 0), Location(1, 1))
+      claimed.foreach(loc => game.legalMoves should not contain loc)
+    }
+
+    "offer no moves once the game is over" in {
+      val game = TicTacToe.empty(alice, bob)
+        .play(X, Location(0, 0)).toOption.get
+        .play(O, Location(1, 0)).toOption.get
+        .play(X, Location(0, 1)).toOption.get
+        .play(O, Location(1, 1)).toOption.get
+        .play(X, Location(0, 2)).toOption.get // X wins the top row
+
+      game.gameStatus shouldBe Won(X)
+      game.legalMoves shouldBe empty
+    }
+
     "properly render a game board" in {
       val game = TicTacToe.empty(alice, bob)
         .play(X, Location(0, 0)).toOption.get

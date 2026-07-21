@@ -8,6 +8,8 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.game.GridGameState
 import com.andy327.actor.lobby.Player
+import com.andy327.model.core.Mark
+import com.andy327.model.tictactoe.X
 
 class PlayerActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -20,10 +22,11 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
       val actor = spawn(PlayerActor(alice, sessionProbe.ref))
 
       val dummyState = GridGameState(
-        board = Vector.fill(3)(Vector.fill(3)("")),
-        currentPlayer = "X",
+        board = Vector.fill(3)(Vector.fill(3)(Option.empty[Mark])),
+        currentPlayer = X,
         winner = None,
-        draw = false
+        draw = false,
+        legalMoves = Nil
       )
       val event = PlayerEvent.GameStateUpdated(UUID.randomUUID(), dummyState, spectatorCount = 0)
 

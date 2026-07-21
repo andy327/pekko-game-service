@@ -74,6 +74,21 @@ final case class TicTacToe(
   /** The number of marks placed so far — one per move. */
   def moveCount: Int = board.flatten.count(_.isDefined)
 
+  /** Every move [[currentPlayer]] may legally play right now — each empty cell, or nothing once the game is over.
+    *
+    * The dual of [[play]]'s validation: a location appears here exactly when `play` would accept it. Enumerating moves
+    * rather than only rejecting them lets callers that need to choose a move (or offer the choice) do so without
+    * restating the rules.
+    */
+  def legalMoves: List[Location] =
+    if (gameStatus != InProgress) Nil
+    else
+      (for {
+        row <- board.indices
+        col <- board(row).indices
+        if board(row)(col).isEmpty
+      } yield Location(row, col)).toList
+
   private def nextPlayer: Mark = currentPlayer match {
     case X => O
     case O => X

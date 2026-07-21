@@ -17,7 +17,7 @@ import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tictactoe.TicTacToeActor
 import com.andy327.model.core.{GameError, GameType, MatchId, PlayerId}
-import com.andy327.model.tictactoe.{Location, Mark, TicTacToe}
+import com.andy327.model.tictactoe.{Location, Mark, O, TicTacToe, X}
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
 
 /** Shared per-turn timeout behavior of [[TurnBasedGameActor]], exercised through Tic-Tac-Toe (whose default policy is
@@ -136,8 +136,8 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // the game is still in progress with Bob to move
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(_, current, winner, _)) = replyProbe.receiveMessage()
-      current shouldBe "O"
+      val Right(GridGameState(_, current, winner, _, _)) = replyProbe.receiveMessage()
+      current shouldBe O
       winner shouldBe None
     }
 
@@ -165,9 +165,9 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // the board advanced: X is placed and it is now O's turn
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(board, current, winner, _)) = replyProbe.receiveMessage()
-      board(0)(0) shouldBe "X"
-      current shouldBe "O"
+      val Right(GridGameState(board, current, winner, _, _)) = replyProbe.receiveMessage()
+      board(0)(0) shouldBe Some(X)
+      current shouldBe O
       winner shouldBe None
     }
 
@@ -182,9 +182,9 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // still a fresh game with Alice (X) to move
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(board, current, winner, _)) = replyProbe.receiveMessage()
-      board.flatten should contain only ""
-      current shouldBe "X"
+      val Right(GridGameState(board, current, winner, _, _)) = replyProbe.receiveMessage()
+      board.flatten should contain only None
+      current shouldBe X
       winner shouldBe None
     }
 

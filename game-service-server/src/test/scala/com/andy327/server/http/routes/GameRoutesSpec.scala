@@ -25,7 +25,6 @@ import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.actor.core.{GameManager, InMemChatRepo, InMemMoveRepo, InMemRepo, PlayerActor, PlayerEvent}
-import com.andy327.actor.game.GridGameState
 import com.andy327.actor.lobby.{LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameType, RoomId}
@@ -85,8 +84,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/tictactoe/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
-          gameState.board(0)(0) shouldBe "X"
+          val gameState = io.circe.parser.parse(responseAs[String]).toOption.get
+          gameState.hcursor.downField("board").downN(0).downN(0).as[String] shouldBe Right("X")
         }
       }
 
@@ -137,8 +136,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/tictactoe/$roomId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
-          gameState.currentPlayer shouldBe "X"
+          val gameState = io.circe.parser.parse(responseAs[String]).toOption.get
+          gameState.hcursor.get[String]("currentPlayer") shouldBe Right("X")
         }
       }
 
@@ -446,8 +445,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Post(s"/connectfour/$roomId/move", moveEntity).withHeaders(aliceHeader) ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
-          gameState.board(5)(3) shouldBe "R"
+          val gameState = io.circe.parser.parse(responseAs[String]).toOption.get
+          gameState.hcursor.downField("board").downN(5).downN(3).as[String] shouldBe Right("R")
         }
       }
 
@@ -474,8 +473,8 @@ class GameRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
         Get(s"/connectfour/$roomId/status") ~> routes ~> check {
           status shouldBe StatusCodes.OK
-          val gameState = io.circe.parser.decode[GridGameState](responseAs[String]).toOption.get
-          gameState.currentPlayer shouldBe "R"
+          val gameState = io.circe.parser.parse(responseAs[String]).toOption.get
+          gameState.hcursor.get[String]("currentPlayer") shouldBe Right("R")
         }
       }
 

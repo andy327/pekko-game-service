@@ -126,7 +126,19 @@ object JsonProtocol extends CirceSupport {
   implicit val playerSessionsCodec: Codec[PlayerSessions] = deriveCodec[PlayerSessions]
 
   // Game state views
-  implicit val gridGameStateCodec: Codec[GridGameState] = deriveCodec[GridGameState]
+  /** Write-only: the grid view holds domain `Mark`s, which the wire flattens to their symbols (`""` for an empty
+    * cell). Decoding cannot invert that — the same `"R"` denotes a different game's mark — and nothing reads a view
+    * back, so only an encoder is provided. `legalMoves` is deliberately not emitted: it exists for consumers that
+    * choose a move, and adding it here would change the documented client contract.
+    */
+  implicit val gridGameStateEncoder: Encoder[GridGameState] = Encoder.instance { view =>
+    Json.obj(
+      "board" -> view.board.map(_.map(_.fold("")(_.symbol))).asJson,
+      "currentPlayer" -> view.currentPlayer.symbol.asJson,
+      "winner" -> view.winner.map(_.symbol).asJson,
+      "draw" -> view.draw.asJson
+    )
+  }
   implicit val checkersStateCodec: Codec[CheckersState] = deriveCodec[CheckersState]
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
   implicit val pigStateCodec: Codec[PigState] = deriveCodec[PigState]
