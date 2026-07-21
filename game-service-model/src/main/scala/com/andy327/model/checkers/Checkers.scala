@@ -168,6 +168,14 @@ final case class Checkers(
   /** The roster in seat order: `Red` then `Black`. */
   def players: List[PlayerId] = List(playerRed, playerBlack)
 
+  /** Every move [[currentPlayer]] may legally play right now, or nothing once the game is over.
+    *
+    * Captures being mandatory, this lists only jumps whenever any exist, and a multi-jump spells out its whole chain —
+    * the same set [[play]] validates against, so it accepts exactly the moves listed here and rejects everything else.
+    */
+  def legalMoves: List[Move] =
+    if (gameStatus != InProgress) Nil else legalMovesFor(board, currentPlayer)
+
   /** Applies `move` for `player`.
     *
     * Validates turn order and piece ownership, then checks the move against the legal moves for the position — which

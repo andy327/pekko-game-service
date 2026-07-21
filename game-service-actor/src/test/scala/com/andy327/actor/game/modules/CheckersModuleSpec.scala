@@ -75,9 +75,9 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val state = CheckersModule.serialize(game, None)
       state shouldBe a[CheckersState]
       val view = state.asInstanceOf[CheckersState]
-      view.board(0)(1) shouldBe "R" // red king → uppercase
-      view.board(5)(0) shouldBe "b" // black pawn → lowercase
-      view.board(4)(4) shouldBe "" // empty square
+      view.board(0)(1) shouldBe Some(Piece(Red, isKing = true)) // red king → uppercase
+      view.board(5)(0) shouldBe Some(Piece(Black, isKing = false)) // black pawn → lowercase
+      view.board(4)(4) shouldBe None // empty square
     }
 
     "tag the serialized view with the requesting player's own color" in {
@@ -85,8 +85,8 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob") // seated Black (second)
       val game = Checkers.empty(alice.id, bob.id)
 
-      CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some("R")
-      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some("B")
+      CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some(Red)
+      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some(Black)
       CheckersModule.serialize(game, None).asInstanceOf[CheckersState].viewerSeat shouldBe None // spectator
     }
 

@@ -178,6 +178,47 @@ class CheckersSpec extends AnyWordSpec with Matchers {
       won.playerLeft(bob) shouldBe Left(GameError.GameOver)
     }
 
+    "list only jumps in legalMoves when a capture is available" in {
+      val game = gameWith(Red, Square(5, 2) -> pawn(Red), Square(4, 3) -> pawn(Black))
+      game.legalMoves shouldBe List(Move(Square(5, 2), List(Square(3, 4))))
+    }
+
+    "spell out the whole chain of a multi-jump in legalMoves" in {
+      val game = gameWith(
+        Red,
+        Square(5, 2) -> pawn(Red),
+        Square(4, 3) -> pawn(Black),
+        Square(2, 3) -> pawn(Black),
+        Square(0, 7) -> pawn(Black)
+      )
+      game.legalMoves shouldBe List(Move(Square(5, 2), List(Square(3, 4), Square(1, 2))))
+    }
+
+    "list the simple slides in legalMoves when no capture is available" in {
+      val game = gameWith(Red, Square(5, 2) -> pawn(Red), Square(0, 7) -> pawn(Black))
+      // a Red pawn moves up the board, so it may slide to either forward diagonal
+      game.legalMoves should contain theSameElementsAs List(
+        Move(Square(5, 2), List(Square(4, 1))),
+        Move(Square(5, 2), List(Square(4, 3)))
+      )
+    }
+
+    "accept exactly the moves listed in legalMoves" in {
+      val game = gameWith(Red, Square(5, 2) -> pawn(Red), Square(0, 7) -> pawn(Black))
+      game.legalMoves.foreach(move => game.play(Red, move) shouldBe a[Right[_, _]])
+      // a backward slide is absent from the list and rejected by play alike
+      val backward = Move(Square(5, 2), List(Square(6, 1)))
+      game.legalMoves should not contain backward
+      game.play(Red, backward) shouldBe Left(IllegalMove)
+    }
+
+    "offer no moves once the game is over" in {
+      val game = gameWith(Red, Square(5, 2) -> pawn(Red), Square(4, 3) -> pawn(Black))
+      val Right(won) = game.play(Red, Move(Square(5, 2), List(Square(3, 4))))
+      won.gameStatus shouldBe Won(Red)
+      won.legalMoves shouldBe empty
+    }
+
     "render the board as a human-readable string" in {
       val game = gameWith(Red, Square(0, 1) -> king(Red), Square(5, 0) -> pawn(Black))
       val lines = game.render.split("\n")

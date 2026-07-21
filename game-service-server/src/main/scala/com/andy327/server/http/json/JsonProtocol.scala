@@ -39,6 +39,7 @@ import com.andy327.actor.game.{
 }
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
+import com.andy327.model.checkers.Piece
 import com.andy327.model.pig.Pig
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
@@ -139,7 +140,22 @@ object JsonProtocol extends CirceSupport {
       "draw" -> view.draw.asJson
     )
   }
-  implicit val checkersStateCodec: Codec[CheckersState] = deriveCodec[CheckersState]
+
+  /** Write-only: a pawn renders as its color's symbol in lower case and a king in upper (`""` for an empty square),
+    * and a square's own color is not carried, so decoding cannot rebuild the board. `legalMoves` is not emitted.
+    */
+  implicit val checkersStateEncoder: Encoder[CheckersState] = Encoder.instance { view =>
+    val cells = view.board.map(_.map {
+      case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
+      case None                       => ""
+    })
+    Json.obj(
+      "board" -> cells.asJson,
+      "currentPlayer" -> view.currentPlayer.symbol.asJson,
+      "winner" -> view.winner.map(_.symbol).asJson,
+      "viewerSeat" -> view.viewerSeat.map(_.symbol).asJson
+    )
+  }
   implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
 
   /** Write-only: seats travel as their `"P1"`/`"P2"` labels, which decoding cannot invert to seat indices without the

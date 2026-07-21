@@ -50,13 +50,13 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(CheckersState(board, current, winner, viewerSeat)) = replyProbe.receiveMessage()
+      val Right(CheckersState(board, current, winner, viewerSeat, _)) = replyProbe.receiveMessage()
       board should have size 8
       board.head should have size 8
-      board(5)(0) shouldBe "r" // Red pawn in its home rows
-      board(2)(1) shouldBe "b" // Black pawn in its home rows
-      board(3)(4) shouldBe "" // empty middle rank
-      current shouldBe "R"
+      board(5)(0) shouldBe Some(Piece(Red, isKing = false)) // Red pawn in its home rows
+      board(2)(1) shouldBe Some(Piece(Black, isKing = false)) // Black pawn in its home rows
+      board(3)(4) shouldBe None // empty middle rank
+      current shouldBe Red
       winner shouldBe None
       viewerSeat shouldBe None // GetState renders the public view (no specific viewer)
     }
@@ -67,11 +67,11 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 0), List(Square(4, 1))), replyProbe.ref)
 
-      val Right(CheckersState(board, current, _, viewerSeat)) = replyProbe.receiveMessage()
-      board(4)(1) shouldBe "r"
-      board(5)(0) shouldBe ""
-      current shouldBe "B"
-      viewerSeat shouldBe Some("R") // the move reply is rendered for the acting player (Red)
+      val Right(CheckersState(board, current, _, viewerSeat, _)) = replyProbe.receiveMessage()
+      board(4)(1) shouldBe Some(Piece(Red, isKing = false))
+      board(5)(0) shouldBe None
+      current shouldBe Black
+      viewerSeat shouldBe Some(Red) // the move reply is rendered for the acting player (Red)
     }
 
     "append an applied move to history as its {from, steps} JSON" in {
@@ -127,9 +127,9 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(CheckersState(board, current, _, _)) = replyProbe.receiveMessage()
-      board(5)(2) shouldBe "r"
-      current shouldBe "R"
+      val Right(CheckersState(board, current, _, _, _)) = replyProbe.receiveMessage()
+      board(5)(2) shouldBe Some(Piece(Red, isKing = false))
+      current shouldBe Red
     }
 
     "notify GameManager and stop when restored from a completed snapshot" in {
@@ -187,9 +187,9 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       val replyProbe = createTestProbe[Either[GameError, GameState]]()
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 2), List(Square(3, 4))), replyProbe.ref)
 
-      val Right(CheckersState(_, _, winner, viewerSeat)) = replyProbe.receiveMessage()
-      winner shouldBe Some("R")
-      viewerSeat shouldBe Some("R") // rendered for the acting player (Red)
+      val Right(CheckersState(_, _, winner, viewerSeat, _)) = replyProbe.receiveMessage()
+      winner shouldBe Some(Red)
+      viewerSeat shouldBe Some(Red) // rendered for the acting player (Red)
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe

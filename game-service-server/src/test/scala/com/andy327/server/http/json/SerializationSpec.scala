@@ -15,7 +15,6 @@ import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
   BidView,
-  CheckersState,
   GameState,
   GameStateConverters,
   GuessResult,
@@ -236,16 +235,14 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       )
     }
 
-    "encode a CheckersState branch, carrying the board and the viewer's own seat, and round-trip it" in {
+    "encode a CheckersState branch, carrying the board and the viewer's own seat" in {
       val red = UUID.randomUUID()
       val black = UUID.randomUUID()
-      val view = GameStateConverters.serializeGame(Checkers.empty(red, black), Some(red)) // rendered for Red
-      val state: GameState = view
+      val state: GameState = GameStateConverters.serializeGame(Checkers.empty(red, black), Some(red)) // for Red
       val json = state.asJson
       json.hcursor.get[String]("viewerSeat") shouldBe Right("R")
       json.hcursor.get[String]("currentPlayer") shouldBe Right("R")
-      json.hcursor.downField("board").focus should be(defined)
-      json.as[CheckersState] shouldBe Right(view)
+      json.hcursor.downField("board").downN(5).downN(0).as[String] shouldBe Right("r") // a Red pawn, un-crowned
     }
   }
 

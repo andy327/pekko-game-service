@@ -137,6 +137,45 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         }
       """)
     }
+
+    "encode a finished game to its exact wire form, naming the winning color" in {
+      val blank = Vector.fill(8)(Option.empty[Piece])
+      val game = Checkers(
+        playerRed = alice,
+        playerBlack = bob,
+        board = Vector(
+          blank,
+          blank,
+          blank,
+          blank,
+          blank,
+          blank.updated(0, Some(Piece(CkRed, isKing = false))), // Black has no pieces left
+          blank,
+          blank
+        ),
+        currentPlayer = CkBlack,
+        winner = Some(CkRed),
+        moveCount = 47
+      )
+
+      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+        {
+          "board": [
+            ["","","","","","","",""],
+            ["","","","","","","",""],
+            ["","","","","","","",""],
+            ["","","","","","","",""],
+            ["","","","","","","",""],
+            ["r","","","","","","",""],
+            ["","","","","","","",""],
+            ["","","","","","","",""]
+          ],
+          "currentPlayer": "B",
+          "winner": "R",
+          "viewerSeat": "B"
+        }
+      """)
+    }
   }
 
   "Battleship" should {

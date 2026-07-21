@@ -49,35 +49,37 @@ object GridGameState {
   }
 }
 
-/** Serializable view of a Checkers game.
+/** View of a Checkers game.
   *
-  * The board is full information — every viewer sees the same pieces (`r`/`b` pawns, `R`/`B` kings, `""` empty). Unlike
-  * the shared [[GridGameState]], it also carries `viewerSeat`: the requesting viewer's own color (`"R"`/`"B"`, or `None`
-  * for a spectator), so the client can tell a player which side they are and whether it is their turn.
+  * The board is full information — every viewer sees the same pieces — and cells carry the `Piece` itself, so a
+  * consumer reasoning about the position has the piece's color and crown in hand; the encoder renders them to the
+  * `r`/`b` pawn and `R`/`B` king tokens.
   *
-  * @param viewerSeat the color the viewer plays (`"R"`/`"B"`), or `None` for a spectator
+  * @param viewerSeat the color the viewer plays, or `None` for a spectator, letting a client tell a player which side
+  *                   they are and whether it is their turn
+  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Captures being
+  *                   mandatory, this lists only jumps whenever any exist. Not part of the wire format, so the encoder
+  *                   omits it.
   */
 case class CheckersState(
-    board: Vector[Vector[String]],
-    currentPlayer: String,
-    winner: Option[String],
-    viewerSeat: Option[String]
+    board: Vector[Vector[Option[Piece]]],
+    currentPlayer: Color,
+    winner: Option[Color],
+    viewerSeat: Option[Color],
+    legalMoves: List[MovePayload]
 ) extends GameState
 
 object CheckersState {
 
   /** Builds the view of `game` for the given viewer color (`None` = spectator). The board is identical for everyone. */
-  def of(game: Checkers, viewerSeat: Option[Color]): CheckersState = {
-    val cells = game.board.map(_.map {
-      case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
-      case None                       => ""
-    })
-    val winner = game.gameStatus match {
-      case Won(color) => Some(color.symbol)
-      case _          => None
-    }
-    CheckersState(cells, game.currentPlayer.symbol, winner, viewerSeat.map(_.symbol))
-  }
+  def of(game: Checkers, viewerSeat: Option[Color]): CheckersState =
+    CheckersState(
+      board = game.board,
+      currentPlayer = game.currentPlayer,
+      winner = game.winner,
+      viewerSeat = viewerSeat,
+      legalMoves = game.legalMoves.map(move => MovePayload.CheckersMove(move.from, move.steps))
+    )
 }
 
 /** Serializable, per-viewer view of a Battleship game.
