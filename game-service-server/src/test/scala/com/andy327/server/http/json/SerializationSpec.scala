@@ -17,7 +17,6 @@ import com.andy327.actor.game.{
   BidView,
   GameState,
   GameStateConverters,
-  GuessResult,
   HoldEmHandResult,
   HoldEmPotAward,
   HoldEmSeat,
@@ -31,6 +30,7 @@ import com.andy327.model.battleship.Battleship
 import com.andy327.model.checkers.Checkers
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
+import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Peg}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.http.auth.TokenResponse
@@ -173,15 +173,16 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
     "encode a MastermindState branch" in {
       val state: GameState = MastermindState(
-        guesses = List(GuessResult(List("red", "green", "yellow", "blue"), 2, 1)),
+        guesses = List(Attempt(Vector(Peg.Red, Peg.Green, Peg.Yellow, Peg.Blue), Feedback(black = 2, white = 1))),
         secret = None,
-        currentPlayer = "codebreaker",
+        currentPlayer = Codebreaker,
         winner = None,
         guessesRemaining = 9,
-        viewerRole = Some("codebreaker")
+        viewerRole = Some(Codebreaker)
       )
       val json = state.asJson
-      json.hcursor.downField("guesses").focus should be(defined)
+      json.hcursor.downField("guesses").downN(0).get[List[String]]("pegs") shouldBe
+        Right(List("red", "green", "yellow", "blue"))
       json.hcursor.get[String]("currentPlayer") shouldBe Right("codebreaker")
     }
 

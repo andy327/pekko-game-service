@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, GuessResult, MastermindState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, MastermindState, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.actor.mastermind.MastermindActor
 import com.andy327.model.core.{GameError, GameType}
@@ -105,7 +105,7 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
 
       MastermindModule.serialize(game, Some(codebreaker)).asInstanceOf[MastermindState].secret shouldBe None
       MastermindModule.serialize(game, Some(codemaker)).asInstanceOf[MastermindState].secret shouldBe
-        Some(List("red", "green", "yellow", "blue"))
+        Some(Vector(Peg.Red, Peg.Green, Peg.Yellow, Peg.Blue))
     }
 
     "render guesses and the winner, and reveal the secret to everyone, once the game is over" in {
@@ -120,9 +120,9 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
         )
 
       val state = MastermindModule.serialize(finished, None).asInstanceOf[MastermindState]
-      state.guesses shouldBe List(GuessResult(List("red", "green", "yellow", "blue"), 4, 0))
-      state.winner shouldBe Some("codebreaker")
-      state.secret shouldBe Some(List("red", "green", "yellow", "blue")) // revealed to all (a spectator here) once over
+      state.guesses shouldBe List(Attempt(secret, Feedback(4, 0)))
+      state.winner shouldBe Some(Codebreaker)
+      state.secret shouldBe Some(secret) // revealed to all (a spectator here) once over
     }
 
     "expose the Mastermind bundle through the GameRegistry" in {

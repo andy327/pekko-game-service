@@ -28,7 +28,6 @@ import com.andy327.actor.game.{
   CheckersState,
   GameState,
   GridGameState,
-  GuessResult,
   HoldEmHandResult,
   HoldEmPotAward,
   HoldEmSeat,
@@ -192,8 +191,26 @@ object JsonProtocol extends CirceSupport {
       "viewerSeat" -> view.viewerSeat.map(Pig.seatLabel).asJson
     )
   }
-  implicit val guessResultCodec: Codec[GuessResult] = deriveCodec[GuessResult]
-  implicit val mastermindStateCodec: Codec[MastermindState] = deriveCodec[MastermindState]
+
+  /** Write-only: pegs and roles travel as their lower-case names, and a guess flattens its `Attempt` into one object
+    * holding the peg names beside the black/white counts. `legalMoves` is not emitted.
+    */
+  implicit val mastermindStateEncoder: Encoder[MastermindState] = Encoder.instance { view =>
+    Json.obj(
+      "guesses" -> view.guesses.map { attempt =>
+        Json.obj(
+          "pegs" -> attempt.guess.map(_.name).asJson,
+          "black" -> attempt.feedback.black.asJson,
+          "white" -> attempt.feedback.white.asJson
+        )
+      }.asJson,
+      "secret" -> view.secret.map(_.map(_.name)).asJson,
+      "currentPlayer" -> view.currentPlayer.label.asJson,
+      "winner" -> view.winner.map(_.label).asJson,
+      "guessesRemaining" -> view.guessesRemaining.asJson,
+      "viewerRole" -> view.viewerRole.map(_.label).asJson
+    )
+  }
   implicit val bidViewCodec: Codec[BidView] = deriveCodec[BidView]
   implicit val revealViewCodec: Codec[RevealView] = deriveCodec[RevealView]
   implicit val liarsDiceStateCodec: Codec[LiarsDiceState] = deriveCodec[LiarsDiceState]

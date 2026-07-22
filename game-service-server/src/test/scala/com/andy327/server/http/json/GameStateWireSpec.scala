@@ -15,7 +15,7 @@ import com.andy327.model.connectfour.{ConnectFour, Red => CfRed, Yellow => CfYel
 import com.andy327.model.core.PlayerId
 import com.andy327.model.holdem.{Card, Street, TexasHoldEm}
 import com.andy327.model.liarsdice.{Bid, LiarsDice, StandingBid}
-import com.andy327.model.mastermind.{Attempt, Feedback, Mastermind, Peg}
+import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Mastermind, Peg}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.{O, TicTacToe, X}
 
@@ -349,6 +349,28 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
           "currentPlayer": "codebreaker",
           "guessesRemaining": 10,
           "viewerRole": "codemaker"
+        }
+      """)
+    }
+
+    "encode a finished game to its exact wire form, naming the winner and revealing the secret to all" in {
+      val secret = Vector(Peg.Red, Peg.Blue, Peg.Green, Peg.Yellow)
+      val game = Mastermind(
+        codemakerId = alice,
+        codebreakerId = bob,
+        secret = Some(secret),
+        guesses = List(Attempt(secret, Feedback(black = 4, white = 0))),
+        winner = Some(Codebreaker)
+      )
+
+      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+        {
+          "guesses": [{"pegs": ["red","blue","green","yellow"], "black": 4, "white": 0}],
+          "secret": ["red","blue","green","yellow"],
+          "currentPlayer": "codebreaker",
+          "winner": "codebreaker",
+          "guessesRemaining": 9,
+          "viewerRole": "codebreaker"
         }
       """)
     }

@@ -6,7 +6,7 @@ import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, Mark, PlayerId, Won}
 import com.andy327.model.holdem.TexasHoldEm
 import com.andy327.model.liarsdice.{Bid, LiarsDice}
-import com.andy327.model.mastermind.{Codemaker, Mastermind, Role}
+import com.andy327.model.mastermind.{Attempt, Codemaker, Mastermind, Peg, Role}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
 
@@ -224,27 +224,30 @@ object PigState {
     )
 }
 
-/** One codebreaker guess in a Mastermind view: the guessed colors and its black/white peg feedback. */
-case class GuessResult(pegs: List[String], black: Int, white: Int)
-
-/** Serializable, per-viewer view of a Mastermind game.
+/** Per-viewer view of a Mastermind game.
   *
   * The `secret` is projected for the requesting viewer: the codemaker always sees their own code, and everyone
-  * (codebreaker and spectators) sees it once the game is over — but never before, so guessing stays honest. Guesses and
-  * their feedback are public. `currentPlayer` is `"codemaker"` while the code is unset and `"codebreaker"` afterwards.
+  * (codebreaker and spectators) sees it once the game is over — but never before, so guessing stays honest. Guesses
+  * and their feedback are public, carried as the model's own `Attempt`s; rendering pegs and roles to their names
+  * belongs to the encoder. `currentPlayer` is `Codemaker` while the code is unset and `Codebreaker` afterwards.
+  *
+  * The view carries no `legalMoves`: Mastermind's move space is the constant `Peg.all ^ Mastermind.CodeLength` —
+  * every code of `CodeLength` pegs, for the code-setting and every guess alike — so there is nothing per-state to
+  * enumerate or describe. A consumer choosing a move may act exactly when `viewerRole` matches `currentPlayer` and
+  * `winner` is empty, and builds its code from those two model constants.
   *
   * @param guesses the codebreaker's guesses with feedback, oldest first
-  * @param secret the revealed code (color names), or `None` while it is still hidden from this viewer
+  * @param secret the code, or `None` while it is still hidden from this viewer
   * @param guessesRemaining guesses the codebreaker has left before the codemaker wins by default
-  * @param viewerRole the viewer's role (`"codemaker"`/`"codebreaker"`), or `None` for a spectator
+  * @param viewerRole the viewer's role, or `None` for a spectator
   */
 case class MastermindState(
-    guesses: List[GuessResult],
-    secret: Option[List[String]],
-    currentPlayer: String,
-    winner: Option[String],
+    guesses: List[Attempt],
+    secret: Option[Vector[Peg]],
+    currentPlayer: Role,
+    winner: Option[Role],
     guessesRemaining: Int,
-    viewerRole: Option[String]
+    viewerRole: Option[Role]
 ) extends GameState
 
 object MastermindState {
@@ -255,12 +258,12 @@ object MastermindState {
   def of(game: Mastermind, viewerRole: Option[Role]): MastermindState = {
     val reveal = game.winner.isDefined || viewerRole.contains(Codemaker)
     MastermindState(
-      guesses = game.guesses.map(a => GuessResult(a.guess.map(_.name).toList, a.feedback.black, a.feedback.white)),
-      secret = if (reveal) game.secret.map(_.map(_.name).toList) else None,
-      currentPlayer = game.currentPlayer.label,
-      winner = game.winner.map(_.label),
+      guesses = game.guesses,
+      secret = if (reveal) game.secret else None,
+      currentPlayer = game.currentPlayer,
+      winner = game.winner,
       guessesRemaining = Mastermind.MaxGuesses - game.guesses.size,
-      viewerRole = viewerRole.map(_.label)
+      viewerRole = viewerRole
     )
   }
 }
