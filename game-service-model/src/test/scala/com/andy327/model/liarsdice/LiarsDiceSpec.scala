@@ -273,6 +273,42 @@ class LiarsDiceSpec extends AnyWordSpec with Matchers with OptionValues {
     }
   }
 
+  "LiarsDice.legalBids" should {
+
+    "offer every well-formed bid up to the table's dice when opening a round" in {
+      val g = game(Vector(2, 3), Vector(4, 5)) // 4 dice on the table, no standing bid
+      val bids = g.legalBids
+      bids should have size (4 * 6).toLong // quantities 1–4, each with faces 2–6 or wild ones
+      bids.foreach(bid => bid.isWellFormed shouldBe true)
+      bids.map(_.quantity).max shouldBe 4
+    }
+
+    "offer exactly the raises the standing bid allows" in {
+      val g = game(Vector(2, 3), Vector(4, 5)).copy(standing = Some(StandingBid(Bid(2, Some(4)), 1)))
+      val bids = g.legalBids
+      bids.foreach(bid => Bid(2, Some(4)).canRaiseTo(bid) shouldBe true)
+      bids should contain(Bid(2, Some(5))) // same quantity, higher face
+      bids should not contain Bid(2, Some(3)) // same quantity, lower face
+      bids should not contain Bid(1, Some(6)) // lower quantity
+    }
+
+    "agree with play about every bid it offers" in {
+      val g = game(Vector(2, 3), Vector(4, 5)).copy(standing = Some(StandingBid(Bid(2, Some(4)), 1)))
+      g.legalBids.foreach(bid => g.play(0, MakeBid(bid)) shouldBe a[Right[_, _]])
+    }
+
+    "cap the quantity at the table's dice even though play accepts more" in {
+      val g = game(Vector(2, 3), Vector(4, 5)) // 4 dice on the table
+      g.legalBids.map(_.quantity).max shouldBe 4
+      // a bid beyond the cap is still accepted by play — it just can never be true, so the list omits it
+      g.play(0, MakeBid(Bid(5, Some(4)))) shouldBe a[Right[_, _]]
+    }
+
+    "offer nothing once the game is over" in {
+      game(Vector(2, 3), Vector.empty).copy(winner = Some(0)).legalBids shouldBe empty
+    }
+  }
+
   "LiarsDice.countToward" should {
 
     "count the named face plus wild ones for a numbered bid" in {

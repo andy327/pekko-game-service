@@ -139,10 +139,10 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val game = LiarsDice.newGame(Seq(alice.id, bob.id), List.fill(LiarsDice.MaxTotalDice)(4))
       val state = LiarsDiceModule.serialize(game, Some(alice.id)).asInstanceOf[LiarsDiceState]
-      state.viewerSeat shouldBe Some("P1")
-      state.dice shouldBe Some(List.fill(5)(4))
-      state.diceCounts shouldBe Map("P1" -> 5, "P2" -> 5)
-      state.currentPlayer shouldBe "P1"
+      state.viewerSeat shouldBe Some(0)
+      state.dice shouldBe Some(Vector.fill(5)(4))
+      state.diceCounts shouldBe Vector(5, 5)
+      state.currentPlayer shouldBe 0
       state.currentBid shouldBe None
     }
 

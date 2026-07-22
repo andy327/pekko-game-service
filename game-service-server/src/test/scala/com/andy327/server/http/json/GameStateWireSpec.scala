@@ -14,7 +14,7 @@ import com.andy327.model.checkers.{Black => CkBlack, Checkers, Piece, Red => CkR
 import com.andy327.model.connectfour.{ConnectFour, Red => CfRed, Yellow => CfYellow}
 import com.andy327.model.core.PlayerId
 import com.andy327.model.holdem.{Card, Street, TexasHoldEm}
-import com.andy327.model.liarsdice.{Bid, LiarsDice, StandingBid}
+import com.andy327.model.liarsdice.{Bid, LiarsDice, Reveal, StandingBid}
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Mastermind, Peg}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.{O, TicTacToe, X}
@@ -395,6 +395,48 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
           "currentBid": {"quantity": 3, "face": 5},
           "currentPlayer": "P1",
           "viewerSeat": "P1"
+        }
+      """)
+    }
+
+    "encode a finished game to its exact wire form, naming the winner and exposing the closing reveal" in {
+      // seat 1 bid 3×4s holding one die; seat 0 challenged, the count came to 1, and seat 1 lost its last die
+      val game = LiarsDice(
+        playerIds = Vector(alice, bob),
+        dice = Vector(Vector(2, 2, 2), Vector.empty),
+        currentSeat = 0,
+        standing = None,
+        lastReveal = Some(
+          Reveal(
+            bid = Bid(quantity = 3, face = Some(4)),
+            count = 1,
+            allDice = Vector(Vector(4, 2, 5), Vector(6)),
+            challengerSeat = 0,
+            bidderSeat = 1,
+            loserSeat = 1,
+            diceLost = 1
+          )
+        ),
+        winner = Some(0),
+        moveCount = 9
+      )
+
+      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+        {
+          "dice": [2,2,2],
+          "diceCounts": {"P1": 3, "P2": 0},
+          "currentPlayer": "P1",
+          "winner": "P1",
+          "viewerSeat": "P1",
+          "lastReveal": {
+            "bid": {"quantity": 3, "face": 4},
+            "count": 1,
+            "dice": {"P1": [4,2,5], "P2": [6]},
+            "challenger": "P1",
+            "bidder": "P2",
+            "loser": "P2",
+            "diceLost": 1
+          }
         }
       """)
     }

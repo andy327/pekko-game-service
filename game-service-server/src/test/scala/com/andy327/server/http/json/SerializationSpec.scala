@@ -14,7 +14,6 @@ import com.andy327.actor.core.GameManager.{LobbyCreated, LobbyJoined, LobbyLeft,
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipState,
-  BidView,
   GameState,
   GameStateConverters,
   HoldEmHandResult,
@@ -30,6 +29,7 @@ import com.andy327.model.battleship.Battleship
 import com.andy327.model.checkers.Checkers
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
+import com.andy327.model.liarsdice.Bid
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Peg}
 import com.andy327.model.tictactoe.TicTacToe
 import com.andy327.persistence.db.MoveRecord
@@ -188,13 +188,14 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
     "encode a LiarsDiceState branch, keeping the viewer's dice and a wild-ones bid's absent face" in {
       val state: GameState = LiarsDiceState(
-        dice = Some(List(2, 3, 4, 5, 6)),
-        diceCounts = Map("P1" -> 5, "P2" -> 5),
-        currentBid = Some(BidView(2, None)), // a wild "ones" bid: face is absent
-        currentPlayer = "P1",
+        dice = Some(Vector(2, 3, 4, 5, 6)),
+        diceCounts = Vector(5, 5),
+        currentBid = Some(Bid(2, None)), // a wild "ones" bid: face is absent
+        currentPlayer = 0,
         winner = None,
-        viewerSeat = Some("P1"),
-        lastReveal = None
+        viewerSeat = Some(0),
+        lastReveal = None,
+        legalMoves = Nil
       )
       val json = state.asJson
       json.hcursor.get[List[Int]]("dice") shouldBe Right(List(2, 3, 4, 5, 6))

@@ -24,7 +24,6 @@ import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipCell,
   BattleshipState,
-  BidView,
   CheckersState,
   GameState,
   GridGameState,
@@ -34,12 +33,12 @@ import com.andy327.actor.game.{
   HoldEmState,
   LiarsDiceState,
   MastermindState,
-  PigState,
-  RevealView
+  PigState
 }
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
 import com.andy327.model.checkers.Piece
+import com.andy327.model.liarsdice.{Bid, LiarsDice}
 import com.andy327.model.pig.Pig
 import com.andy327.persistence.db.MoveRecord
 import com.andy327.persistence.db.PlayerHistoryRepository.GameResult
@@ -211,9 +210,34 @@ object JsonProtocol extends CirceSupport {
       "viewerRole" -> view.viewerRole.map(_.label).asJson
     )
   }
-  implicit val bidViewCodec: Codec[BidView] = deriveCodec[BidView]
-  implicit val revealViewCodec: Codec[RevealView] = deriveCodec[RevealView]
-  implicit val liarsDiceStateCodec: Codec[LiarsDiceState] = deriveCodec[LiarsDiceState]
+
+  /** Write-only: seats travel as their `"P1"`/`"P2"` labels — including the per-seat keys of `diceCounts` and a
+    * reveal's `dice` — which decoding cannot invert to seat indices without the roster size. A wild "ones" bid's
+    * absent face stays absent on the wire. `legalMoves` is not emitted.
+    */
+  implicit val liarsDiceStateEncoder: Encoder[LiarsDiceState] = Encoder.instance { view =>
+    def label(seat: Int): String = LiarsDice.seatLabel(seat)
+    def bidJson(bid: Bid): Json = Json.obj("quantity" -> bid.quantity.asJson, "face" -> bid.face.asJson)
+    Json.obj(
+      "dice" -> view.dice.asJson,
+      "diceCounts" -> view.diceCounts.zipWithIndex.map { case (n, seat) => label(seat) -> n }.toMap.asJson,
+      "currentBid" -> view.currentBid.map(bidJson).asJson,
+      "currentPlayer" -> label(view.currentPlayer).asJson,
+      "winner" -> view.winner.map(label).asJson,
+      "viewerSeat" -> view.viewerSeat.map(label).asJson,
+      "lastReveal" -> view.lastReveal.map { reveal =>
+        Json.obj(
+          "bid" -> bidJson(reveal.bid),
+          "count" -> reveal.count.asJson,
+          "dice" -> reveal.allDice.zipWithIndex.map { case (dice, seat) => label(seat) -> dice }.toMap.asJson,
+          "challenger" -> label(reveal.challengerSeat).asJson,
+          "bidder" -> label(reveal.bidderSeat).asJson,
+          "loser" -> label(reveal.loserSeat).asJson,
+          "diceLost" -> reveal.diceLost.asJson
+        )
+      }.asJson
+    )
+  }
   implicit val holdEmSeatCodec: Codec[HoldEmSeat] = deriveCodec[HoldEmSeat]
   implicit val holdEmPotAwardCodec: Codec[HoldEmPotAward] = deriveCodec[HoldEmPotAward]
   implicit val holdEmHandResultCodec: Codec[HoldEmHandResult] = deriveCodec[HoldEmHandResult]

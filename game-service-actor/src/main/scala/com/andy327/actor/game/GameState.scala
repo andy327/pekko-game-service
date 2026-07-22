@@ -5,7 +5,7 @@ import com.andy327.model.checkers.{Checkers, Color, Piece}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, Mark, PlayerId, Won}
 import com.andy327.model.holdem.TexasHoldEm
-import com.andy327.model.liarsdice.{Bid, LiarsDice}
+import com.andy327.model.liarsdice.{Bid, LiarsDice, Reveal}
 import com.andy327.model.mastermind.{Attempt, Codemaker, Mastermind, Peg, Role}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
@@ -268,82 +268,51 @@ object MastermindState {
   }
 }
 
-/** One bid in a Liar's Dice view: a quantity plus either a numbered face (2–6) or `None` for a wild "ones" bid. */
-case class BidView(quantity: Int, face: Option[Int])
-
-/** The public reveal of the most recently resolved challenge in a Liar's Dice view.
-  *
-  * Every seat's dice are exposed here (keyed by seat label) because a challenge is the one moment all cups come up;
-  * this snapshot is safe to show everyone and persists into the next round for reconnecting clients.
-  *
-  * @param bid the bid that was challenged
-  * @param count the true number of dice counting toward `bid` (its face plus wild ones)
-  * @param dice every seat's dice at the challenge, keyed by seat label ("P1", "P2", …)
-  * @param challenger the seat that called "Liar"
-  * @param bidder the seat whose bid was challenged
-  * @param loser the seat that lost dice
-  * @param diceLost how many dice `loser` lost (0 when a challenger meets the bid exactly)
-  */
-case class RevealView(
-    bid: BidView,
-    count: Int,
-    dice: Map[String, List[Int]],
-    challenger: String,
-    bidder: String,
-    loser: String,
-    diceLost: Int
-)
-
-/** Serializable, per-viewer view of a Liar's Dice game.
+/** Per-viewer view of a Liar's Dice game.
   *
   * The viewer sees their own current dice and every seat's dice count, but never another seat's current dice — hidden
-  * information stays hidden. `lastReveal` is the exception: it captures all dice at the moment of the last challenge,
-  * which is public once the cups come up.
+  * information stays hidden. `lastReveal` is the exception: it carries the model's own `Reveal`, capturing all dice at
+  * the moment of the last challenge, which is public once the cups come up. Seats are zero-based indices and the bid
+  * and reveal are the model's own types; the encoder applies the `"P1"`/`"P2"` labels.
   *
-  * @param dice the viewer's own current dice, or `None` for a spectator
-  * @param diceCounts dice remaining per seat, keyed by seat label ("P1", "P2", …)
+  * @param dice the viewer's own current dice (empty if eliminated), or `None` for a spectator
+  * @param diceCounts dice remaining per seat, indexed in seat order
   * @param currentBid the standing bid, or `None` at the start of a round
-  * @param currentPlayer the seat label whose turn it is
-  * @param winner the winning seat label once the game is over, otherwise `None`
-  * @param viewerSeat the viewer's seat label, or `None` for a spectator
   * @param lastReveal the most recently resolved challenge, or `None` before any challenge
+  * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise —
+  *                   every useful raise (see `LiarsDice.legalBids` for the quantity cap) plus the challenge whenever a
+  *                   standing bid exists. Not part of the wire format, so the encoder omits it.
   */
 case class LiarsDiceState(
-    dice: Option[List[Int]],
-    diceCounts: Map[String, Int],
-    currentBid: Option[BidView],
-    currentPlayer: String,
-    winner: Option[String],
-    viewerSeat: Option[String],
-    lastReveal: Option[RevealView]
+    dice: Option[Vector[Int]],
+    diceCounts: Vector[Int],
+    currentBid: Option[Bid],
+    currentPlayer: Int,
+    winner: Option[Int],
+    viewerSeat: Option[Int],
+    lastReveal: Option[Reveal],
+    legalMoves: List[MovePayload]
 ) extends GameState
 
 object LiarsDiceState {
 
   /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees dice counts but no hand). */
-  def of(game: LiarsDice, viewerSeat: Option[Int]): LiarsDiceState = {
-    def label(seat: Int): String = LiarsDice.seatLabel(seat)
-    def bidView(bid: Bid): BidView = BidView(bid.quantity, bid.face)
+  def of(game: LiarsDice, viewerSeat: Option[Int]): LiarsDiceState =
     LiarsDiceState(
-      dice = viewerSeat.map(seat => game.dice(seat).toList),
-      diceCounts = game.playerIds.indices.map(i => label(i) -> game.diceCount(i)).toMap,
-      currentBid = game.standing.map(sb => bidView(sb.bid)),
-      currentPlayer = label(game.currentSeat),
-      winner = game.winner.map(label),
-      viewerSeat = viewerSeat.map(label),
-      lastReveal = game.lastReveal.map { r =>
-        RevealView(
-          bid = bidView(r.bid),
-          count = r.count,
-          dice = game.playerIds.indices.map(i => label(i) -> r.allDice(i).toList).toMap,
-          challenger = label(r.challengerSeat),
-          bidder = label(r.bidderSeat),
-          loser = label(r.loserSeat),
-          diceLost = r.diceLost
-        )
+      dice = viewerSeat.map(game.dice),
+      diceCounts = game.playerIds.indices.map(game.diceCount).toVector,
+      currentBid = game.standing.map(_.bid),
+      currentPlayer = game.currentSeat,
+      winner = game.winner,
+      viewerSeat = viewerSeat,
+      lastReveal = game.lastReveal,
+      legalMoves = GameState.movesFor(viewerSeat, game.currentSeat) {
+        // the challenge payload names the action alone: the fresh dice a challenge deals are rolled by the module
+        val challenge =
+          if (game.standing.isDefined) List(MovePayload.LiarsDiceAction("challenge", None, None)) else Nil
+        game.legalBids.map(bid => MovePayload.LiarsDiceAction("bid", Some(bid.quantity), bid.face)) ++ challenge
       }
     )
-  }
 }
 
 /** One seat's public state in a Texas Hold 'Em view: its chips, what it has committed this hand and this street, and
