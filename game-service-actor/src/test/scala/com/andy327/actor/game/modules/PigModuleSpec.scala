@@ -112,16 +112,31 @@ class PigModuleSpec extends AnyWordSpecLike with Matchers {
         lastRoll = None,
         winner = None,
         viewerSeat = None,
-        legalMoves = List(MovePayload.PigAction("roll"), MovePayload.PigAction("hold"))
+        legalMoves = Nil // a spectator holds no seat, so has no move to make
       )
+    }
+
+    "offer roll and hold to the player whose turn it is" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = Pig.newGame(Seq(alice.id, bob.id)) // seat 0 (alice) leads
+      val state = PigModule.serialize(game, Some(alice.id)).asInstanceOf[PigState]
+      state.legalMoves shouldBe List(MovePayload.PigAction("roll"), MovePayload.PigAction("hold"))
+    }
+
+    "offer no moves to a player waiting on their opponent" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = Pig.newGame(Seq(alice.id, bob.id)) // seat 0 (alice) leads, so bob is waiting
+      PigModule.serialize(game, Some(bob.id)).asInstanceOf[PigState].legalMoves shouldBe empty
     }
 
     "offer no moves in PigState once the game has ended" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = Pig.newGame(Seq(alice.id, bob.id))
-      val won = game.copy(winner = Some(0))
-      PigModule.serialize(won, None).asInstanceOf[PigState].legalMoves shouldBe empty
+      val won = game.copy(winner = Some(0)) // alice won, and it is still nominally her seat to act
+      PigModule.serialize(won, Some(alice.id)).asInstanceOf[PigState].legalMoves shouldBe empty
     }
 
     "set winner in PigState when the game has ended" in {

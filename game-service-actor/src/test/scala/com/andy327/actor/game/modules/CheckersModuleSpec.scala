@@ -64,7 +64,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Checkers game to CheckersState, rendering kings uppercase and pawns lowercase" in {
+    "serialize a Checkers game to CheckersState, carrying each square's piece" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val empty = Vector.fill(Checkers.Size, Checkers.Size)(Option.empty[Piece])
@@ -75,9 +75,21 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val state = CheckersModule.serialize(game, None)
       state shouldBe a[CheckersState]
       val view = state.asInstanceOf[CheckersState]
-      view.board(0)(1) shouldBe Some(Piece(Red, isKing = true)) // red king → uppercase
-      view.board(5)(0) shouldBe Some(Piece(Black, isKing = false)) // black pawn → lowercase
+      view.board(0)(1) shouldBe Some(Piece(Red, isKing = true))
+      view.board(5)(0) shouldBe Some(Piece(Black, isKing = false))
       view.board(4)(4) shouldBe None // empty square
+    }
+
+    "offer the player to act their own moves, and nobody else any" in {
+      val alice = Player("alice") // seated Red, and Red leads
+      val bob = Player("bob")
+      val game = Checkers.empty(alice.id, bob.id)
+
+      val toAct = CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState]
+      toAct.legalMoves should not be empty
+
+      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].legalMoves shouldBe empty
+      CheckersModule.serialize(game, None).asInstanceOf[CheckersState].legalMoves shouldBe empty // spectator
     }
 
     "tag the serialized view with the requesting player's own color" in {

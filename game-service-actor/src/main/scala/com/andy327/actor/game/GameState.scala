@@ -15,14 +15,26 @@ import com.andy327.model.tictactoe.TicTacToe
   */
 sealed trait GameState
 
+object GameState {
+
+  /** The moves the viewer occupying `viewerSeat` may play right now: their own move set while it is their turn, and
+    * nothing otherwise, since a viewer waiting on an opponent — or a spectator, holding no seat at all — has no move to
+    * make. `moves` is by-name, so a view rendered for anyone but the player to act never pays to enumerate.
+    */
+  private[game] def movesFor[P](viewerSeat: Option[P], currentPlayer: P)(
+      moves: => List[MovePayload]
+  ): List[MovePayload] =
+    if (viewerSeat.contains(currentPlayer)) moves else Nil
+}
+
 /** View of any grid-based game state, shared by every game whose state is a board of cells each holding an optional
   * mark.
   *
   * Cells carry the `Mark` itself, so a consumer reasoning about the board has the domain value in hand; rendering a
   * mark to its symbol belongs to the encoder.
   *
-  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Carried for consumers
-  *                   that choose or offer a move; not part of the wire format, so the encoder omits it.
+  * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Carried
+  *                   for consumers that choose or offer a move; not part of the wire format, so the encoder omits it.
   */
 case class GridGameState(
     board: Vector[Vector[Option[Mark]]],
@@ -34,18 +46,26 @@ case class GridGameState(
 
 object GridGameState {
 
-  /** Builds the view from any board of optional marks plus the game's current player, status, and available moves. */
+  /** Builds the view from any board of optional marks plus the game's current player, status, and the move set to
+    * offer the viewer holding `viewerSeat`.
+    */
   def of(
       board: Vector[Vector[Option[Mark]]],
       currentPlayer: Mark,
       status: GameStatus[Mark],
-      legalMoves: List[MovePayload]
-  ): GridGameState = {
+      viewerSeat: Option[Mark]
+  )(legalMoves: => List[MovePayload]): GridGameState = {
     val winner = status match {
       case Won(mark) => Some(mark)
       case _         => None
     }
-    GridGameState(board, currentPlayer, winner, status == Draw, legalMoves)
+    GridGameState(
+      board,
+      currentPlayer,
+      winner,
+      status == Draw,
+      GameState.movesFor(viewerSeat, currentPlayer)(legalMoves)
+    )
   }
 }
 
@@ -57,9 +77,9 @@ object GridGameState {
   *
   * @param viewerSeat the color the viewer plays, or `None` for a spectator, letting a client tell a player which side
   *                   they are and whether it is their turn
-  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Captures being
-  *                   mandatory, this lists only jumps whenever any exist. Not part of the wire format, so the encoder
-  *                   omits it.
+  * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise.
+  *                   Captures being mandatory, this lists only jumps whenever any exist. Not part of the wire format,
+  *                   so the encoder omits it.
   */
 case class CheckersState(
     board: Vector[Vector[Option[Piece]]],
@@ -78,7 +98,9 @@ object CheckersState {
       currentPlayer = game.currentPlayer,
       winner = game.winner,
       viewerSeat = viewerSeat,
-      legalMoves = game.legalMoves.map(move => MovePayload.CheckersMove(move.from, move.steps))
+      legalMoves = GameState.movesFor(viewerSeat, game.currentPlayer)(
+        game.legalMoves.map(move => MovePayload.CheckersMove(move.from, move.steps))
+      )
     )
 }
 
@@ -131,8 +153,8 @@ object BattleshipState {
   * `"P1"`/`"P2"` labels. `scores` is indexed in seat order, so `scores(0)` belongs to the seat that moved first.
   *
   * @param lastRoll the die value from the most recent roll, absent at the start of a turn
-  * @param legalMoves the moves `currentPlayer` may play right now, empty once the game is over. Not part of the wire
-  *                   format, so the encoder omits it.
+  * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Not
+  *                   part of the wire format, so the encoder omits it.
   */
 case class PigState(
     scores: Vector[Int],
@@ -161,7 +183,9 @@ object PigState {
       lastRoll = game.lastRoll,
       winner = game.winner,
       viewerSeat = viewerSeat,
-      legalMoves = if (game.gameStatus == InProgress) TurnMoves else Nil
+      legalMoves = GameState.movesFor(viewerSeat, game.currentSeat)(
+        if (game.gameStatus == InProgress) TurnMoves else Nil
+      )
     )
 }
 
@@ -390,21 +414,15 @@ object GameStateView {
 
   /** Type class instance for serializing a TicTacToe game into a GridGameState (same board for every viewer). */
   implicit val ticTacToeView: GameStateView[TicTacToe, GridGameState] =
-    (game, _) =>
-      GridGameState.of(
-        game.board,
-        game.currentPlayer,
-        game.gameStatus,
+    (game, viewer) =>
+      GridGameState.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
         game.legalMoves.map(loc => MovePayload.TicTacToeMove(loc.row, loc.col))
       )
 
   /** Type class instance for serializing a ConnectFour game into a GridGameState (same board for every viewer). */
   implicit val connectFourView: GameStateView[ConnectFour, GridGameState] =
-    (game, _) =>
-      GridGameState.of(
-        game.board,
-        game.currentPlayer,
-        game.gameStatus,
+    (game, viewer) =>
+      GridGameState.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
         game.legalMoves.map(drop => MovePayload.ConnectFourMove(drop.col))
       )
 

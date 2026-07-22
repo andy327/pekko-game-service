@@ -63,6 +63,18 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
+    "offer the player to act their own moves, and nobody else any" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = TicTacToe.empty(alice.id, bob.id) // X (alice) leads
+
+      val toAct = TicTacToeModule.serialize(game, Some(alice.id)).asInstanceOf[GridGameState]
+      toAct.legalMoves should have size 9
+
+      TicTacToeModule.serialize(game, Some(bob.id)).asInstanceOf[GridGameState].legalMoves shouldBe empty
+      TicTacToeModule.serialize(game, None).asInstanceOf[GridGameState].legalMoves shouldBe empty // spectator
+    }
+
     "serialize a TicTacToe game to GridGameState" in {
       val alice = Player("alice")
       val bob = Player("bob")

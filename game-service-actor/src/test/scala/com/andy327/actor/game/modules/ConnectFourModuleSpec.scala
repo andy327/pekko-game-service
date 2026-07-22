@@ -70,6 +70,18 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       ConnectFourModule.serialize(game, None) shouldBe a[GridGameState]
     }
 
+    "offer the player to act their own moves, and nobody else any" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = ConnectFour.empty(alice.id, bob.id) // Red (alice) leads
+
+      val toAct = ConnectFourModule.serialize(game, Some(alice.id)).asInstanceOf[GridGameState]
+      toAct.legalMoves should have size ConnectFour.Cols.toLong
+
+      ConnectFourModule.serialize(game, Some(bob.id)).asInstanceOf[GridGameState].legalMoves shouldBe empty
+      ConnectFourModule.serialize(game, None).asInstanceOf[GridGameState].legalMoves shouldBe empty // spectator
+    }
+
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
       val replyProbe = TestProbe[Either[GameError, GameState]]()
