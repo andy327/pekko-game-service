@@ -22,6 +22,7 @@ import com.andy327.actor.core.GameManager.{
 import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
+  BattleshipCell,
   BattleshipState,
   BidView,
   CheckersState,
@@ -156,7 +157,27 @@ object JsonProtocol extends CirceSupport {
       "viewerSeat" -> view.viewerSeat.map(_.symbol).asJson
     )
   }
-  implicit val battleshipStateCodec: Codec[BattleshipState] = deriveCodec[BattleshipState]
+
+  /** Write-only: each cell travels as its lower-case token (`"hit"`, `"miss"`, `"ship"`, `"water"`, `"unknown"`), and
+    * an `"unknown"` cell carries no way back to what lies beneath it, so decoding cannot rebuild a board. `legalMoves`
+    * is not emitted.
+    */
+  implicit val battleshipStateEncoder: Encoder[BattleshipState] = Encoder.instance { view =>
+    def token(cell: BattleshipCell): String = cell match {
+      case BattleshipCell.Hit     => "hit"
+      case BattleshipCell.Miss    => "miss"
+      case BattleshipCell.Ship    => "ship"
+      case BattleshipCell.Water   => "water"
+      case BattleshipCell.Unknown => "unknown"
+    }
+    Json.obj(
+      "board1" -> view.board1.map(_.map(token)).asJson,
+      "board2" -> view.board2.map(_.map(token)).asJson,
+      "currentPlayer" -> view.currentPlayer.symbol.asJson,
+      "winner" -> view.winner.map(_.symbol).asJson,
+      "viewerSeat" -> view.viewerSeat.map(_.symbol).asJson
+    )
+  }
 
   /** Write-only: seats travel as their `"P1"`/`"P2"` labels, which decoding cannot invert to seat indices without the
     * roster size. `legalMoves` is not emitted.

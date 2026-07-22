@@ -95,6 +95,24 @@ final case class Battleship(
   /** The number of shots fired so far across both boards — one per move. */
   def moveCount: Int = board1.shots.size + board2.shots.size
 
+  /** Every shot [[currentPlayer]] may legally fire right now — each cell of the opponent's board not yet targeted — or
+    * nothing once the game is over.
+    *
+    * The dual of [[play]]'s validation: a target appears here exactly when `play` would accept firing at it, so a
+    * caller that chooses a move — or offers the choice — does not restate the rules.
+    */
+  def legalMoves: List[Fire] =
+    if (gameStatus != InProgress) Nil
+    else {
+      val fired = boardFor(opponent(currentPlayer)).shots
+      (for {
+        row <- 0 until Size
+        col <- 0 until Size
+        coord = Coord(row, col)
+        if !fired.contains(coord)
+      } yield Fire(coord)).toList
+    }
+
   /** The board belonging to `seat`. */
   private def boardFor(seat: Seat): PlayerBoard = seat match {
     case Player1 => board1

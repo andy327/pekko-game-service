@@ -9,7 +9,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.actor.game.{GameState, GameStateConverters}
-import com.andy327.model.battleship.{Battleship, Coord, Player1, PlayerBoard, Ship}
+import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.checkers.{Black => CkBlack, Checkers, Piece, Red => CkRed}
 import com.andy327.model.connectfour.{ConnectFour, Red => CfRed, Yellow => CfYellow}
 import com.andy327.model.core.PlayerId
@@ -219,6 +219,49 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
           ],
           "currentPlayer": "P1",
           "viewerSeat": "P1"
+        }
+      """)
+    }
+
+    "encode a finished game for a spectator to its exact wire form, naming the winner and fogging both fleets" in {
+      // P2's single-cell fleet at (5,5) is fully sunk, so P1 has won; P1's fleet took one hit at (0,0)
+      val game = Battleship(
+        alice,
+        bob,
+        PlayerBoard(List(Ship(Set(Coord(0, 0), Coord(0, 1)))), Set(Coord(0, 0))),
+        PlayerBoard(List(Ship(Set(Coord(5, 5)))), Set(Coord(5, 5))),
+        Player2,
+        Some(Player1)
+      )
+
+      wire(GameStateConverters.serializeGame(game, None)) shouldBe expected("""
+        {
+          "board1": [
+            ["hit","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"]
+          ],
+          "board2": [
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","hit","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
+            ["unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"]
+          ],
+          "currentPlayer": "P2",
+          "winner": "P1"
         }
       """)
     }

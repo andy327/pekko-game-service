@@ -104,20 +104,51 @@ object CheckersState {
     )
 }
 
-/** Serializable, per-viewer view of a Battleship game.
+/** What one cell of a Battleship board looks like to a particular viewer.
   *
-  * `board1` and `board2` are each projected for the requesting viewer: the viewer's own board reveals their ships,
-  * while the opponent's board (and, for a spectator, both boards) is fog-of-war — only fired cells are shown, so ship
-  * positions are never leaked until hit. Each cell is one of `hit`, `miss`, `ship`, `water`, or `unknown`.
+  * A resolved shot shows as [[BattleshipCell.Hit]] or [[BattleshipCell.Miss]] to everyone. The rest of the board
+  * depends on whose waters it is: the viewer's own un-fired cells are [[BattleshipCell.Ship]] or
+  * [[BattleshipCell.Water]], while an opponent's (or, for a spectator, anyone's) un-fired cell is
+  * [[BattleshipCell.Unknown]] — the type has no way to say what lies beneath, which is what keeps a projected board
+  * leak-free by construction.
+  */
+sealed trait BattleshipCell
+
+object BattleshipCell {
+
+  /** A fired cell that struck a ship. */
+  case object Hit extends BattleshipCell
+
+  /** A fired cell that found only water. */
+  case object Miss extends BattleshipCell
+
+  /** An un-fired cell of the viewer's own fleet. */
+  case object Ship extends BattleshipCell
+
+  /** An un-fired, empty cell of the viewer's own waters. */
+  case object Water extends BattleshipCell
+
+  /** An un-fired cell of waters the viewer cannot see into. */
+  case object Unknown extends BattleshipCell
+}
+
+/** Per-viewer view of a Battleship game.
   *
-  * @param viewerSeat the seat the viewer occupies (`"P1"`/`"P2"`), or `None` for a spectator
+  * `board1` and `board2` are each projected for the requesting viewer — see [[BattleshipCell]] for what each cell can
+  * reveal. A viewer's legal shots are exactly the opponent cells still [[BattleshipCell.Unknown]] to them, so the view
+  * derives every field, `legalMoves` included, from what its viewer is entitled to know.
+  *
+  * @param viewerSeat the seat the viewer occupies, or `None` for a spectator
+  * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Not
+  *                   part of the wire format, so the encoder omits it.
   */
 case class BattleshipState(
-    board1: Vector[Vector[String]],
-    board2: Vector[Vector[String]],
-    currentPlayer: String,
-    winner: Option[String],
-    viewerSeat: Option[String]
+    board1: Vector[Vector[BattleshipCell]],
+    board2: Vector[Vector[BattleshipCell]],
+    currentPlayer: Seat,
+    winner: Option[Seat],
+    viewerSeat: Option[Seat],
+    legalMoves: List[MovePayload]
 ) extends GameState
 
 object BattleshipState {
@@ -127,22 +158,26 @@ object BattleshipState {
     BattleshipState(
       board1 = project(game.board1, revealShips = viewerSeat.contains(Player1)),
       board2 = project(game.board2, revealShips = viewerSeat.contains(Player2)),
-      currentPlayer = game.currentPlayer.symbol,
-      winner = game.winner.map(_.symbol),
-      viewerSeat = viewerSeat.map(_.symbol)
+      currentPlayer = game.currentPlayer,
+      winner = game.winner,
+      viewerSeat = viewerSeat,
+      legalMoves = GameState.movesFor(viewerSeat, game.currentPlayer)(
+        game.legalMoves.map(fire => MovePayload.BattleshipMove(fire.target.row, fire.target.col))
+      )
     )
 
-  /** Projects one player's board to cell tokens. When `revealShips` (the viewer's own board), un-hit ships show as
-    * `ship` and empty cells as `water`; otherwise un-fired cells are `unknown`, hiding ship positions until hit.
+  /** Projects one player's board for a viewer. When `revealShips` (the viewer's own board), un-hit ships show as
+    * [[BattleshipCell.Ship]] and empty cells as [[BattleshipCell.Water]]; otherwise every un-fired cell is
+    * [[BattleshipCell.Unknown]], hiding ship positions until hit.
     */
-  private def project(b: PlayerBoard, revealShips: Boolean): Vector[Vector[String]] = {
+  private def project(b: PlayerBoard, revealShips: Boolean): Vector[Vector[BattleshipCell]] = {
     val shipCells = b.shipCells
     Vector.tabulate(Battleship.Size, Battleship.Size) { (r, c) =>
       val coord = Coord(r, c)
       val isShip = shipCells.contains(coord)
-      if (b.shots.contains(coord)) if (isShip) "hit" else "miss"
-      else if (revealShips) if (isShip) "ship" else "water"
-      else "unknown"
+      if (b.shots.contains(coord)) if (isShip) BattleshipCell.Hit else BattleshipCell.Miss
+      else if (revealShips) if (isShip) BattleshipCell.Ship else BattleshipCell.Water
+      else BattleshipCell.Unknown
     }
   }
 }
