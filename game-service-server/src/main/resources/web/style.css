@@ -110,10 +110,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 #lobby-list,
-#my-sessions { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+#my-sessions,
+#lobby-roster { list-style: none; padding: 0; margin: 0.5rem 0 0; }
 
 #lobby-list li,
-#my-sessions li {
+#my-sessions li,
+#lobby-roster li {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -125,7 +127,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 #lobby-list .meta,
-#my-sessions .meta { color: var(--muted); font-size: 0.9rem; }
+#my-sessions .meta,
+#lobby-roster .meta { color: var(--muted); font-size: 0.9rem; }
+
+/* The seated player's own row stands out from the rest of the roster. */
+#lobby-roster li.you .meta { color: var(--text); }
 
 /* Groups a lobby row's action buttons (Join, Spectate) so they sit together at a consistent spot regardless of how
    many are present, rather than each being spread out individually by the row's space-between. */
