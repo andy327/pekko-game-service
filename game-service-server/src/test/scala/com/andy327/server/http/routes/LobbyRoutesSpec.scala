@@ -136,6 +136,55 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
       }
     }
 
+    "seat a bot for the host and start against it" in {
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+
+      Post(s"/lobby/$roomId/bots").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val GameManager.LobbyJoined(_, metadata, bot) = responseAs[GameManager.LobbyJoined]
+        bot.name shouldBe "Bot 1"
+        metadata.players should have size 2
+        metadata.status shouldBe GameLifecycleStatus.ReadyToStart
+      }
+
+      Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+    }
+
+    "remove a bot seat for the host" in {
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+      val botId = Post(s"/lobby/$roomId/bots").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyJoined].joinedPlayer.id
+      }
+
+      Delete(s"/lobby/$roomId/bots/$botId").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[GameManager.LobbyLeft].message should include("Bot 1")
+      }
+    }
+
+    "reject bot changes from a non-host and a removal aimed at a human" in {
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+      Post(s"/lobby/$roomId/join").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+      }
+
+      Post(s"/lobby/$roomId/bots").withHeaders(bobHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.Forbidden
+      }
+
+      Delete(s"/lobby/$roomId/bots/$bobId").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.NotFound // bob is a human seat, not a bot
+      }
+    }
+
     "leave a lobby" in {
       val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
         responseAs[GameManager.LobbyCreated].roomId

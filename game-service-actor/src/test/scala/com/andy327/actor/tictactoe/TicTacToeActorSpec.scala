@@ -18,7 +18,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameView, GridGameView}
-import com.andy327.actor.lobby.GameLifecycleStatus
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId}
 import com.andy327.model.tictactoe.{Location, O, OutOfBounds, TicTacToe, X}
@@ -490,6 +490,26 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         matchId,
         GameLifecycleStatus.Completed
       )
+    }
+
+    "record a result only for the human seats when a bot is in the game" in {
+      val matchId: MatchId = UUID.randomUUID()
+      val bot = BotId.forOrdinal(0)
+      val persistProbe = createTestProbe[PersistenceProtocol.Command]()
+      val (_, behavior) =
+        TicTacToeActor.create(matchId, matchId, Seq(alice, bot), persistProbe.ref, dummyGameManager, NoOpEventPublisher)
+      val actor = spawn(behavior)
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
+
+      // the bot (O) forfeits: alice's win records, but no row is ever written for the bot's loss
+      actor ! TurnBasedGameActor.PlayerLeft(bot, replyProbe.ref)
+      replyProbe.receiveMessage() shouldBe a[Right[_, _]]
+
+      persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
+      persistProbe.expectMessage(
+        PersistenceProtocol.RecordGameResult(alice, matchId, GameType.TicTacToe, GameResult.Win, forfeit = true)
+      )
+      persistProbe.expectNoMessage()
     }
 
     "forfeit the game to the opponent when a player leaves, appending no move but recording the result" in {

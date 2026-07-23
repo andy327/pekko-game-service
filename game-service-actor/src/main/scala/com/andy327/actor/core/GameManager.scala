@@ -53,8 +53,8 @@ object GameManager {
   /** Join an existing lobby; replies with [[LobbyJoined]] or a [[LobbyErrorResponse]]. */
   final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Leave a lobby. If the host leaves, the host role migrates to a remaining member and the lobby survives; it is
-    * cancelled only when the host was the last player. Rejected with
+  /** Leave a lobby. If the host leaves, the host role migrates to a remaining human member and the lobby survives; it
+    * is cancelled when the host was the last human. Rejected with
     * [[com.andy327.actor.lobby.LobbyError.GameInProgress]] once the game has started (leaving is then a forfeit).
     */
   final case class LeaveLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
@@ -63,6 +63,17 @@ object GameManager {
     * (not host, lobby not found). Rejected once the game has started — at that point leaving is a forfeit.
     */
   final case class CancelLobby(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Seat a bot in a pre-game lobby the caller hosts; replies with [[LobbyJoined]] carrying the bot or a
+    * [[LobbyErrorResponse]] (not host, lobby full, not joinable, not found).
+    */
+  final case class AddBot(roomId: RoomId, requesterId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Remove a bot from a pre-game lobby the caller hosts; replies with [[LobbyLeft]] or a [[LobbyErrorResponse]]
+    * (not host, no such bot, not joinable, not found).
+    */
+  final case class RemoveBot(roomId: RoomId, requesterId: PlayerId, botId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
 
   /** Start a game in a lobby the caller hosts; replies with [[GameStarted]] or a [[LobbyErrorResponse]]. */
   final case class StartGame(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
@@ -595,6 +606,17 @@ object GameManager {
             replyTo ! LobbyErrorResponse(LobbyError.GameInProgress(roomId))
           else
             lobbyManager ! LobbyManager.CancelLobby(roomId, playerId, replyTo)
+          Behaviors.same
+
+        case AddBot(roomId, requesterId, replyTo) =>
+          // no auto-subscribe interception here: that wiring subscribes the caller's connected session to lobby
+          // pushes, and this caller — the host — was wired when the lobby was created, while the seated bot has no
+          // session to wire
+          lobbyManager ! LobbyManager.AddBot(roomId, requesterId, replyTo)
+          Behaviors.same
+
+        case RemoveBot(roomId, requesterId, botId, replyTo) =>
+          lobbyManager ! LobbyManager.RemoveBot(roomId, requesterId, botId, replyTo)
           Behaviors.same
 
         case StartGame(roomId, playerId, replyTo) =>

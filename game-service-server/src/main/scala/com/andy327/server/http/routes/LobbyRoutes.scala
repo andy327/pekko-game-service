@@ -42,6 +42,8 @@ import com.andy327.server.http.routes.RouteDirectives._
   *   - GET /lobby/{roomId} - Fetch metadata for a specific lobby
   *   - POST /lobby/{roomId}/join - Join an existing lobby
   *   - POST /lobby/{roomId}/leave - Leave a lobby (or forfeit an in-progress game)
+  *   - POST /lobby/{roomId}/bots - Seat a bot in a pre-game lobby (host only)
+  *   - DELETE /lobby/{roomId}/bots/{botId} - Remove a bot seat (host only)
   *   - POST /lobby/{roomId}/start - Start a game from a lobby (host only)
   *   - DELETE /lobby/{roomId} - Cancel a pre-game lobby (host only)
   *   - POST /lobby/{roomId}/subscribe - Start spectating a lobby (push events over the player's WebSocket)
@@ -57,6 +59,7 @@ class LobbyRoutes(
   private def statusFor(error: LobbyError): StatusCode = error match {
     case _: LobbyError.LobbyNotFound => StatusCodes.NotFound
     case _: LobbyError.NotHostError  => StatusCodes.Forbidden
+    case _: LobbyError.NoSuchBot     => StatusCodes.NotFound
     case _                           => StatusCodes.Conflict
   }
 
@@ -214,6 +217,52 @@ class LobbyRoutes(
                 case left @ LobbyLeft(_, _)    => complete(left)
                 case GameForfeited(_, state)   => complete(state)
                 case MoveRejected(msg)         => complete(StatusCodes.Conflict -> ErrorResponse(msg))
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
+              }
+            }
+          }
+        } ~
+        /** Seats a bot in the lobby. Only the host may add bots; the bot counts toward the roster like any player.
+          *
+          * - Auth: Bearer token required
+          * - Path: `roomId` — the UUID of the lobby to seat a bot in
+          * - 200: `LobbyJoined` with the seated bot and updated metadata
+          * - 400: invalid UUID format
+          * - 401: missing or invalid token
+          * - 403: requester is not the host
+          * - 404: lobby not found
+          * - 409: lobby full, or the game has already started
+          * - 500: unexpected error
+          */
+        path("bots") {
+          post {
+            authenticator.authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.AddBot(roomId, player.id, replyTo))) {
+                case joined: LobbyJoined       => complete(joined)
+                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
+              }
+            }
+          }
+        } ~
+        /** Removes a bot seat from the lobby. Only the host may remove bots.
+          *
+          * - Auth: Bearer token required
+          * - Path: `roomId` — the UUID of the lobby; `botId` — the bot's UUID (from the lobby metadata)
+          * - 200: `LobbyLeft` confirming the removal
+          * - 400: invalid UUID format
+          * - 401: missing or invalid token
+          * - 403: requester is not the host
+          * - 404: lobby not found, or `botId` is not a bot seated in it
+          * - 409: the game has already started
+          * - 500: unexpected error
+          */
+        path("bots" / JavaUUID) { botId =>
+          delete {
+            authenticator.authenticatePlayer { player =>
+              onSuccess(system.ask[GameResponse](replyTo => GameManager.RemoveBot(roomId, player.id, botId, replyTo))) {
+                case left @ LobbyLeft(_, _)    => complete(left)
                 case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
                 case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
               }

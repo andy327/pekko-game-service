@@ -9,7 +9,7 @@ import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.events.{EventPublisher, GameEvent}
 import com.andy327.actor.game.{GameProjection, GameView}
-import com.andy327.actor.lobby.GameLifecycleStatus
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{
   Draw,
@@ -312,7 +312,9 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
             (nextState.players.map(_ -> GameResult.Draw), GameEvent.Outcome.Draw)
         }
         results.foreach { case (pid, result) =>
-          persist ! PersistenceProtocol.RecordGameResult(pid, matchId, gameType, result, forfeit)
+          // bots hold no account and no history: a human's win over a bot records, but the bot's own row never does
+          if (!BotId.isBot(pid))
+            persist ! PersistenceProtocol.RecordGameResult(pid, matchId, gameType, result, forfeit)
         }
         publisher.publish(GameEvent.GameCompleted(matchId, gameType, outcome, nextState.moveCount))
         // hand the subscriber set back to the room so it survives this match's actor stopping and can keep fanning out
