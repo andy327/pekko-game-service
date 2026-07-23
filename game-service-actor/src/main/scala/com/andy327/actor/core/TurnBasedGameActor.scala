@@ -318,8 +318,10 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
         }
         publisher.publish(GameEvent.GameCompleted(matchId, gameType, outcome, nextState.moveCount))
         // hand the subscriber set back to the room so it survives this match's actor stopping and can keep fanning out
-        // chat and the post-game state; re-key by playerId to match the GameCompleted/MatchEnded shape
-        val subscribersByPlayer = subscribers.map { case (ref, pid) => pid -> ref }
+        // chat and the post-game state; re-key by playerId to match the GameCompleted/MatchEnded shape. Bots are
+        // dropped: they stop on the GameEnded above, so their refs must not linger as post-game subscribers — a dead
+        // ref would keep an otherwise-empty room from being evicted and bounce post-game chat to a stopped actor.
+        val subscribersByPlayer = subscribers.collect { case (ref, pid) if !BotId.isBot(pid) => pid -> ref }
         gameManager ! GameManager.GameCompleted(matchId, roomId, GameLifecycleStatus.Completed, subscribersByPlayer)
         // the game is over: cancel any pending turn clock so it cannot fire during terminating
         timers.cancel(TurnTimerKey)

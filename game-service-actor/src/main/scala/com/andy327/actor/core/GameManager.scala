@@ -12,13 +12,14 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, StashBuff
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
+import com.andy327.actor.bot.{BotActor, BotConfig, BotPolicies}
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameView}
-import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tracing.{TraceCollector, TraceEvent, TracingConfig, TracingInterceptor}
-import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId, RoomId}
+import com.andy327.model.core.{Game, GameError, GameType, InProgress, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
@@ -356,6 +357,32 @@ object GameManager {
   /** Timeout for internal `context.ask` calls used to look up player refs during subscribe flows. */
   private val subscribeAskTimeout: Timeout = Timeout(3.seconds)
 
+  /** Spawn a [[BotActor]] for each bot seat in `players` and subscribe it to `gameActor`, so a seated bot begins
+    * playing as soon as the game is live. Human seats are skipped — their sessions subscribe themselves. Each bot
+    * decides with the policy [[BotPolicies]] resolves for `gameType` and submits moves back through this GameManager,
+    * exactly as a human client does; the think delay comes from the actor system's [[BotConfig]]. A no-op when the
+    * roster holds no bots.
+    */
+  private def spawnBots(
+      context: ActorContext[Command],
+      gameType: GameType,
+      matchId: MatchId,
+      roomId: RoomId,
+      players: Seq[PlayerId],
+      gameActor: ActorRef[GameActor.GameCommand],
+      tracingConfig: TracingConfig,
+      traceEmit: TraceEvent => Unit
+  ): Unit = {
+    val actorPlugin = GameRegistry.forType(gameType).actor
+    val thinkDelay = BotConfig.fromConfig(context.system.settings.config).thinkDelay
+    players.filter(BotId.isBot).foreach { botId =>
+      val behavior = BotActor(botId, roomId, BotPolicies.forGame(gameType), context.self, thinkDelay = thinkDelay) {
+        session => gameActor ! actorPlugin.subscribeCommand(session, botId)
+      }
+      context.spawn(TracingInterceptor.wrap(behavior, tracingConfig, traceEmit), s"bot-$matchId-$botId")
+    }
+  }
+
   /** Look up the live PlayerActor for `playerId` and hand the result (`None` if not connected) to `onResolved`, which
     * builds the follow-up command sent back to self. Centralizes the spectate/auto-subscribe lookups so the ask wiring
     * — and its single ask-timeout fallback (mapped, like a miss, to `None`) — lives in one place.
@@ -502,6 +529,10 @@ object GameManager {
             TracingInterceptor.wrap(behavior, tracingConfig, traceEmit),
             s"game-$matchId"
           ).unsafeUpcast[GameActor.GameCommand]
+          // a restored game keeps no live sessions, so its bots must be re-created to keep playing; a terminal
+          // snapshot's actor stops itself on restore, so only an in-progress game gets bots
+          if (game.gameStatus == InProgress)
+            spawnBots(context, gameType, matchId, roomId, game.players, actorRef, tracingConfig, traceEmit)
           roomId -> (gameType, matchId, actorRef)
         }.toMap
 
@@ -784,6 +815,7 @@ object GameManager {
             ).unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
+            spawnBots(context, gameType, matchId, roomId, players, actorRef, tracingConfig, traceEmit)
 
             persistActor ! PersistenceProtocol.SaveSnapshot(
               matchId,
