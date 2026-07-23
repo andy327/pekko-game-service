@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, GuessResult, MastermindState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameRegistry, GameView, MastermindView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.actor.mastermind.MastermindActor
 import com.andy327.model.core.{GameError, GameType}
@@ -31,7 +31,7 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a setcode operation to a SetCode GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.MastermindAction("setcode", List("red", "green", "yellow", "blue"))
 
       MastermindModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref) match {
@@ -45,7 +45,7 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a guess operation to a Guess GameCommand" in {
       val bob = Player("bob")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.MastermindAction("guess", List("red", "red", "blue", "green"))
 
       MastermindModule.toGameCommand(GameOperation.MakeMove(bob.id, move), replyProbe.ref) match {
@@ -56,7 +56,7 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "reject a move naming a color that is not in the palette" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.MastermindAction("guess", List("red", "chartreuse", "blue", "green"))
 
       val Left(err) = MastermindModule.toGameCommand(GameOperation.MakeMove(UUID.randomUUID(), move), replyProbe.ref)
@@ -64,7 +64,7 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "reject an unknown Mastermind action" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.MastermindAction("peek", List("red", "green", "yellow", "blue"))
 
       val Left(err) = MastermindModule.toGameCommand(GameOperation.MakeMove(UUID.randomUUID(), move), replyProbe.ref)
@@ -72,13 +72,13 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       MastermindModule.toGameCommand(GameOperation.GetState, replyProbe.ref) shouldBe
         Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val unsupportedMove = null.asInstanceOf[MovePayload]
 
       val Left(err) =
@@ -93,9 +93,9 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
         TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Mastermind game to MastermindState" in {
-      MastermindModule.serialize(Mastermind.newGame(Seq(UUID.randomUUID(), UUID.randomUUID())), None) shouldBe
-        a[MastermindState]
+    "serialize a Mastermind game to MastermindView" in {
+      MastermindModule.project(Mastermind.newGame(Seq(UUID.randomUUID(), UUID.randomUUID())), None) shouldBe
+        a[MastermindView]
     }
 
     "keep the codebreaker's view free of the secret while play is ongoing" in {
@@ -103,9 +103,9 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
       val codebreaker = UUID.randomUUID()
       val game = Mastermind(codemaker, codebreaker, Some(Vector(Peg.Red, Peg.Green, Peg.Yellow, Peg.Blue)), Nil, None)
 
-      MastermindModule.serialize(game, Some(codebreaker)).asInstanceOf[MastermindState].secret shouldBe None
-      MastermindModule.serialize(game, Some(codemaker)).asInstanceOf[MastermindState].secret shouldBe
-        Some(List("red", "green", "yellow", "blue"))
+      MastermindModule.project(game, Some(codebreaker)).asInstanceOf[MastermindView].secret shouldBe None
+      MastermindModule.project(game, Some(codemaker)).asInstanceOf[MastermindView].secret shouldBe
+        Some(Vector(Peg.Red, Peg.Green, Peg.Yellow, Peg.Blue))
     }
 
     "render guesses and the winner, and reveal the secret to everyone, once the game is over" in {
@@ -119,10 +119,10 @@ class MastermindModuleSpec extends AnyWordSpecLike with Matchers {
           Some(Codebreaker)
         )
 
-      val state = MastermindModule.serialize(finished, None).asInstanceOf[MastermindState]
-      state.guesses shouldBe List(GuessResult(List("red", "green", "yellow", "blue"), 4, 0))
-      state.winner shouldBe Some("codebreaker")
-      state.secret shouldBe Some(List("red", "green", "yellow", "blue")) // revealed to all (a spectator here) once over
+      val state = MastermindModule.project(finished, None).asInstanceOf[MastermindView]
+      state.guesses shouldBe List(Attempt(secret, Feedback(4, 0)))
+      state.winner shouldBe Some(Codebreaker)
+      state.secret shouldBe Some(secret) // revealed to all (a spectator here) once over
     }
 
     "expose the Mastermind bundle through the GameRegistry" in {

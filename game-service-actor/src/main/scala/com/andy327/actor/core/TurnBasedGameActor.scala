@@ -8,7 +8,7 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerSche
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.events.{EventPublisher, GameEvent}
-import com.andy327.actor.game.{GameState, GameStateView}
+import com.andy327.actor.game.{GameProjection, GameView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{
@@ -35,17 +35,17 @@ object TurnBasedGameActor {
   sealed trait Command[+M] extends GameActor.GameCommand
 
   /** Attempt to apply `move` on behalf of `playerId`. */
-  final case class MakeMove[M](playerId: PlayerId, move: M, replyTo: ActorRef[Either[GameError, GameState]])
+  final case class MakeMove[M](playerId: PlayerId, move: M, replyTo: ActorRef[Either[GameError, GameView]])
       extends Command[M]
 
   /** Apply the effect of `playerId` leaving the game (a forfeit for two-player games). Replies with the leaver's view
     * of the resulting state, or a `GameError` if the model rejects the leave (e.g. not a participant, or unsupported).
     */
-  final case class PlayerLeft(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameState]])
+  final case class PlayerLeft(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameView]])
       extends Command[Nothing]
 
-  /** Return the current serialized game state without mutating it. */
-  final case class GetState(replyTo: ActorRef[Either[GameError, GameState]]) extends Command[Nothing]
+  /** Return the current game state, projected for a spectator, without mutating it. */
+  final case class GetState(replyTo: ActorRef[Either[GameError, GameView]]) extends Command[Nothing]
 
   /** Register a PlayerActor (the session for `playerId`) to receive push events (state updates and game-end
     * notifications). `playerId` identifies the viewer so each subscriber can be sent their own rendering of the state.
@@ -99,12 +99,12 @@ object TurnBasedGameActor {
   *
   * Adding a new game type therefore requires no actor code beyond a binding:
   * {{{
-  *   object MyGameActor extends TurnBasedGameActor[MyGame, MyMove, MySeat, MyGameState](
+  *   object MyGameActor extends TurnBasedGameActor[MyGame, MyMove, MySeat, MyGameView](
   *     players => MyGame.empty(players(0), players(1)),
   *     deriveEncoder[MyMove]
   *   )
   * }}}
-  * given a `GameTypeTag[MyGame]` (model) and a `GameStateView[MyGame, MyGameState]` (http.json) instance.
+  * given a `GameTypeTag[MyGame]` (model) and a `GameProjection[MyGame, MyGameView]` (game package) instance.
   *
   * @param newGame factory producing the initial game model from the seated players; the player count has already been
   *                validated against the GameType's bounds by [[GameManager]]
@@ -112,13 +112,13 @@ object TurnBasedGameActor {
   * @tparam G the concrete game model type
   * @tparam M the game's move type
   * @tparam P the game's player-token (seat) type
-  * @tparam S the serializable view produced for HTTP/WebSocket delivery
+  * @tparam S the per-viewer view type fanned out to subscribers and returned to callers
   * @see [[GameActor]] for the full actor lifecycle and behavioral contract.
   */
-class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <: GameState](
+class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <: GameView](
     newGame: Seq[PlayerId] => G,
     moveEncoder: Encoder[M]
-)(implicit tag: GameTypeTag[G], view: GameStateView[G, S], ct: ClassTag[G])
+)(implicit tag: GameTypeTag[G], view: GameProjection[G, S], ct: ClassTag[G])
     extends GameActor[G] {
 
   import TurnBasedGameActor._
@@ -143,7 +143,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
 
   override def forfeitCommand(
       playerId: PlayerId,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): GameActor.GameCommand =
     PlayerLeft(playerId, replyTo)
 
@@ -152,7 +152,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
     case _                     => None
   }
 
-  override protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameState]]] =
+  override protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameView]]] =
     cmd match {
       case MakeMove(_, _, replyTo) => Some(replyTo)
       case PlayerLeft(_, replyTo)  => Some(replyTo)
@@ -268,7 +268,7 @@ class TurnBasedGameActor[G <: Game[M, G, P, GameStatus[P], GameError], M, P, S <
       subscribers: Map[ActorRef[PlayerActor.Command], PlayerId],
       publisher: EventPublisher,
       forfeit: Boolean,
-      replyTo: ActorRef[Either[GameError, GameState]],
+      replyTo: ActorRef[Either[GameError, GameView]],
       timers: TimerScheduler[Command],
       timeout: Option[FiniteDuration]
   )(appendMove: => Unit = ()): Behavior[Command] = {

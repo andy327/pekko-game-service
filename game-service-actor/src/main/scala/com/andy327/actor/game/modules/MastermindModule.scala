@@ -8,13 +8,13 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.MastermindAction
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.mastermind.{Guess, Mastermind, Peg, SetCode}
 
 /** [[GameModule]] implementation for Mastermind.
   *
-  * Provides move decoding, operation-to-command mapping, and per-viewer serialization for Mastermind. The peg color
+  * Provides move decoding, operation-to-command mapping, and per-viewer projection for Mastermind. The peg color
   * names carried in the payload are resolved to `Peg` values here; an unrecognized color is rejected as an `Unknown`
   * error so it never reaches the model.
   */
@@ -24,7 +24,7 @@ object MastermindModule extends GameModule[Mastermind] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, MastermindAction(action, pegs)) =>
       parsePegs(pegs).flatMap { parsed =>
@@ -52,6 +52,6 @@ object MastermindModule extends GameModule[Mastermind] {
       } yield peg :: rest
     }.map(_.toVector)
 
-  override def serialize(game: Mastermind, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: Mastermind, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }

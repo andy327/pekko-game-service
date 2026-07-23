@@ -109,6 +109,40 @@ class BattleshipSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "legalMoves" should {
+    "offer every cell of the opponent's board before any shot is fired" in {
+      val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))))
+      game.legalMoves should have size (Battleship.Size * Battleship.Size).toLong
+    }
+
+    "exclude cells the current player has already fired at" in {
+      // Player1's shots are recorded on board2; (3,3) and (7,2) have been fired at
+      val game = gameWith(
+        board(Set(Coord(0, 0))),
+        PlayerBoard(List(Ship(Set(Coord(0, 0)))), Set(Coord(3, 3), Coord(7, 2)))
+      )
+      game.legalMoves should have size (Battleship.Size * Battleship.Size - 2).toLong
+      game.legalMoves should not contain Fire(Coord(3, 3))
+      game.legalMoves should not contain Fire(Coord(7, 2))
+    }
+
+    "accept exactly the moves listed, and reject a repeated shot both ways" in {
+      val fired = Coord(3, 3)
+      val game = gameWith(
+        board(Set(Coord(0, 0))),
+        PlayerBoard(List(Ship(Set(Coord(0, 0)))), Set(fired))
+      )
+      game.legalMoves.take(5).foreach(fire => game.play(Player1, fire) shouldBe a[Right[_, _]])
+      game.legalMoves should not contain Fire(fired)
+      game.play(Player1, Fire(fired)) shouldBe Left(AlreadyFired)
+    }
+
+    "offer no moves once the game is over" in {
+      val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))), winner = Some(Player1))
+      game.legalMoves shouldBe empty
+    }
+  }
+
   "A leaving player" should {
     "forfeit to the opponent" in {
       val game = gameWith(board(Set(Coord(0, 0))), board(Set(Coord(0, 0))))

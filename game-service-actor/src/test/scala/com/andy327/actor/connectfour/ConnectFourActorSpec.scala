@@ -13,7 +13,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{GameState, GridGameState}
+import com.andy327.actor.game.{GameView, GridGameView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.connectfour.{ConnectFour, Drop, InvalidColumn, Red, Yellow}
@@ -70,15 +70,15 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
   "ConnectFourActor" should {
     "return an empty 6×7 board on GetState" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board, current, winner, draw, _)) = replyProbe.receiveMessage()
       board should have size 6
       board.head should have size 7
-      board.flatten should contain only ""
-      current shouldBe "R"
+      board.flatten should contain only None
+      current shouldBe Red
       winner shouldBe None
       draw shouldBe false
     }
@@ -97,12 +97,12 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       )
       val actor = spawn(behavior)
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw)) = replyProbe.receiveMessage()
-      board(5)(3) shouldBe "R" // Red dropped into col 3 — piece falls to bottom row
-      current shouldBe "Y"
+      val Right(GridGameView(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      board(5)(3) shouldBe Some(Red) // Red dropped into col 3 — piece falls to bottom row
+      current shouldBe Yellow
       winner shouldBe None
       draw shouldBe false
     }
@@ -156,23 +156,23 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "apply a valid move and switch currentPlayer" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), replyProbe.ref)
-      val Right(GridGameState(board1, current1, _, _)) = replyProbe.receiveMessage()
-      board1(5)(0) shouldBe "R" // piece falls to bottom row
-      current1 shouldBe "Y"
+      val Right(GridGameView(board1, current1, _, _, _)) = replyProbe.receiveMessage()
+      board1(5)(0) shouldBe Some(Red) // piece falls to bottom row
+      current1 shouldBe Yellow
 
       actor ! TurnBasedGameActor.MakeMove(bob, Drop(1), replyProbe.ref)
-      val Right(GridGameState(board2, current2, _, _)) = replyProbe.receiveMessage()
-      board2(5)(0) shouldBe "R"
-      board2(5)(1) shouldBe "Y"
-      current2 shouldBe "R"
+      val Right(GridGameView(board2, current2, _, _, _)) = replyProbe.receiveMessage()
+      board2(5)(0) shouldBe Some(Red)
+      board2(5)(1) shouldBe Some(Yellow)
+      current2 shouldBe Red
     }
 
     "append each applied move to history with an incrementing seq and the move payload" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), replyProbe.ref)
       replyProbe.receiveMessage()
@@ -193,7 +193,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a move when it is not the player's turn" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(bob, Drop(0), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidTurn)
@@ -202,7 +202,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
     "reject a move from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(eve, Drop(0), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
@@ -210,7 +210,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a move to an out-of-bounds column" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(7), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(InvalidColumn)
@@ -218,7 +218,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "log success and continue when SnapshotSaved succeeds" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), replyProbe.ref)
       val _ = replyProbe.receiveMessage()
@@ -236,7 +236,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.SnapshotSaved(Left(ex))
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
       replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
@@ -248,7 +248,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
-      actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameState]]().ref)
+      actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameView]]().ref)
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
     }
@@ -257,7 +257,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref)
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
@@ -280,14 +280,14 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
       actor ! TurnBasedGameActor.Unsubscribe(subscriberProbe.ref)
-      actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameState]]().ref)
+      actor ! TurnBasedGameActor.MakeMove(alice, Drop(0), createTestProbe[Either[GameError, GameView]]().ref)
 
       subscriberProbe.expectNoMessage()
     }
 
     "stop after receiving SnapshotSaved(Right) in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
@@ -301,7 +301,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "stop after receiving SnapshotSaved(Left) in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       val ex = new RuntimeException("snapshot failure") with NoStackTrace
 
       redWinsMoves.foreach { case (playerId, col) =>
@@ -316,7 +316,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a GetState landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)
@@ -337,7 +337,7 @@ class ConnectFourActorSpec extends AnyWordSpecLike with Matchers {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val matchId: MatchId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       redWinsMoves.foreach { case (playerId, col) =>
         actor ! TurnBasedGameActor.MakeMove(playerId, Drop(col), replyProbe.ref)

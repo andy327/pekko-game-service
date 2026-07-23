@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.connectfour.ConnectFourActor
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameState, GridGameState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameView, GridGameView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.model.connectfour.{ConnectFour, Drop}
 import com.andy327.model.core.GameError
@@ -31,7 +31,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a valid GameOperation.MakeMove to a GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.ConnectFourMove(3)
 
       val result = ConnectFourModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
@@ -47,7 +47,7 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = ConnectFourModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
@@ -63,16 +63,28 @@ class ConnectFourModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a ConnectFour game to GridGameState" in {
+    "serialize a ConnectFour game to GridGameView" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = ConnectFour.empty(alice.id, bob.id)
-      ConnectFourModule.serialize(game, None) shouldBe a[GridGameState]
+      ConnectFourModule.project(game, None) shouldBe a[GridGameView]
+    }
+
+    "offer the player to act their own moves, and nobody else any" in {
+      val alice = Player("alice")
+      val bob = Player("bob")
+      val game = ConnectFour.empty(alice.id, bob.id) // Red (alice) leads
+
+      val toAct = ConnectFourModule.project(game, Some(alice.id)).asInstanceOf[GridGameView]
+      toAct.legalMoves should have size ConnectFour.Cols.toLong
+
+      ConnectFourModule.project(game, Some(bob.id)).asInstanceOf[GridGameView].legalMoves shouldBe empty
+      ConnectFourModule.project(game, None).asInstanceOf[GridGameView].legalMoves shouldBe empty // spectator
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val unsupportedMove = null.asInstanceOf[MovePayload]
 
       val result = ConnectFourModule.toGameCommand(

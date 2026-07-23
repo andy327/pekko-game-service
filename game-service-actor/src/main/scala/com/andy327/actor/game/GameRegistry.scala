@@ -24,11 +24,11 @@ import com.andy327.model.core.{Game, GameType, PlayerId}
 
 /** Groups the [[com.andy327.actor.game.modules.GameModule]] and [[com.andy327.actor.core.GameActor]] implementations for a single game type.
   *
-  * The type parameter `G` ties module and actor together so that `module.serialize` and `actor.create`/`fromSnapshot`
-  * are guaranteed to work with the same concrete game model. The `serializeGame` method is the single place where the
+  * The type parameter `G` ties module and actor together so that `module.project` and `actor.create`/`fromSnapshot`
+  * are guaranteed to work with the same concrete game model. The `projectGame` method is the single place where the
   * existential `Game[_, _, _, _, _]` coming from the database is cast to `G`.
   *
-  * @param module the HTTP-layer plugin (move decoding, command mapping, serialization)
+  * @param module the HTTP-layer plugin (move decoding, command mapping, view projection)
   * @param actor the actor-layer plugin (game creation, snapshot recovery, subscribe)
   * @tparam G the concrete game model type shared by both plugins
   */
@@ -39,8 +39,8 @@ case class GameModuleBundle[G <: Game[_, _, _, _, _]](module: GameModule[G], act
     * The caller must ensure that `game` was loaded using this bundle's `GameType`; the cast is safe because
     * [[GameRegistry]] constructs each bundle with matching `G` types.
     */
-  def serializeGame(game: Game[_, _, _, _, _], viewer: Option[PlayerId]): GameState =
-    module.serialize(game.asInstanceOf[G], viewer)
+  def projectGame(game: Game[_, _, _, _, _], viewer: Option[PlayerId]): GameView =
+    module.project(game.asInstanceOf[G], viewer)
 }
 
 /** Maps each supported `GameType` to its [[GameModuleBundle]].

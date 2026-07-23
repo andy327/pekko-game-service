@@ -8,13 +8,13 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.TicTacToeMove
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.tictactoe.{Location, TicTacToe}
 
 /** [[GameModule]] implementation for TicTacToe.
   *
-  * Provides move decoding, operation-to-command mapping, and game serialization for TicTacToe. Enables
+  * Provides move decoding, operation-to-command mapping, and view projection for TicTacToe. Enables
   * [[core.GameManager]] and the HTTP routes to handle TicTacToe games without any game-specific logic.
   */
 object TicTacToeModule extends GameModule[TicTacToe] {
@@ -23,7 +23,7 @@ object TicTacToeModule extends GameModule[TicTacToe] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, MovePayload.TicTacToeMove(row, col)) =>
       Right(TurnBasedGameActor.MakeMove(playerId, Location(row, col), replyTo))
@@ -36,6 +36,6 @@ object TicTacToeModule extends GameModule[TicTacToe] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: TicTacToe, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: TicTacToe, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }

@@ -5,12 +5,12 @@ import java.util.UUID
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.game.{GuessResult, MastermindState}
+import com.andy327.actor.game.MastermindView
 import com.andy327.model.core.PlayerId
 import com.andy327.model.mastermind.Peg.{Blue, Green, Red, Yellow}
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Codemaker, Feedback, Mastermind, Role}
 
-class MastermindStateSpec extends AnyWordSpec with Matchers {
+class MastermindViewSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID() // codemaker
   val bob: PlayerId = UUID.randomUUID() // codebreaker
 
@@ -20,45 +20,45 @@ class MastermindStateSpec extends AnyWordSpec with Matchers {
   private def game(guesses: List[Attempt] = oneGuess, winner: Option[Role] = None): Mastermind =
     Mastermind(alice, bob, Some(code), guesses, winner)
 
-  "MastermindState.of for the codemaker" should {
+  "MastermindView.of for the codemaker" should {
     "always reveal the secret and expose the public guess history" in {
-      val view = MastermindState.of(game(), Some(Codemaker))
-      view.viewerRole shouldBe Some("codemaker")
-      view.secret shouldBe Some(List("red", "green", "yellow", "blue"))
-      view.guesses shouldBe List(GuessResult(List("red", "green", "blue", "yellow"), 2, 2))
-      view.currentPlayer shouldBe "codebreaker"
+      val view = MastermindView.of(game(), Some(Codemaker))
+      view.viewerRole shouldBe Some(Codemaker)
+      view.secret shouldBe Some(code)
+      view.guesses shouldBe oneGuess
+      view.currentPlayer shouldBe Codebreaker
       view.guessesRemaining shouldBe Mastermind.MaxGuesses - 1
     }
   }
 
-  "MastermindState.of for the codebreaker" should {
+  "MastermindView.of for the codebreaker" should {
     "hide the secret while the game is in progress" in {
-      MastermindState.of(game(), Some(Codebreaker)).secret shouldBe None
+      MastermindView.of(game(), Some(Codebreaker)).secret shouldBe None
     }
   }
 
-  "MastermindState.of for a spectator" should {
+  "MastermindView.of for a spectator" should {
     "hide the secret while the game is in progress" in {
-      val view = MastermindState.of(game(), None)
+      val view = MastermindView.of(game(), None)
       view.viewerRole shouldBe None
       view.secret shouldBe None
     }
   }
 
-  "MastermindState.of once the game is over" should {
+  "MastermindView.of once the game is over" should {
     "reveal the secret to everyone, including the codebreaker" in {
       val finished = game(winner = Some(Codebreaker))
-      MastermindState.of(finished, Some(Codebreaker)).secret shouldBe Some(List("red", "green", "yellow", "blue"))
-      MastermindState.of(finished, None).secret shouldBe Some(List("red", "green", "yellow", "blue"))
-      MastermindState.of(finished, Some(Codebreaker)).winner shouldBe Some("codebreaker")
+      MastermindView.of(finished, Some(Codebreaker)).secret shouldBe Some(code)
+      MastermindView.of(finished, None).secret shouldBe Some(code)
+      MastermindView.of(finished, Some(Codebreaker)).winner shouldBe Some(Codebreaker)
     }
   }
 
-  "MastermindState.of before a code is set" should {
+  "MastermindView.of before a code is set" should {
     "report the codemaker to move and no secret for the codebreaker" in {
       val fresh = Mastermind.newGame(Seq(alice, bob))
-      val view = MastermindState.of(fresh, Some(Codebreaker))
-      view.currentPlayer shouldBe "codemaker"
+      val view = MastermindView.of(fresh, Some(Codebreaker))
+      view.currentPlayer shouldBe Codemaker
       view.secret shouldBe None
       view.guesses shouldBe empty
       view.guessesRemaining shouldBe Mastermind.MaxGuesses

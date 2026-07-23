@@ -14,7 +14,7 @@ import org.apache.pekko.util.Timeout
 
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState}
+import com.andy327.actor.game.{GameOperation, GameRegistry, GameView}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tracing.{TraceCollector, TraceEvent, TracingConfig, TracingInterceptor}
@@ -195,15 +195,15 @@ object GameManager {
       subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
   ) extends Command
 
-  /** Adapter wrapper — converts a game actor's `Either[GameError, GameState]` reply into a [[GameResponse]]. */
-  final private case class WrappedGameResponse(response: Either[GameError, GameState], replyTo: ActorRef[GameResponse])
+  /** Adapter wrapper — converts a game actor's `Either[GameError, GameView]` reply into a [[GameResponse]]. */
+  final private case class WrappedGameResponse(response: Either[GameError, GameView], replyTo: ActorRef[GameResponse])
       extends Command
 
   /** Adapter wrapper — converts a game actor's forfeit reply (from a `LeaveLobby` on an in-progress game) into a
     * [[GameForfeited]] on success or a [[MoveRejected]] if the model rejected the leave.
     */
   final private case class WrappedForfeitResponse(
-      response: Either[GameError, GameState],
+      response: Either[GameError, GameView],
       roomId: RoomId,
       replyTo: ActorRef[GameResponse]
   ) extends Command
@@ -311,10 +311,10 @@ object GameManager {
 
   // Game responses
   final case class GameStarted(roomId: RoomId) extends GameResponse
-  final case class GameStatus(state: GameState) extends GameResponse
+  final case class GameStatus(state: GameView) extends GameResponse
 
   /** A player left an in-progress game and thereby forfeited it; `state` is the leaver's view of the finished game. */
-  final case class GameForfeited(roomId: RoomId, state: GameState) extends GameResponse
+  final case class GameForfeited(roomId: RoomId, state: GameView) extends GameResponse
 
   /** The ordered move history for a game; `moves` is empty if the game has no recorded moves. */
   final case class MoveHistory(roomId: RoomId, moves: List[MoveRecord]) extends GameResponse
@@ -580,7 +580,7 @@ object GameManager {
             // game in progress: leaving it is a forfeit, handled by the game actor (which then self-completes and
             // triggers GameCompleted -> MarkCompleted, moving the lobby to Completed)
             case Some((gameType, _, gameActor)) =>
-              val adaptedRef: ActorRef[Either[GameError, GameState]] =
+              val adaptedRef: ActorRef[Either[GameError, GameView]] =
                 context.messageAdapter(response => WrappedForfeitResponse(response, roomId, replyTo))
               gameActor ! GameRegistry.forType(gameType).actor.forfeitCommand(player.id, adaptedRef)
             // pre-game (or unknown) lobby: ordinary leave / host-cancel handled by LobbyManager as before
@@ -838,7 +838,7 @@ object GameManager {
         case RunGameOperation(roomId, op, replyTo) =>
           activeGames.get(roomId) match {
             case Some((gameType, _, gameActor)) =>
-              val adaptedRef: ActorRef[Either[GameError, GameState]] =
+              val adaptedRef: ActorRef[Either[GameError, GameView]] =
                 context.messageAdapter(response => WrappedGameResponse(response, replyTo))
 
               GameRegistry.forType(gameType).module.toGameCommand(op, adaptedRef) match {
@@ -870,7 +870,7 @@ object GameManager {
         case CompletedGameLoaded(result, roomId, gameType, replyTo) =>
           result match {
             case Right(Some(game)) =>
-              replyTo ! GameStatus(GameRegistry.forType(gameType).serializeGame(game, None))
+              replyTo ! GameStatus(GameRegistry.forType(gameType).projectGame(game, None))
             case Right(None) =>
               context.log.warn(s"Completed game $roomId has no record in the database")
               replyTo ! GameNotFound(roomId)

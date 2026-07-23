@@ -63,6 +63,41 @@ class ConnectFourSpec extends AnyWordSpec with Matchers {
       full.play(full.currentPlayer, Drop(0)) shouldBe Left(ColumnFull)
     }
 
+    "offer every column as a legal move on an empty board" in {
+      ConnectFour.empty(alice, bob).legalMoves shouldBe (0 until ConnectFour.Cols).map(Drop(_)).toList
+    }
+
+    "drop a column from legalMoves once it fills up" in {
+      val full = (0 until ConnectFour.Rows).foldLeft(ConnectFour.empty(alice, bob)) { (game, _) =>
+        game.play(game.currentPlayer, Drop(0)).toOption.get
+      }
+      full.legalMoves should not contain Drop(0)
+      full.legalMoves should have size (ConnectFour.Cols - 1).toLong
+    }
+
+    "agree with play about which columns are open" in {
+      val game = (0 until ConnectFour.Rows).foldLeft(ConnectFour.empty(alice, bob)) { (g, _) =>
+        g.play(g.currentPlayer, Drop(0)).toOption.get
+      }
+      // every enumerated drop is accepted, and the filled column is both rejected and absent
+      game.legalMoves.foreach(drop => game.play(game.currentPlayer, drop) shouldBe a[Right[_, _]])
+      game.play(game.currentPlayer, Drop(0)) shouldBe Left(ColumnFull)
+    }
+
+    "offer no moves once the game is over" in {
+      val game = ConnectFour.empty(alice, bob)
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get
+        .play(Yellow, Drop(1)).toOption.get
+        .play(Red, Drop(0)).toOption.get // Red connects four vertically in column 0
+
+      game.gameStatus shouldBe Won(Red)
+      game.legalMoves shouldBe empty
+    }
+
     "detect a horizontal win" in {
       // Red wins bottom row cols 0–3; Yellow stacks safely in col 6
       val game = ConnectFour.empty(alice, bob)

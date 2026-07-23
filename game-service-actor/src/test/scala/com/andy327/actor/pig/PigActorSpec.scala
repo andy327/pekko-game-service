@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{GameState, PigState}
+import com.andy327.actor.game.{GameView, PigView}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.pig.Roll
@@ -44,16 +44,16 @@ class PigActorSpec extends AnyWordSpecLike with Matchers {
 
   private def state(
       actor: ActorRef[PigActor.Command],
-      replyProbe: TestProbe[Either[GameError, GameState]]
-  ): PigState = {
+      replyProbe: TestProbe[Either[GameError, GameView]]
+  ): PigView = {
     actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-    replyProbe.receiveMessage().toOption.get.asInstanceOf[PigState]
+    replyProbe.receiveMessage().toOption.get.asInstanceOf[PigView]
   }
 
   "PigActor's turn-timeout policy" should {
     "auto-hold and pass the turn when the clock fires at the start of a turn" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       // Alice is idle from the very start of her turn (turnScore 0); the auto-hold is a no-score pass to Bob
       actor ! TurnBasedGameActor.TurnTimeout(alice, 0)
@@ -62,15 +62,15 @@ class PigActorSpec extends AnyWordSpecLike with Matchers {
         Right("hold")
 
       val after = state(actor, replyProbe)
-      after.currentPlayer shouldBe "P2"
-      after.scores("P1") shouldBe 0
+      after.currentPlayer shouldBe 1
+      after.scores(0) shouldBe 0
       after.turnScore shouldBe 0
       after.winner shouldBe None
     }
 
     "auto-hold and bank the accumulated points when the clock fires mid-turn" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       // Alice rolls a 4 (turnScore 4, moveCount 0 → 1), then goes idle
       actor ! TurnBasedGameActor.MakeMove(alice, Roll(4), replyProbe.ref)
@@ -85,8 +85,8 @@ class PigActorSpec extends AnyWordSpecLike with Matchers {
         Right("hold")
 
       val after = state(actor, replyProbe)
-      after.currentPlayer shouldBe "P2"
-      after.scores("P1") shouldBe 4
+      after.currentPlayer shouldBe 1
+      after.scores(0) shouldBe 4
       after.turnScore shouldBe 0
     }
   }

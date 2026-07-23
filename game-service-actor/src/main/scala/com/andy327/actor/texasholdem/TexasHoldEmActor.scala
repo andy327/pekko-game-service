@@ -5,7 +5,7 @@ import io.circe.{Encoder, Json}
 
 import com.andy327.actor.core.TurnBasedGameActor
 import com.andy327.actor.core.TurnBasedGameActor.TimeoutAction
-import com.andy327.actor.game.HoldEmState
+import com.andy327.actor.game.HoldEmView
 import com.andy327.actor.game.modules.TexasHoldEmModule
 import com.andy327.model.holdem.Action.{Bet, Call, Check, Fold, Raise}
 import com.andy327.model.holdem.{HoldEmMove, TexasHoldEm}
@@ -14,7 +14,7 @@ import com.andy327.model.holdem.{HoldEmMove, TexasHoldEm}
   *
   * All behavior lives in [[core.TurnBasedGameActor]]; the rules (betting, streets, side pots, sit-and-go win) live in
   * `model.holdem.TexasHoldEm`, and the per-viewer projection that hides each player's hole cards lives in
-  * `GameStateView[TexasHoldEm, HoldEmState]`. The opening deal is shuffled here — server-side — and dealt by the pure
+  * `GameProjection[TexasHoldEm, HoldEmView]`. The opening deal is shuffled here — server-side — and dealt by the pure
   * model.
   *
   * The move-log encoder records a bet's or raise's amount but omits the deck each move carries: that deck is internal
@@ -26,7 +26,7 @@ import com.andy327.model.holdem.{HoldEmMove, TexasHoldEm}
   * folding can end the hand and deal the next.
   */
 object TexasHoldEmActor
-    extends TurnBasedGameActor[TexasHoldEm, HoldEmMove, Int, HoldEmState](
+    extends TurnBasedGameActor[TexasHoldEm, HoldEmMove, Int, HoldEmView](
       players => TexasHoldEm.newGame(players, TexasHoldEmModule.shuffledDeck()),
       Encoder.instance[HoldEmMove] { move =>
         move.action match {

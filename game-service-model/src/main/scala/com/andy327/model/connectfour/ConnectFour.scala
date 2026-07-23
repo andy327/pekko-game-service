@@ -97,6 +97,16 @@ final case class ConnectFour(
   /** The number of pieces dropped so far — one per move. */
   def moveCount: Int = board.flatten.count(_.isDefined)
 
+  /** Every move [[currentPlayer]] may legally play right now — a drop into each column that still has room, or nothing
+    * once the game is over.
+    *
+    * The dual of [[play]]'s validation: a column appears here exactly when `play` would accept a drop into it, so a
+    * caller that chooses a move — or offers the choice — does not restate the rules.
+    */
+  def legalMoves: List[Drop] =
+    if (gameStatus != InProgress) Nil
+    else (0 until Cols).filter(col => lowestEmptyRow(board, col).isDefined).map(Drop(_)).toList
+
   private def nextPlayer: Mark = currentPlayer match {
     case Red    => Yellow
     case Yellow => Red

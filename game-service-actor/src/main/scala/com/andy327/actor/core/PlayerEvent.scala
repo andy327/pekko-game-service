@@ -2,7 +2,7 @@ package com.andy327.actor.core
 
 import java.time.Instant
 
-import com.andy327.actor.game.GameState
+import com.andy327.actor.game.GameView
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata}
 import com.andy327.model.core.{PlayerId, RoomId}
 
@@ -28,7 +28,7 @@ object PlayerEvent {
     * @param state the full updated board state, rendered for the receiving subscriber
     * @param spectatorCount connected subscribers who are not one of the match's seated players
     */
-  final case class GameStateUpdated(roomId: RoomId, state: GameState, spectatorCount: Int) extends PlayerEvent
+  final case class GameStateUpdated(roomId: RoomId, state: GameView, spectatorCount: Int) extends PlayerEvent
 
   /** The game has ended.
     *

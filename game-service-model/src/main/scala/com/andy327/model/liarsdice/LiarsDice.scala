@@ -103,6 +103,27 @@ final case class LiarsDice(
   /** Number of dice seat `seat` still holds; a seat with none has been eliminated. */
   def diceCount(seat: Int): Int = dice(seat).size
 
+  /** Every bid [[currentPlayer]] may usefully make right now, or nothing once the game is over.
+    *
+    * Lists each well-formed bid that opens the round or raises the standing bid, with quantity capped at the number of
+    * dice on the table. [[play]] itself accepts a raise of any quantity, but a bid beyond the table's dice can never be
+    * true — challenging it is a guaranteed win — so the cap costs a chooser nothing while keeping the list finite.
+    * Challenging is not listed: it is not a bid, and it is available exactly when a standing bid exists.
+    */
+  def legalBids: List[Bid] =
+    if (gameStatus != InProgress) Nil
+    else {
+      val tableDice = dice.map(_.size).sum
+      val candidates = for {
+        quantity <- (1 to tableDice).toList
+        face <- None :: (2 to 6).map(Some(_)).toList
+      } yield Bid(quantity, face)
+      standing match {
+        case Some(StandingBid(current, _)) => candidates.filter(current.canRaiseTo)
+        case None                          => candidates
+      }
+    }
+
   /** Next seat clockwise from `seat` that still holds dice. Only called while at least one other seat is active (during
     * a round, or when advancing past an eliminated loser), so the search always terminates.
     */

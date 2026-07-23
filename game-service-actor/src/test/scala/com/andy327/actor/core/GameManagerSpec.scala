@@ -21,12 +21,12 @@ import org.scalatest.wordspec.AnyWordSpecLike
 import com.andy327.actor.chat.ChatRepository
 import com.andy327.actor.core.{PlayerActor, PlayerEvent}
 import com.andy327.actor.events.{EventPublisher, GameEvent}
-import com.andy327.actor.game.{GameOperation, GameStateConverters, GridGameState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GridGameView, MovePayload}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tracing.{TraceCollector, TracingConfig}
 import com.andy327.model.core.{Game, GameType, MatchId, PlayerId, RoomId}
-import com.andy327.model.tictactoe.TicTacToe
+import com.andy327.model.tictactoe.{O, TicTacToe, X}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord}
 
 /** In-memory GameRepository for unit tests */
@@ -140,7 +140,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       gm ! GameManager.RunGameOperation(roomId, GameOperation.GetState, gameResponseProbe.ref)
       val response = gameResponseProbe.expectMessageType[GameManager.GameResponse]
-      response shouldBe GameManager.GameStatus(GameStateConverters.serializeGame(restoredGame, None))
+      response shouldBe GameManager.GameStatus(GameProjection.project(restoredGame, None))
     }
 
     "ignore RestoreGames messages in running state" in {
@@ -619,7 +619,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       gm ! GameManager.RunGameOperation(roomId, GameOperation.GetState, responseProbe.ref)
       val response = responseProbe.expectMessageType[GameManager.GameStatus]
-      response.state shouldBe GameStateConverters.serializeGame(game, None)
+      response.state shouldBe GameProjection.project(game, None)
     }
 
     "drop the completedMatch entry on RoomClosed, so a later operation reports GameNotFound" in {
@@ -797,7 +797,7 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
       // Bob (O) leaves the in-progress game — Alice (X) wins by forfeit
       gm ! GameManager.LeaveLobby(roomId, bob, responseProbe.ref)
       val forfeited = responseProbe.expectMessageType[GameManager.GameForfeited]
-      forfeited.state.asInstanceOf[GridGameState].winner shouldBe Some("X")
+      forfeited.state.asInstanceOf[GridGameView].winner shouldBe Some(X)
 
       // the room has moved to Finished (post-game) via the GameCompleted -> MatchEnded flow
       eventually {
@@ -871,9 +871,9 @@ class GameManagerSpec extends AnyWordSpecLike with Matchers with Eventually {
 
       val updatedState = responseProbe.expectMessageType[GameManager.GameStatus]
 
-      val view = updatedState.state.asInstanceOf[GridGameState]
-      view.board(0)(0) shouldBe "X"
-      view.currentPlayer shouldBe "O"
+      val view = updatedState.state.asInstanceOf[GridGameView]
+      view.board(0)(0) shouldBe Some(X)
+      view.currentPlayer shouldBe O
     }
 
     "return an error when forwarding an invalid move to a game" in {

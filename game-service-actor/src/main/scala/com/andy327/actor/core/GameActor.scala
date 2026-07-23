@@ -4,7 +4,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
 import com.andy327.actor.events.EventPublisher
-import com.andy327.actor.game.GameState
+import com.andy327.actor.game.GameView
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{Game, GameError, GameType, GameTypeTag, MatchId, PlayerId, RoomId}
 
@@ -85,7 +85,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
 
   /** Produce the game-specific Subscribe command that registers `playerRef` (the session for `playerId`) for push
     * events. The `playerId` lets the actor render each subscriber's own view — full-information games ignore it,
-    * hidden-state games use it for per-viewer serialization.
+    * hidden-state games use it for per-viewer projection.
     */
   def subscribeCommand(playerRef: ActorRef[PlayerActor.Command], playerId: PlayerId): GameActor.GameCommand
 
@@ -102,7 +102,7 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     * replying to `replyTo` with the leaver's view of the resulting state or a `GameError` if the leave is rejected.
     * Lets GameManager trigger a forfeit without knowing the game's concrete move/command types.
     */
-  def forfeitCommand(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameState]]): GameActor.GameCommand
+  def forfeitCommand(playerId: PlayerId, replyTo: ActorRef[Either[GameError, GameView]]): GameActor.GameCommand
 
   /** Extract the snapshot-save result from `cmd` if it is a `SnapshotSaved` message, otherwise `None`.
     *
@@ -111,13 +111,13 @@ trait GameActor[G <: Game[_, _, _, _, _]] {
     */
   protected def snapshotSavedResult(cmd: Command): Option[Either[Throwable, Unit]]
 
-  /** Extract the `replyTo` ref from `cmd` if it is a command that expects a `GameError`/`GameState` reply (a move,
+  /** Extract the `replyTo` ref from `cmd` if it is a command that expects a `GameError`/`GameView` reply (a move,
     * a leave, or a state read), otherwise `None`.
     *
     * Used by [[terminating]] to answer a request that lands in the brief window between game completion and the
     * final snapshot being confirmed, rather than leaving the caller's `ask` to time out silently.
     */
-  protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameState]]]
+  protected def replyToInTerminating(cmd: Command): Option[ActorRef[Either[GameError, GameView]]]
 
   /** Waits for the final snapshot confirmation after a game ends, then stops the actor.
     *

@@ -180,6 +180,32 @@ final case class TexasHoldEm(
   /** The amount `seat` must put in to call the current bet. */
   def toCall(seat: Int): Int = math.max(0, currentBet - streetContrib(seat))
 
+  /** The chip-free actions [[currentPlayer]] may take right now, or nothing once the game is over: folding is always
+    * open, checking when nothing is owed, and calling when something is. Sizing actions live in [[betBounds]] — a bet
+    * or raise is not one move but a range of them.
+    *
+    * Calling with nothing owed is accepted by [[play]] as a zero-chip no-op, but it is not listed: checking is that
+    * move's honest name.
+    */
+  def legalActions: List[Action] =
+    if (winner.isDefined) Nil
+    else Fold :: (if (toCall(toAct) == 0) List(Check) else List(Call))
+
+  /** The range of street-contribution totals [[currentPlayer]] may bet (opening the betting) or raise to (against a
+    * standing bet), or `None` when no sizing action is open — the game is over, or the seat's chips cannot exceed the
+    * standing bet. Every total from `min` to `max` is accepted by [[play]]: `max` is the seat's all-in, and when the
+    * stack cannot reach the normal minimum — the big blind, or the last raise re-raised — the all-in alone remains and
+    * `min == max`.
+    */
+  def betBounds: Option[(Int, Int)] =
+    if (winner.isDefined) None
+    else {
+      val maxTotal = streetContrib(toAct) + stacks(toAct)
+      if (currentBet == 0) Some((math.min(BigBlind, maxTotal), maxTotal))
+      else if (maxTotal <= currentBet) None
+      else Some((math.min(currentBet + lastRaiseSize, maxTotal), maxTotal))
+    }
+
   // --- seat predicates -------------------------------------------------------------------------------------------
 
   private def inHand(seat: Int): Boolean = !folded(seat)
