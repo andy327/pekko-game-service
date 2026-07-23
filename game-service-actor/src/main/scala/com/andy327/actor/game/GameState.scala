@@ -4,7 +4,7 @@ import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, Player
 import com.andy327.model.checkers.{Checkers, Color, Piece}
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.{Draw, Game, GameStatus, InProgress, Mark, PlayerId, Won}
-import com.andy327.model.holdem.TexasHoldEm
+import com.andy327.model.holdem.{Action, Card, HandResult, Street, TexasHoldEm}
 import com.andy327.model.liarsdice.{Bid, LiarsDice, Reveal}
 import com.andy327.model.mastermind.{Attempt, Codemaker, Mastermind, Peg, Role}
 import com.andy327.model.pig.Pig
@@ -18,13 +18,18 @@ sealed trait GameState
 object GameState {
 
   /** The moves the viewer occupying `viewerSeat` may play right now: their own move set while it is their turn, and
-    * nothing otherwise, since a viewer waiting on an opponent — or a spectator, holding no seat at all — has no move to
-    * make. `moves` is by-name, so a view rendered for anyone but the player to act never pays to enumerate.
+    * `whenNotToAct` otherwise, since a viewer waiting on an opponent — or a spectator, holding no seat at all — has no
+    * move to make. `moves` is by-name, so a view rendered for anyone but the player to act never pays to build it.
+    * `M` is whatever shape the game represents its move set in: most views list their moves, while a range of sizings
+    * (see [[BetSizing]]) gates its description here the same way.
     */
+  private[game] def movesFor[P, M](viewerSeat: Option[P], currentPlayer: P, whenNotToAct: M)(moves: => M): M =
+    if (viewerSeat.contains(currentPlayer)) moves else whenNotToAct
+
   private[game] def movesFor[P](viewerSeat: Option[P], currentPlayer: P)(
       moves: => List[MovePayload]
   ): List[MovePayload] =
-    if (viewerSeat.contains(currentPlayer)) moves else Nil
+    movesFor(viewerSeat, currentPlayer, List.empty[MovePayload])(moves)
 }
 
 /** View of any grid-based game state, shared by every game whose state is a board of cells each holding an optional
@@ -317,91 +322,92 @@ object LiarsDiceState {
 
 /** One seat's public state in a Texas Hold 'Em view: its chips, what it has committed this hand and this street, and
   * whether it has folded or is all-in. Hole cards are never here — a viewer sees only their own, in [[HoldEmState]].
+  * The seat's index is its position in the view's seat list.
   */
-case class HoldEmSeat(seat: String, stack: Int, committed: Int, bet: Int, folded: Boolean, allIn: Boolean)
+case class HoldEmSeat(stack: Int, committed: Int, bet: Int, folded: Boolean, allIn: Boolean)
 
-/** One pot awarded in a Texas Hold 'Em showdown view: chips, the winning seat labels, and the hand description (absent
-  * when the pot was taken uncontested).
+/** The range of bet or raise sizings open to a Texas Hold 'Em viewer on their turn.
+  *
+  * `action` names the move as the wire knows it — `"bet"` when nothing stands on the street, `"raise"` against a
+  * standing bet — and every street-contribution total from `min` to `max` is playable: `max` is the seat's all-in,
+  * and when the stack cannot reach the normal minimum the all-in alone remains, leaving `min == max`. The range is
+  * described rather than enumerated because it is one: sizings are contiguous chip totals, not discrete alternatives.
   */
-case class HoldEmPotAward(amount: Int, winners: List[String], description: Option[String])
+case class BetSizing(action: String, min: Int, max: Int)
 
-/** The public reveal of the most recently finished Texas Hold 'Em hand.
+/** Per-viewer view of a Texas Hold 'Em game.
   *
-  * Every seat that reached the showdown exposes its hole cards here (keyed by seat label); folded hands stay hidden.
-  * Safe to show everyone and retained into the next hand for reconnecting clients, mirroring Liar's Dice's reveal.
-  *
-  * @param board the community cards that were face-up when the hand ended
-  * @param shownHands the hole cards shown at the showdown, keyed by seat label ("P1", "P2", …)
-  * @param awards the pots awarded, main pot first
-  */
-case class HoldEmHandResult(board: List[String], shownHands: Map[String, List[String]], awards: List[HoldEmPotAward])
-
-/** Serializable, per-viewer view of a Texas Hold 'Em game.
-  *
-  * The viewer sees their own hole cards and every seat's public chips/bets, but never another seat's hole cards until a
-  * showdown, which surfaces through `handResult`. `board` holds only the community cards revealed on the current street.
-  * Cards are rendered as their compact text form ("As", "Td"); `street` is the street name.
+  * The viewer sees their own hole cards and every seat's public chips/bets, but never another seat's hole cards until
+  * a showdown, which surfaces through `handResult` — the model's own reveal, carried as-is. `board` holds only the
+  * community cards revealed on the current street. Seats are zero-based indices and cards are the model's own; the
+  * encoder applies the `"P1"`/`"P2"` labels and the compact card text.
   *
   * @param seats every seat's public state, in seat order
   * @param holeCards the viewer's own two hole cards, or `None` for a spectator
   * @param board the community cards revealed so far
-  * @param button the seat label holding the dealer button
-  * @param currentPlayer the seat label whose turn it is
+  * @param button the seat holding the dealer button
   * @param currentBet the amount to match on the current street
   * @param minRaise the smallest total a bet or raise may commit this street
   * @param pot the total chips committed to the pot this hand
   * @param toCall the chips the viewer must put in to call, or 0 for a spectator
-  * @param street the current street ("PreFlop", "Flop", "Turn", "River")
-  * @param winner the winning seat label once the sit-and-go is over, otherwise `None`
-  * @param viewerSeat the viewer's seat label, or `None` for a spectator
   * @param handResult the most recently finished hand's public reveal, or `None` before any hand ends
+  * @param legalMoves the chip-free moves the viewer may play right now: their own move set on their turn, empty
+  *                   otherwise. A bet or raise is a range, not a move, and lives in `betSizing`. Not part of the wire
+  *                   format, so the encoder omits it.
+  * @param betSizing the sizings open to the viewer on their turn, `None` otherwise or when no sizing action is open —
+  *                  see [[BetSizing]]. Not part of the wire format, so the encoder omits it.
   */
 case class HoldEmState(
     seats: List[HoldEmSeat],
-    holeCards: Option[List[String]],
-    board: List[String],
-    button: String,
-    currentPlayer: String,
+    holeCards: Option[List[Card]],
+    board: List[Card],
+    button: Int,
+    currentPlayer: Int,
     currentBet: Int,
     minRaise: Int,
     pot: Int,
     toCall: Int,
-    street: String,
-    winner: Option[String],
-    viewerSeat: Option[String],
-    handResult: Option[HoldEmHandResult]
+    street: Street,
+    winner: Option[Int],
+    viewerSeat: Option[Int],
+    handResult: Option[HandResult],
+    legalMoves: List[MovePayload],
+    betSizing: Option[BetSizing]
 ) extends GameState
 
 object HoldEmState {
 
   /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees no hole cards). */
-  def of(game: TexasHoldEm, viewerSeat: Option[Int]): HoldEmState = {
-    def label(seat: Int): String = TexasHoldEm.seatLabel(seat)
-    val minRaise = if (game.currentBet == 0) TexasHoldEm.BigBlind else game.currentBet + game.lastRaiseSize
+  def of(game: TexasHoldEm, viewerSeat: Option[Int]): HoldEmState =
     HoldEmState(
       seats = game.playerIds.indices.toList.map { i =>
-        HoldEmSeat(label(i), game.stacks(i), game.committed(i), game.streetContrib(i), game.folded(i), game.allIn(i))
+        HoldEmSeat(game.stacks(i), game.committed(i), game.streetContrib(i), game.folded(i), game.allIn(i))
       },
-      holeCards = viewerSeat.map(seat => game.holeCards(seat).map(_.toString)),
-      board = game.board.take(game.street.revealed).map(_.toString),
-      button = label(game.button),
-      currentPlayer = label(game.toAct),
+      holeCards = viewerSeat.map(game.holeCards),
+      board = game.board.take(game.street.revealed),
+      button = game.button,
+      currentPlayer = game.toAct,
       currentBet = game.currentBet,
-      minRaise = minRaise,
+      minRaise = if (game.currentBet == 0) TexasHoldEm.BigBlind else game.currentBet + game.lastRaiseSize,
       pot = game.pot,
       toCall = viewerSeat.map(game.toCall).getOrElse(0),
-      street = game.street.toString,
-      winner = game.winner.map(label),
-      viewerSeat = viewerSeat.map(label),
-      handResult = game.handResult.map { r =>
-        HoldEmHandResult(
-          board = r.board.map(_.toString),
-          shownHands = r.shownHands.map { case (seat, cs) => label(seat) -> cs.map(_.toString) },
-          awards = r.awards.map(a => HoldEmPotAward(a.amount, a.winners.map(label), a.description))
-        )
-      }
+      street = game.street,
+      winner = game.winner,
+      viewerSeat = viewerSeat,
+      handResult = game.handResult,
+      legalMoves = GameState.movesFor(viewerSeat, game.toAct)(
+        game.legalActions.collect {
+          case Action.Fold  => MovePayload.HoldEmAction("fold", None)
+          case Action.Check => MovePayload.HoldEmAction("check", None)
+          case Action.Call  => MovePayload.HoldEmAction("call", None)
+        }
+      ),
+      betSizing = GameState.movesFor(viewerSeat, game.toAct, Option.empty[BetSizing])(
+        game.betBounds.map { case (min, max) =>
+          BetSizing(if (game.currentBet == 0) "bet" else "raise", min, max)
+        }
+      )
     )
-  }
 }
 
 /** Type class for converting an internal game model into a serializable GameState.

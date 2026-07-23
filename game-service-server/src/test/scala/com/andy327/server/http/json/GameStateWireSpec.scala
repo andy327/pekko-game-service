@@ -13,7 +13,7 @@ import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, Player
 import com.andy327.model.checkers.{Black => CkBlack, Checkers, Piece, Red => CkRed}
 import com.andy327.model.connectfour.{ConnectFour, Red => CfRed, Yellow => CfYellow}
 import com.andy327.model.core.PlayerId
-import com.andy327.model.holdem.{Card, Street, TexasHoldEm}
+import com.andy327.model.holdem.{Card, HandResult, PotAward, Street, TexasHoldEm}
 import com.andy327.model.liarsdice.{Bid, LiarsDice, Reveal, StandingBid}
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Mastermind, Peg}
 import com.andy327.model.pig.Pig
@@ -481,6 +481,62 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
           "toCall": 0,
           "street": "Flop",
           "viewerSeat": "P1"
+        }
+      """)
+    }
+
+    "encode a finished game to its exact wire form, naming the winner and exposing the showdown" in {
+      // the sit-and-go ended on a showdown: P1's aces tripped up and took P2's last chips
+      val board = List(Card("AD"), Card("7C"), Card("2D"), Card("5S"), Card("9H"))
+      val game = TexasHoldEm(
+        playerIds = Vector(alice, bob),
+        stacks = Vector(2000, 0),
+        button = 1,
+        holeCards = Vector(List(Card("AS"), Card("AH")), List(Card("KS"), Card("KH"))),
+        board = board,
+        deck = Nil,
+        street = Street.River,
+        toAct = 0,
+        streetContrib = Vector(0, 0),
+        committed = Vector(0, 0),
+        currentBet = 0,
+        lastRaiseSize = 10,
+        hasActed = Vector(true, true),
+        folded = Vector(false, false),
+        allIn = Vector(false, true),
+        handResult = Some(
+          HandResult(
+            board = board,
+            shownHands = Map(0 -> List(Card("AS"), Card("AH")), 1 -> List(Card("KS"), Card("KH"))),
+            awards = List(PotAward(200, List(0), Some("three of a kind, As")))
+          )
+        ),
+        winner = Some(0),
+        moveCount = 42
+      )
+
+      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+        {
+          "seats": [
+            {"seat": "P1", "stack": 2000, "committed": 0, "bet": 0, "folded": false, "allIn": false},
+            {"seat": "P2", "stack": 0, "committed": 0, "bet": 0, "folded": false, "allIn": true}
+          ],
+          "holeCards": ["AS","AH"],
+          "board": ["AD","7C","2D","5S","9H"],
+          "button": "P2",
+          "currentPlayer": "P1",
+          "currentBet": 0,
+          "minRaise": 10,
+          "pot": 0,
+          "toCall": 0,
+          "street": "River",
+          "winner": "P1",
+          "viewerSeat": "P1",
+          "handResult": {
+            "board": ["AD","7C","2D","5S","9H"],
+            "shownHands": {"P1": ["AS","AH"], "P2": ["KS","KH"]},
+            "awards": [{"amount": 200, "winners": ["P1"], "description": "three of a kind, As"}]
+          }
         }
       """)
     }

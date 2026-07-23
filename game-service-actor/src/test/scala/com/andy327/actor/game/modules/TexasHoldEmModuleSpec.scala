@@ -129,10 +129,10 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val game = TexasHoldEm.newGame(Seq(alice.id, bob.id), Card.deck)
       val state = TexasHoldEmModule.serialize(game, Some(alice.id)).asInstanceOf[HoldEmState]
-      state.viewerSeat shouldBe Some("P1")
+      state.viewerSeat shouldBe Some(0)
       state.holeCards.map(_.size) shouldBe Some(2)
-      state.seats.map(_.seat) shouldBe List("P1", "P2")
-      state.currentPlayer shouldBe "P1"
+      state.seats should have size 2
+      state.currentPlayer shouldBe 0
       state.pot shouldBe 15
     }
 

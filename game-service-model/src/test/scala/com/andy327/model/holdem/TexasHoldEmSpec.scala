@@ -348,6 +348,61 @@ class TexasHoldEmSpec extends AnyWordSpec with Matchers with OptionValues with E
     }
   }
 
+  "TexasHoldEm.legalActions" should {
+    "offer fold and call while chips are owed, fold and check once the bet is matched" in {
+      val g = headsUp // seat 0 to act, owing to the big blind
+      g.toCall(g.toAct) should be > 0
+      g.legalActions shouldBe List(Fold, Call)
+
+      val matched = playAll(g, (0, Call)) // heads-up: the caller matches the blind and the big blind is to act
+      matched.toCall(matched.toAct) shouldBe 0
+      matched.legalActions shouldBe List(Fold, Check)
+    }
+
+    "offer nothing once the game is over" in {
+      val g = headsUp.copy(winner = Some(0))
+      g.legalActions shouldBe empty
+      g.betBounds shouldBe None
+    }
+  }
+
+  "TexasHoldEm.betBounds" should {
+    "span a min-raise to the all-in against a standing bet" in {
+      val g = headsUp // currentBet 10 (the blind), lastRaiseSize 10, seat 0 holds 995 with 5 in
+      g.betBounds shouldBe Some((20, 1000)) // raise to 20 at least, or up to the 995 + 5 all-in
+
+      // both bounds — and a total in between — are accepted by play
+      g.play(0, move(Raise(20), full)) shouldBe a[Right[_, _]]
+      g.play(0, move(Raise(500), full)) shouldBe a[Right[_, _]]
+      g.play(0, move(Raise(1000), full)) shouldBe a[Right[_, _]]
+    }
+
+    "span the big blind to the all-in when opening the betting" in {
+      val flop = playAll(headsUp, (0, Call), (1, Check)) // the flop opens with no standing bet
+      flop.currentBet shouldBe 0
+      val (min, max) = flop.betBounds.value
+      min shouldBe TexasHoldEm.BigBlind
+      max shouldBe flop.stacks(flop.toAct)
+      flop.play(flop.toAct, move(Bet(min), full)) shouldBe a[Right[_, _]]
+      flop.play(flop.toAct, move(Bet(max), full)) shouldBe a[Right[_, _]]
+    }
+
+    "collapse to the all-in alone when the stack cannot reach a min-raise" in {
+      val g = headsUp
+      val short = g.copy(stacks = g.stacks.updated(0, 12)) // seat 0 holds 12 with 5 in: all-in total 17, min-raise 20
+      short.betBounds shouldBe Some((17, 17))
+      short.play(0, move(Raise(17), full)) shouldBe a[Right[_, _]]
+      short.play(0, move(Raise(18), full)) shouldBe a[Left[_, _]] // beyond the stack
+    }
+
+    "vanish when the stack cannot exceed the standing bet at all" in {
+      val g = headsUp
+      val tooShort = g.copy(stacks = g.stacks.updated(0, 4)) // all-in total 9 <= the standing 10
+      tooShort.betBounds shouldBe None
+      tooShort.legalActions shouldBe List(Fold, Call) // the short all-in call remains
+    }
+  }
+
   "Street.next" should {
     "advance through the betting streets and stop after the river" in {
       Street.next(Street.PreFlop) shouldBe Some(Street.Flop)

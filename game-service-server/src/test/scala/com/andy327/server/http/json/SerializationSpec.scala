@@ -16,8 +16,6 @@ import com.andy327.actor.game.{
   BattleshipState,
   GameState,
   GameStateConverters,
-  HoldEmHandResult,
-  HoldEmPotAward,
   HoldEmSeat,
   HoldEmState,
   LiarsDiceState,
@@ -29,6 +27,7 @@ import com.andy327.model.battleship.Battleship
 import com.andy327.model.checkers.Checkers
 import com.andy327.model.connectfour.ConnectFour
 import com.andy327.model.core.GameType
+import com.andy327.model.holdem.{Card, HandResult, PotAward, Street}
 import com.andy327.model.liarsdice.Bid
 import com.andy327.model.mastermind.{Attempt, Codebreaker, Feedback, Peg}
 import com.andy327.model.tictactoe.TicTacToe
@@ -206,27 +205,29 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     "encode a HoldEmState branch, keeping the viewer's hole cards and the showdown reveal" in {
       val state: GameState = HoldEmState(
         seats = List(
-          HoldEmSeat("P1", 990, 10, 10, folded = false, allIn = false),
-          HoldEmSeat("P2", 985, 15, 15, folded = false, allIn = false)
+          HoldEmSeat(990, 10, 10, folded = false, allIn = false),
+          HoldEmSeat(985, 15, 15, folded = false, allIn = false)
         ),
-        holeCards = Some(List("AS", "AH")),
-        board = List("2C", "7D", "9S"),
-        button = "P1",
-        currentPlayer = "P2",
+        holeCards = Some(List(Card("AS"), Card("AH"))),
+        board = List(Card("2C"), Card("7D"), Card("9S")),
+        button = 0,
+        currentPlayer = 1,
         currentBet = 15,
         minRaise = 30,
         pot = 25,
         toCall = 5,
-        street = "Flop",
+        street = Street.Flop,
         winner = None,
-        viewerSeat = Some("P1"),
+        viewerSeat = Some(0),
         handResult = Some(
-          HoldEmHandResult(
-            List("2C"),
-            Map("P1" -> List("AS", "AH")),
-            List(HoldEmPotAward(25, List("P1"), Some("one pair, As")))
+          HandResult(
+            List(Card("2C")),
+            Map(0 -> List(Card("AS"), Card("AH"))),
+            List(PotAward(25, List(0), Some("one pair, As")))
           )
-        )
+        ),
+        legalMoves = Nil,
+        betSizing = None
       )
       val json = state.asJson
       json.hcursor.get[List[String]]("holeCards") shouldBe Right(List("AS", "AH"))

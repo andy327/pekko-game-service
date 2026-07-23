@@ -27,9 +27,6 @@ import com.andy327.actor.game.{
   CheckersState,
   GameState,
   GridGameState,
-  HoldEmHandResult,
-  HoldEmPotAward,
-  HoldEmSeat,
   HoldEmState,
   LiarsDiceState,
   MastermindState,
@@ -38,6 +35,7 @@ import com.andy327.actor.game.{
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
 import com.andy327.model.checkers.Piece
+import com.andy327.model.holdem.TexasHoldEm
 import com.andy327.model.liarsdice.{Bid, LiarsDice}
 import com.andy327.model.pig.Pig
 import com.andy327.persistence.db.MoveRecord
@@ -238,10 +236,50 @@ object JsonProtocol extends CirceSupport {
       }.asJson
     )
   }
-  implicit val holdEmSeatCodec: Codec[HoldEmSeat] = deriveCodec[HoldEmSeat]
-  implicit val holdEmPotAwardCodec: Codec[HoldEmPotAward] = deriveCodec[HoldEmPotAward]
-  implicit val holdEmHandResultCodec: Codec[HoldEmHandResult] = deriveCodec[HoldEmHandResult]
-  implicit val holdEmStateCodec: Codec[HoldEmState] = deriveCodec[HoldEmState]
+
+  /** Write-only: seats travel as their `"P1"`/`"P2"` labels — a seat object regains its `seat` label from its
+    * position, and a hand result's shown hands are keyed by label — and cards as their compact text (`"As"`, `"Td"`),
+    * none of which decoding can invert without the roster. `legalMoves` and `betSizing` are not emitted.
+    */
+  implicit val holdEmStateEncoder: Encoder[HoldEmState] = Encoder.instance { view =>
+    def label(seat: Int): String = TexasHoldEm.seatLabel(seat)
+    Json.obj(
+      "seats" -> view.seats.zipWithIndex.map { case (s, i) =>
+        Json.obj(
+          "seat" -> label(i).asJson,
+          "stack" -> s.stack.asJson,
+          "committed" -> s.committed.asJson,
+          "bet" -> s.bet.asJson,
+          "folded" -> s.folded.asJson,
+          "allIn" -> s.allIn.asJson
+        )
+      }.asJson,
+      "holeCards" -> view.holeCards.map(_.map(_.toString)).asJson,
+      "board" -> view.board.map(_.toString).asJson,
+      "button" -> label(view.button).asJson,
+      "currentPlayer" -> label(view.currentPlayer).asJson,
+      "currentBet" -> view.currentBet.asJson,
+      "minRaise" -> view.minRaise.asJson,
+      "pot" -> view.pot.asJson,
+      "toCall" -> view.toCall.asJson,
+      "street" -> view.street.toString.asJson,
+      "winner" -> view.winner.map(label).asJson,
+      "viewerSeat" -> view.viewerSeat.map(label).asJson,
+      "handResult" -> view.handResult.map { result =>
+        Json.obj(
+          "board" -> result.board.map(_.toString).asJson,
+          "shownHands" -> result.shownHands.map { case (seat, cards) => label(seat) -> cards.map(_.toString) }.asJson,
+          "awards" -> result.awards.map { award =>
+            Json.obj(
+              "amount" -> award.amount.asJson,
+              "winners" -> award.winners.map(label).asJson,
+              "description" -> award.description.asJson
+            )
+          }.asJson
+        )
+      }.asJson
+    )
+  }
 
   /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`; Battleship has its own
     * per-viewer `BattleshipState`; Pig has `PigState`; Mastermind has `MastermindState`; Liar's Dice has
