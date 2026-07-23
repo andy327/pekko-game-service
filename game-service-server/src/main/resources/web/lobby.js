@@ -109,6 +109,7 @@ function prepareGameView({ roomId, gameType, isHost, isSpectator = false, isLive
   setError("game-error", "");
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
+  $("add-bot").classList.add("hidden"); // shown only for the host of a not-yet-full pre-game lobby (onLobbyUpdated)
   $("post-game-bar").classList.add("hidden");
   $("rematch-btn").classList.add("hidden");
   resetCopyLinkButton();
@@ -229,12 +230,14 @@ export function onLobbyUpdated(metadata) {
 
   if (metadata.status === "InProgress") {
     $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    $("add-bot").classList.add("hidden"); // seats are locked once the match starts
     $("join-as-player").classList.add("hidden"); // too late to join — the match already started
     $("post-game-bar").classList.add("hidden"); // a rematch just began; the next GameStateUpdated takes over
     $("rematch-btn").classList.add("hidden");
     return; // game state pushes take over from here
   }
   if (metadata.status === "Finished") {
+    $("add-bot").classList.add("hidden"); // a finished room's roster is fixed
     $("join-as-player").classList.add("hidden"); // a finished room's roster is fixed; no new seats to join
     onMatchFinished(metadata);
     return;
@@ -249,11 +252,17 @@ export function onLobbyUpdated(metadata) {
 
   const max = GAMES[session.game.gameType].maxPlayers;
   $("join-as-player").classList.toggle("hidden", !isSpectator || count >= max);
+  // only the host manages bot seats, and only while a seat is still open
+  $("add-bot").classList.toggle("hidden", !youHost || count >= max);
   if (youHost) {
     const ready = metadata.status === "ReadyToStart";
     $("start-game").classList.remove("hidden");
     $("start-game").disabled = !ready;
-    setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/${max})`);
+    setStatus(
+      ready
+        ? "Opponent seated — press Start, or add another."
+        : `You're hosting — add a bot or wait for a player… (${count}/${max})`
+    );
   } else if (isSpectator) {
     setStatus(`Hosted by ${hostName} — spectating (${count}/${max})`);
   } else {
@@ -300,6 +309,14 @@ export async function startGame() {
   const res = await api(`/lobby/${session.game.roomId}/start`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the game");
   // On success the game-state push arrives over the WebSocket and renders the board.
+}
+
+// Host-only: seat an AI player. The resulting LobbyUpdated (fanned to every subscriber) refreshes the roster and
+// flips the room to ReadyToStart, which enables Start — so this only needs to fire the request.
+export async function addBot() {
+  setError("game-error", "");
+  const res = await api(`/lobby/${session.game.roomId}/bots`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not add a bot");
 }
 
 export function onGameEnded(result) {
