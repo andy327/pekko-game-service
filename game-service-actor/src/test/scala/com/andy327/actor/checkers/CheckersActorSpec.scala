@@ -11,7 +11,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{CheckersState, GameState}
+import com.andy327.actor.game.{CheckersView, GameView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.checkers.{Black, Checkers, Move, Piece, Red, Square}
@@ -46,11 +46,11 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
   "CheckersActor" should {
     "return the standard 8×8 opening board on GetState" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(CheckersState(board, current, winner, viewerSeat, _)) = replyProbe.receiveMessage()
+      val Right(CheckersView(board, current, winner, viewerSeat, _)) = replyProbe.receiveMessage()
       board should have size 8
       board.head should have size 8
       board(5)(0) shouldBe Some(Piece(Red, isKing = false)) // Red pawn in its home rows
@@ -63,11 +63,11 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
     "apply a valid move and switch currentPlayer" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 0), List(Square(4, 1))), replyProbe.ref)
 
-      val Right(CheckersState(board, current, _, viewerSeat, _)) = replyProbe.receiveMessage()
+      val Right(CheckersView(board, current, _, viewerSeat, _)) = replyProbe.receiveMessage()
       board(4)(1) shouldBe Some(Piece(Red, isKing = false))
       board(5)(0) shouldBe None
       current shouldBe Black
@@ -76,7 +76,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
     "append an applied move to history as its {from, steps} JSON" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 0), List(Square(4, 1))), replyProbe.ref)
       replyProbe.receiveMessage()
@@ -93,7 +93,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a move when it is not the player's turn" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(bob, Move(Square(2, 1), List(Square(3, 0))), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidTurn)
@@ -102,7 +102,7 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
     "reject a move from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(eve, Move(Square(5, 0), List(Square(4, 1))), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
@@ -124,10 +124,10 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
         )
       )
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(CheckersState(board, current, _, _, _)) = replyProbe.receiveMessage()
+      val Right(CheckersView(board, current, _, _, _)) = replyProbe.receiveMessage()
       board(5)(2) shouldBe Some(Piece(Red, isKing = false))
       current shouldBe Red
     }
@@ -184,10 +184,10 @@ class CheckersActorSpec extends AnyWordSpecLike with Matchers {
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.MakeMove(alice, Move(Square(5, 2), List(Square(3, 4))), replyProbe.ref)
 
-      val Right(CheckersState(_, _, winner, viewerSeat, _)) = replyProbe.receiveMessage()
+      val Right(CheckersView(_, _, winner, viewerSeat, _)) = replyProbe.receiveMessage()
       winner shouldBe Some(Red)
       viewerSeat shouldBe Some(Red) // rendered for the acting player (Red)
 

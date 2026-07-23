@@ -4,13 +4,13 @@ import io.circe.Decoder
 import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.GameActor
-import com.andy327.actor.game.{GameOperation, GameState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameView, MovePayload}
 import com.andy327.model.core.{Game, GameError, PlayerId}
 
 /** Per-game-type plugin that bridges HTTP-layer concerns to the actor layer.
   *
-  * Parameterized on `G` so that `serialize` is type-safe: the compiler guarantees that the concrete game model passed
-  * to `serialize` matches the game type this module handles. The single cast lives in
+  * Parameterized on `G` so that `project` is type-safe: the compiler guarantees that the concrete game model passed
+  * to `project` matches the game type this module handles. The single cast lives in
   * [[com.andy327.actor.game.GameModuleBundle]] at the DB-deserialization boundary, not here.
   *
   * == Implementing a new game ==
@@ -29,7 +29,7 @@ import com.andy327.model.core.{Game, GameError, PlayerId}
   *     payload (constructing the game's move type), a wrong payload type (return `Left(GameError.Unknown(...))`),
   *     and `GetState`:
   *     {{{
-  *       override def toGameCommand(op: GameOperation, replyTo: ActorRef[Either[GameError, GameState]]) = op match {
+  *       override def toGameCommand(op: GameOperation, replyTo: ActorRef[Either[GameError, GameView]]) = op match {
   *         case GameOperation.MakeMove(playerId, MovePayload.MyGameMove(x, y)) =>
   *           Right(TurnBasedGameActor.MakeMove(playerId, MyMove(x, y), replyTo))
   *         case GameOperation.MakeMove(_, other) =>
@@ -40,12 +40,12 @@ import com.andy327.model.core.{Game, GameError, PlayerId}
   *       }
   *     }}}
   *
-  *  3. `serialize` — convert the game model to its HTTP view for `viewer`. Given a
-  *     [[com.andy327.actor.game.GameStateView]] instance in the `GameStateView` companion, this is always the
+  *  3. `project` — build the game's view for `viewer`. Given a
+  *     [[com.andy327.actor.game.GameProjection]] instance in the `GameProjection` companion, this is always the
   *     same one-liner:
   *     {{{
-  *       override def serialize(game: MyGame, viewer: Option[PlayerId]): GameState =
-  *         GameStateConverters.serializeGame(game, viewer)
+  *       override def project(game: MyGame, viewer: Option[PlayerId]): GameView =
+  *         GameProjection.project(game, viewer)
   *     }}}
   *
   * @tparam G the concrete game model type this module handles
@@ -58,20 +58,19 @@ trait GameModule[G <: Game[_, _, _, _, _]] {
   /** Convert a game-agnostic [[GameOperation]] into a game-specific actor command.
     *
     * @param op the operation to execute (MakeMove or GetState)
-    * @param replyTo the actor that should receive the `Either[GameError, GameState]` result
+    * @param replyTo the actor that should receive the `Either[GameError, GameView]` result
     * @return `Right(command)` ready to send to the game actor, or `Left(error)` if the operation is invalid
     */
   def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand]
 
-  /** Convert a concrete game model into its HTTP-serializable `GameState` representation, rendered for `viewer`.
+  /** Project a concrete game model into its [[GameView]] for `viewer`.
     *
-    * @param game the game to serialize; guaranteed by [[com.andy327.actor.game.GameModuleBundle]] to be of type `G`
-    * @param viewer `Some(playerId)` for that player's own view, or `None` for a public/spectator view; full-information
-    *               games ignore it
-    * @return the corresponding `GameState` for delivery over HTTP or WebSocket
+    * @param game the game to project; guaranteed by [[com.andy327.actor.game.GameModuleBundle]] to be of type `G`
+    * @param viewer `Some(playerId)` for that player's own view, or `None` for a public/spectator view
+    * @return the corresponding `GameView`, ready for an in-process consumer or the JSON encoders
     */
-  def serialize(game: G, viewer: Option[PlayerId]): GameState
+  def project(game: G, viewer: Option[PlayerId]): GameView
 }

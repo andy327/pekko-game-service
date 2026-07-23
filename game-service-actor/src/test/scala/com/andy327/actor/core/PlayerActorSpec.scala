@@ -6,7 +6,7 @@ import org.apache.pekko.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.actor.game.GridGameState
+import com.andy327.actor.game.GridGameView
 import com.andy327.actor.lobby.Player
 import com.andy327.model.core.Mark
 import com.andy327.model.tictactoe.X
@@ -21,7 +21,7 @@ class PlayerActorSpec extends AnyWordSpecLike with Matchers {
       val sessionProbe = TestProbe[PlayerActor.SessionOutput]()
       val actor = spawn(PlayerActor(alice, sessionProbe.ref))
 
-      val dummyState = GridGameState(
+      val dummyState = GridGameView(
         board = Vector.fill(3)(Vector.fill(3)(Option.empty[Mark])),
         currentPlayer = X,
         winner = None,

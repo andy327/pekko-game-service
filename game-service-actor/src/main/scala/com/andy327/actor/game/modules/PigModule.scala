@@ -10,13 +10,13 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.PigAction
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.pig.{Hold, Pig, Roll}
 
 /** [[GameModule]] implementation for Pig.
   *
-  * Provides move decoding, operation-to-command mapping, and game serialization for Pig. Enables
+  * Provides move decoding, operation-to-command mapping, and view projection for Pig. Enables
   * [[core.GameManager]] and the HTTP routes to handle Pig games without any game-specific logic. The die is rolled
   * server-side here before dispatching to the model, keeping `Pig.play` a pure function.
   */
@@ -26,7 +26,7 @@ object PigModule extends GameModule[Pig] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, PigAction("roll")) =>
       Right(TurnBasedGameActor.MakeMove(playerId, Roll(Random.between(1, 7)), replyTo))
@@ -45,6 +45,6 @@ object PigModule extends GameModule[Pig] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: Pig, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: Pig, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }

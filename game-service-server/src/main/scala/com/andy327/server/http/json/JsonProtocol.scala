@@ -23,14 +23,14 @@ import com.andy327.actor.core.LobbyManager.LobbySummary
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
   BattleshipCell,
-  BattleshipState,
-  CheckersState,
-  GameState,
-  GridGameState,
-  HoldEmState,
-  LiarsDiceState,
-  MastermindState,
-  PigState
+  BattleshipView,
+  CheckersView,
+  GameView,
+  GridGameView,
+  HoldEmView,
+  LiarsDiceView,
+  MastermindView,
+  PigView
 }
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyCodecs, LobbyMetadata, Player}
 import com.andy327.actor.tracing.TraceEvent
@@ -57,11 +57,14 @@ import com.andy327.server.http.player.{PlayerGameSummary, PlayerHistory}
 
 /** Circe codecs and Pekko HTTP marshallers for all API types.
   *
-  * Case-class codecs are derived via `deriveCodec`. The value codecs for `Player`, `GameLifecycleStatus`, and
-  * `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from `LobbyCodecs` and re-exported
-  * as members here, so the wire format is defined once and is shared by the HTTP layer and Redis persistence.
-  * [[playerEventEncoder]] is write-only (server-push only). Marshalling is provided by [[CirceSupport]]: any type with
-  * an `Encoder` can be `complete`d, any type with a `Decoder` read with `entity(as[A])`.
+  * Request and response case classes get round-trip codecs via `deriveCodec`. The value codecs for `Player`,
+  * `GameLifecycleStatus`, and `LobbyMetadata` (which also fixes the `GameType` and UUID-key formats) are reused from
+  * `LobbyCodecs` and re-exported as members here, so the wire format is defined once and is shared by the HTTP layer
+  * and Redis persistence. The game-view encoders are hand-written and write-only: a `GameView` holds domain types the
+  * wire flattens to labels and symbols, and being a per-viewer projection it is lossy by design, so nothing ever
+  * decodes one — each encoder documents its own rendering. [[playerEventEncoder]] is likewise write-only (server-push
+  * only). Marshalling is provided by [[CirceSupport]]: any type with an `Encoder` can be `complete`d, any type with a
+  * `Decoder` read with `entity(as[A])`.
   */
 object JsonProtocol extends CirceSupport {
 
@@ -129,7 +132,7 @@ object JsonProtocol extends CirceSupport {
     * since the same `"R"` denotes a different game's mark. `legalMoves` is not emitted — it serves consumers that
     * choose a move, and the client contract covers the board alone.
     */
-  implicit val gridGameStateEncoder: Encoder[GridGameState] = Encoder.instance { view =>
+  implicit val gridGameViewEncoder: Encoder[GridGameView] = Encoder.instance { view =>
     Json.obj(
       "board" -> view.board.map(_.map(_.fold("")(_.symbol))).asJson,
       "currentPlayer" -> view.currentPlayer.symbol.asJson,
@@ -141,7 +144,7 @@ object JsonProtocol extends CirceSupport {
   /** Write-only: a pawn renders as its color's symbol in lower case and a king in upper (`""` for an empty square),
     * and a square's own color is not carried, so decoding cannot rebuild the board. `legalMoves` is not emitted.
     */
-  implicit val checkersStateEncoder: Encoder[CheckersState] = Encoder.instance { view =>
+  implicit val checkersStateEncoder: Encoder[CheckersView] = Encoder.instance { view =>
     val cells = view.board.map(_.map {
       case Some(Piece(color, isKing)) => if (isKing) color.symbol else color.symbol.toLowerCase
       case None                       => ""
@@ -158,7 +161,7 @@ object JsonProtocol extends CirceSupport {
     * an `"unknown"` cell carries no way back to what lies beneath it, so decoding cannot rebuild a board. `legalMoves`
     * is not emitted.
     */
-  implicit val battleshipStateEncoder: Encoder[BattleshipState] = Encoder.instance { view =>
+  implicit val battleshipStateEncoder: Encoder[BattleshipView] = Encoder.instance { view =>
     def token(cell: BattleshipCell): String = cell match {
       case BattleshipCell.Hit     => "hit"
       case BattleshipCell.Miss    => "miss"
@@ -178,7 +181,7 @@ object JsonProtocol extends CirceSupport {
   /** Write-only: seats travel as their `"P1"`/`"P2"` labels, which decoding cannot invert to seat indices without the
     * roster size. `legalMoves` is not emitted.
     */
-  implicit val pigStateEncoder: Encoder[PigState] = Encoder.instance { view =>
+  implicit val pigStateEncoder: Encoder[PigView] = Encoder.instance { view =>
     Json.obj(
       "scores" -> view.scores.zipWithIndex.map { case (score, seat) => Pig.seatLabel(seat) -> score }.toMap.asJson,
       "currentPlayer" -> Pig.seatLabel(view.currentPlayer).asJson,
@@ -192,7 +195,7 @@ object JsonProtocol extends CirceSupport {
   /** Write-only: pegs and roles travel as their lower-case names, and a guess flattens its `Attempt` into one object
     * holding the peg names beside the black/white counts. `legalMoves` is not emitted.
     */
-  implicit val mastermindStateEncoder: Encoder[MastermindState] = Encoder.instance { view =>
+  implicit val mastermindStateEncoder: Encoder[MastermindView] = Encoder.instance { view =>
     Json.obj(
       "guesses" -> view.guesses.map { attempt =>
         Json.obj(
@@ -213,7 +216,7 @@ object JsonProtocol extends CirceSupport {
     * reveal's `dice` — which decoding cannot invert to seat indices without the roster size. A wild "ones" bid's
     * absent face stays absent on the wire. `legalMoves` is not emitted.
     */
-  implicit val liarsDiceStateEncoder: Encoder[LiarsDiceState] = Encoder.instance { view =>
+  implicit val liarsDiceStateEncoder: Encoder[LiarsDiceView] = Encoder.instance { view =>
     def label(seat: Int): String = LiarsDice.seatLabel(seat)
     def bidJson(bid: Bid): Json = Json.obj("quantity" -> bid.quantity.asJson, "face" -> bid.face.asJson)
     Json.obj(
@@ -241,7 +244,7 @@ object JsonProtocol extends CirceSupport {
     * position, and a hand result's shown hands are keyed by label — and cards as their compact text (`"As"`, `"Td"`),
     * none of which decoding can invert without the roster. `legalMoves` and `betSizing` are not emitted.
     */
-  implicit val holdEmStateEncoder: Encoder[HoldEmState] = Encoder.instance { view =>
+  implicit val holdEmStateEncoder: Encoder[HoldEmView] = Encoder.instance { view =>
     def label(seat: Int): String = TexasHoldEm.seatLabel(seat)
     Json.obj(
       "seats" -> view.seats.zipWithIndex.map { case (s, i) =>
@@ -281,18 +284,18 @@ object JsonProtocol extends CirceSupport {
     )
   }
 
-  /** Encoder for the polymorphic `GameState` hierarchy (grid games share `GridGameState`; Battleship has its own
-    * per-viewer `BattleshipState`; Pig has `PigState`; Mastermind has `MastermindState`; Liar's Dice has
-    * `LiarsDiceState`; Texas Hold 'Em has `HoldEmState`).
+  /** Encoder for the polymorphic `GameView` hierarchy (grid games share `GridGameView`; Battleship has its own
+    * per-viewer `BattleshipView`; Pig has `PigView`; Mastermind has `MastermindView`; Liar's Dice has
+    * `LiarsDiceView`; Texas Hold 'Em has `HoldEmView`).
     */
-  implicit val gameStateEncoder: Encoder[GameState] = Encoder.instance {
-    case s: GridGameState   => s.asJson
-    case s: CheckersState   => s.asJson
-    case s: BattleshipState => s.asJson
-    case s: PigState        => s.asJson
-    case s: MastermindState => s.asJson
-    case s: LiarsDiceState  => s.asJson
-    case s: HoldEmState     => s.asJson
+  implicit val gameStateEncoder: Encoder[GameView] = Encoder.instance {
+    case s: GridGameView   => s.asJson
+    case s: CheckersView   => s.asJson
+    case s: BattleshipView => s.asJson
+    case s: PigView        => s.asJson
+    case s: MastermindView => s.asJson
+    case s: LiarsDiceView  => s.asJson
+    case s: HoldEmView     => s.asJson
   }
 
   // Entity unmarshallers, declared per-type so they don't shadow the predefined `String` unmarshaller (see

@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, LiarsDiceState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameRegistry, GameView, LiarsDiceView, MovePayload}
 import com.andy327.actor.liarsdice.LiarsDiceActor
 import com.andy327.actor.lobby.Player
 import com.andy327.model.core.{GameError, GameType}
@@ -43,7 +43,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a numbered bid MakeMove to a MakeBid GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.LiarsDiceAction("bid", Some(3), Some(4))),
@@ -55,7 +55,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a wild ones bid MakeMove to a MakeBid GameCommand with no face" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.LiarsDiceAction("bid", Some(2), None)),
@@ -67,7 +67,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "reject a bid with no quantity" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.LiarsDiceAction("bid", None, None)),
@@ -79,7 +79,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a challenge MakeMove to a Challenge GameCommand carrying a full server-rolled pool" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.LiarsDiceAction("challenge", None, None)),
@@ -99,7 +99,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "return an error for an unknown action string" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.LiarsDiceAction("bad", None, None)),
@@ -111,7 +111,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
 
     "return error when passing an unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = LiarsDiceModule.toGameCommand(
         GameOperation.MakeMove(alice.id, null.asInstanceOf[MovePayload]),
@@ -122,7 +122,7 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       LiarsDiceModule.toGameCommand(GameOperation.GetState, replyProbe.ref) shouldBe
         Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
@@ -134,11 +134,11 @@ class LiarsDiceModuleSpec extends AnyWordSpecLike with Matchers {
         TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Liar's Dice game to a LiarsDiceState for the requesting player" in {
+    "serialize a Liar's Dice game to a LiarsDiceView for the requesting player" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = LiarsDice.newGame(Seq(alice.id, bob.id), List.fill(LiarsDice.MaxTotalDice)(4))
-      val state = LiarsDiceModule.serialize(game, Some(alice.id)).asInstanceOf[LiarsDiceState]
+      val state = LiarsDiceModule.project(game, Some(alice.id)).asInstanceOf[LiarsDiceView]
       state.viewerSeat shouldBe Some(0)
       state.dice shouldBe Some(Vector.fill(5)(4))
       state.diceCounts shouldBe Vector(5, 5)

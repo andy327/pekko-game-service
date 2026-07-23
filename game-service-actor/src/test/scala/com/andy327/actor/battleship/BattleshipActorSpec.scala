@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{BattleshipCell, BattleshipState, GameState}
+import com.andy327.actor.game.{BattleshipCell, BattleshipView, GameView}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.battleship.{Coord, Fire, Player1, Player2}
 import com.andy327.model.core.{GameError, PlayerId}
@@ -37,21 +37,21 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
     (spawn(behavior), persistProbe)
   }
 
-  /** Receives the next pushed event and asserts it is a GameStateUpdated carrying a BattleshipState. */
-  private def stateFrom(probe: TestProbe[PlayerActor.Command]): BattleshipState =
+  /** Receives the next pushed event and asserts it is a GameStateUpdated carrying a BattleshipView. */
+  private def stateFrom(probe: TestProbe[PlayerActor.Command]): BattleshipView =
     probe.expectMessageType[PlayerActor.SendEvent].event match {
-      case PlayerEvent.GameStateUpdated(_, s: BattleshipState, _) => s
-      case other => fail(s"expected GameStateUpdated(BattleshipState), got $other")
+      case PlayerEvent.GameStateUpdated(_, s: BattleshipView, _) => s
+      case other => fail(s"expected GameStateUpdated(BattleshipView), got $other")
     }
 
   "BattleshipActor" should {
     "return a fog-of-war view on GetState (no viewer)" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(state: BattleshipState) = replyProbe.receiveMessage()
+      val Right(state: BattleshipView) = replyProbe.receiveMessage()
       state.viewerSeat shouldBe None
       state.board1.flatten should not contain BattleshipCell.Ship
       state.board2.flatten should not contain BattleshipCell.Ship
@@ -93,7 +93,7 @@ class BattleshipActorSpec extends AnyWordSpecLike with Matchers {
       actor ! TurnBasedGameActor.Subscribe(p2.ref, bob)
       stateFrom(p2) // initial push
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.MakeMove(alice, Fire(Coord(0, 0)), replyProbe.ref)
       replyProbe.receiveMessage() // mover reply
 

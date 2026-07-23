@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.checkers.CheckersActor
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{CheckersState, GameOperation, GameRegistry, GameState, MovePayload}
+import com.andy327.actor.game.{CheckersView, GameOperation, GameRegistry, GameView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.model.checkers.{Black, Checkers, Move, Piece, Red, Square}
 import com.andy327.model.core.{GameError, GameType}
@@ -32,7 +32,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a valid GameOperation.MakeMove to a GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.CheckersMove(Square(5, 2), List(Square(4, 1)))
 
       val result = CheckersModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
@@ -48,7 +48,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = CheckersModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
@@ -64,7 +64,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Checkers game to CheckersState, carrying each square's piece" in {
+    "serialize a Checkers game to CheckersView, carrying each square's piece" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val empty = Vector.fill(Checkers.Size, Checkers.Size)(Option.empty[Piece])
@@ -72,9 +72,9 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val board = withRedKing.updated(5, withRedKing(5).updated(0, Some(Piece(Black, isKing = false))))
       val game = Checkers(alice.id, bob.id, board, Red, None, moveCount = 0)
 
-      val state = CheckersModule.serialize(game, None)
-      state shouldBe a[CheckersState]
-      val view = state.asInstanceOf[CheckersState]
+      val state = CheckersModule.project(game, None)
+      state shouldBe a[CheckersView]
+      val view = state.asInstanceOf[CheckersView]
       view.board(0)(1) shouldBe Some(Piece(Red, isKing = true))
       view.board(5)(0) shouldBe Some(Piece(Black, isKing = false))
       view.board(4)(4) shouldBe None // empty square
@@ -85,11 +85,11 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val game = Checkers.empty(alice.id, bob.id)
 
-      val toAct = CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState]
+      val toAct = CheckersModule.project(game, Some(alice.id)).asInstanceOf[CheckersView]
       toAct.legalMoves should not be empty
 
-      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].legalMoves shouldBe empty
-      CheckersModule.serialize(game, None).asInstanceOf[CheckersState].legalMoves shouldBe empty // spectator
+      CheckersModule.project(game, Some(bob.id)).asInstanceOf[CheckersView].legalMoves shouldBe empty
+      CheckersModule.project(game, None).asInstanceOf[CheckersView].legalMoves shouldBe empty // spectator
     }
 
     "tag the serialized view with the requesting player's own color" in {
@@ -97,9 +97,9 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob") // seated Black (second)
       val game = Checkers.empty(alice.id, bob.id)
 
-      CheckersModule.serialize(game, Some(alice.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some(Red)
-      CheckersModule.serialize(game, Some(bob.id)).asInstanceOf[CheckersState].viewerSeat shouldBe Some(Black)
-      CheckersModule.serialize(game, None).asInstanceOf[CheckersState].viewerSeat shouldBe None // spectator
+      CheckersModule.project(game, Some(alice.id)).asInstanceOf[CheckersView].viewerSeat shouldBe Some(Red)
+      CheckersModule.project(game, Some(bob.id)).asInstanceOf[CheckersView].viewerSeat shouldBe Some(Black)
+      CheckersModule.project(game, None).asInstanceOf[CheckersView].viewerSeat shouldBe None // spectator
     }
 
     "expose the Checkers bundle through the GameRegistry" in {
@@ -110,7 +110,7 @@ class CheckersModuleSpec extends AnyWordSpecLike with Matchers {
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val unsupportedMove = null.asInstanceOf[MovePayload]
 
       val result = CheckersModule.toGameCommand(

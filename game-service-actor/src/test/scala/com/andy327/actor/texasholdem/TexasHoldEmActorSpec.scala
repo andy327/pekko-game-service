@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.GameState
+import com.andy327.actor.game.GameView
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.holdem.Action.{Call, Raise}
@@ -17,7 +17,7 @@ import com.andy327.model.holdem.{Card, HoldEmMove}
 
 /** Drives the shared turn-based actor with Texas Hold 'Em moves to lock in the move-log encoder — in particular that
   * the deck each move carries never reaches the public history log, and that a raise records its amount. State
-  * projection and rules are covered by `TexasHoldEmStateSpec` and `TexasHoldEmSpec`.
+  * projection and rules are covered by `TexasHoldEmViewSpec` and `TexasHoldEmSpec`.
   */
 class TexasHoldEmActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -51,7 +51,7 @@ class TexasHoldEmActorSpec extends AnyWordSpecLike with Matchers {
       player: PlayerId,
       move: HoldEmMove
   ): io.circe.Json = {
-    val replyProbe = createTestProbe[Either[GameError, GameState]]()
+    val replyProbe = createTestProbe[Either[GameError, GameView]]()
     actor ! TurnBasedGameActor.MakeMove(player, move, replyProbe.ref)
     replyProbe.receiveMessage()
     persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]

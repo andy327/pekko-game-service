@@ -9,7 +9,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.model.core.PlayerId
 import com.andy327.model.holdem.{Card, HandResult, PotAward, Street, TexasHoldEm}
 
-class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
+class TexasHoldEmViewSpec extends AnyWordSpec with Matchers with OptionValues {
   private val alice: PlayerId = UUID.randomUUID() // seat 0
   private val bob: PlayerId = UUID.randomUUID() // seat 1
   private val carol: PlayerId = UUID.randomUUID() // seat 2
@@ -38,9 +38,9 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
       moveCount = 5
     )
 
-  "HoldEmState.of for a seated player" should {
+  "HoldEmView.of for a seated player" should {
     "reveal only that player's own hole cards, plus every seat's public state" in {
-      val p1 = HoldEmState.of(game, Some(0))
+      val p1 = HoldEmView.of(game, Some(0))
       p1.viewerSeat shouldBe Some(0)
       p1.holeCards shouldBe Some(cards("AS", "AH"))
       p1.seats shouldBe List(
@@ -49,19 +49,19 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
         HoldEmSeat(1000, 100, 0, folded = false, allIn = false)
       )
 
-      val p2 = HoldEmState.of(game, Some(1))
+      val p2 = HoldEmView.of(game, Some(1))
       p2.holeCards shouldBe Some(cards("KS", "KH")) // its own hand, not seat 0's
     }
 
     "reveal only the community cards dealt on the current street" in {
-      HoldEmState.of(game, Some(0)).board shouldBe cards("2C", "7D", "9S") // the flop, not the turn or river
-      HoldEmState.of(game.copy(street = Street.PreFlop), Some(0)).board shouldBe Nil
-      HoldEmState.of(game.copy(street = Street.River), Some(0)).board shouldBe
+      HoldEmView.of(game, Some(0)).board shouldBe cards("2C", "7D", "9S") // the flop, not the turn or river
+      HoldEmView.of(game.copy(street = Street.PreFlop), Some(0)).board shouldBe Nil
+      HoldEmView.of(game.copy(street = Street.River), Some(0)).board shouldBe
         cards("2C", "7D", "9S", "JD", "4H")
     }
 
     "expose the betting state and each player's amount to call" in {
-      val p1 = HoldEmState.of(game, Some(0))
+      val p1 = HoldEmView.of(game, Some(0))
       p1.button shouldBe 0
       p1.currentPlayer shouldBe 1
       p1.currentBet shouldBe 50
@@ -69,18 +69,18 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
       p1.pot shouldBe 350
       p1.toCall shouldBe 50 // seat 0 has nothing in this street yet
 
-      HoldEmState.of(game, Some(1)).toCall shouldBe 0 // seat 1 has already matched the bet
+      HoldEmView.of(game, Some(1)).toCall shouldBe 0 // seat 1 has already matched the bet
     }
 
     "report the minimum raise as the big blind when there is no bet yet on the street" in {
       val noBet = game.copy(currentBet = 0, streetContrib = Vector(0, 0, 0))
-      HoldEmState.of(noBet, Some(0)).minRaise shouldBe TexasHoldEm.BigBlind
+      HoldEmView.of(noBet, Some(0)).minRaise shouldBe TexasHoldEm.BigBlind
     }
   }
 
-  "HoldEmState.of for a spectator" should {
+  "HoldEmView.of for a spectator" should {
     "hide every hole card while still reporting the public state" in {
-      val view = HoldEmState.of(game, None)
+      val view = HoldEmView.of(game, None)
       view.viewerSeat shouldBe None
       view.holeCards shouldBe None
       view.toCall shouldBe 0
@@ -88,7 +88,7 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
     }
   }
 
-  "HoldEmState.of with a finished hand" should {
+  "HoldEmView.of with a finished hand" should {
     "expose the showdown reveal — hole cards of the seats that reached it" in {
       val result = HandResult(
         board = cards("2C", "7D", "9S", "JD", "4H"),
@@ -96,38 +96,38 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
         awards = List(PotAward(350, List(0), Some("one pair, As")))
       )
       val ended = game.copy(handResult = Some(result), winner = Some(0), street = Street.River)
-      val view = HoldEmState.of(ended, Some(1))
+      val view = HoldEmView.of(ended, Some(1))
       view.handResult.value shouldBe result // the model's public reveal travels as-is
       view.winner shouldBe Some(0)
     }
   }
 
-  "HoldEmState.of legal moves" should {
+  "HoldEmView.of legal moves" should {
     "offer the player to act their chip-free actions and sizing range, and nobody else anything" in {
       // seat 1 has matched the bet, so it may check or fold, and raise anywhere from a min-raise to its all-in
-      val toAct = HoldEmState.of(game, Some(1))
+      val toAct = HoldEmView.of(game, Some(1))
       toAct.legalMoves shouldBe List(
         MovePayload.HoldEmAction("fold", None),
         MovePayload.HoldEmAction("check", None)
       )
       toAct.betSizing shouldBe Some(BetSizing("raise", min = 100, max = 850)) // 50+50 up to 50+800 all-in
 
-      val waiting = HoldEmState.of(game, Some(0))
+      val waiting = HoldEmView.of(game, Some(0))
       waiting.legalMoves shouldBe empty
       waiting.betSizing shouldBe None
 
-      HoldEmState.of(game, None).legalMoves shouldBe empty // spectator
-      HoldEmState.of(game, None).betSizing shouldBe None
+      HoldEmView.of(game, None).legalMoves shouldBe empty // spectator
+      HoldEmView.of(game, None).betSizing shouldBe None
     }
 
     "offer call rather than check when chips are owed, and name the sizing a bet when nothing stands" in {
       val noBet = game.copy(currentBet = 0, streetContrib = Vector(0, 0, 0))
-      val opening = HoldEmState.of(noBet, Some(1))
+      val opening = HoldEmView.of(noBet, Some(1))
       opening.legalMoves should contain(MovePayload.HoldEmAction("check", None))
       opening.betSizing shouldBe Some(BetSizing("bet", min = TexasHoldEm.BigBlind, max = 800))
 
       val owing = game.copy(streetContrib = Vector(0, 0, 0)) // the 50 bet stands and seat 1 has nothing in
-      val view = HoldEmState.of(owing, Some(1))
+      val view = HoldEmView.of(owing, Some(1))
       view.legalMoves shouldBe List(
         MovePayload.HoldEmAction("fold", None),
         MovePayload.HoldEmAction("call", None)
@@ -136,10 +136,10 @@ class TexasHoldEmStateSpec extends AnyWordSpec with Matchers with OptionValues {
 
     "collapse the sizing to the all-in for a short stack, dropping it when the bet cannot be exceeded at all" in {
       val shortRaise = game.copy(stacks = Vector(900, 60, 1000), streetContrib = Vector(0, 0, 0))
-      HoldEmState.of(shortRaise, Some(1)).betSizing shouldBe Some(BetSizing("raise", min = 60, max = 60))
+      HoldEmView.of(shortRaise, Some(1)).betSizing shouldBe Some(BetSizing("raise", min = 60, max = 60))
 
       val tooShort = game.copy(stacks = Vector(900, 30, 1000), streetContrib = Vector(0, 0, 0))
-      val view = HoldEmState.of(tooShort, Some(1))
+      val view = HoldEmView.of(tooShort, Some(1))
       view.betSizing shouldBe None
       view.legalMoves should contain(MovePayload.HoldEmAction("call", None)) // the short all-in call remains
     }

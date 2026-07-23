@@ -8,7 +8,7 @@ import io.circe.syntax._
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.andy327.actor.game.{GameState, GameStateConverters}
+import com.andy327.actor.game.{GameProjection, GameView}
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Ship}
 import com.andy327.model.checkers.{Black => CkBlack, Checkers, Piece, Red => CkRed}
 import com.andy327.model.connectfour.{ConnectFour, Red => CfRed, Yellow => CfYellow}
@@ -30,14 +30,14 @@ import com.andy327.model.tictactoe.{O, TicTacToe, X}
   * `CirceSupport` for HTTP responses and `WebSocketRoutes.render` for pushed events. Asserting on the raw encoding
   * would pin absent fields that no client ever receives.
   */
-class GameStateWireSpec extends AnyWordSpec with Matchers {
+class GameViewWireSpec extends AnyWordSpec with Matchers {
   import JsonProtocol._
 
   private val alice: PlayerId = UUID.randomUUID()
   private val bob: PlayerId = UUID.randomUUID()
 
   /** The document a client actually receives for `state`. */
-  private def wire(state: GameState): Json = state.asJson.deepDropNullValues
+  private def wire(state: GameView): Json = state.asJson.deepDropNullValues
 
   /** Parses an expected document, failing the test (rather than the suite) if the literal itself is malformed. */
   private def expected(raw: String): Json =
@@ -58,7 +58,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         isDraw = false
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "board": [["X","",""],["","O",""],["","",""]],
           "currentPlayer": "X",
@@ -81,7 +81,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         isDraw = false
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "board": [
             ["","","","","","",""],
@@ -120,7 +120,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 12
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "board": [
             ["","","","","","","",""],
@@ -158,7 +158,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 47
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(bob))) shouldBe expected("""
         {
           "board": [
             ["","","","","","","",""],
@@ -191,7 +191,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         None
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "board1": [
             ["hit","ship","water","water","water","water","water","water","water","water"],
@@ -234,7 +234,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         Some(Player1)
       )
 
-      wire(GameStateConverters.serializeGame(game, None)) shouldBe expected("""
+      wire(GameProjection.project(game, None)) shouldBe expected("""
         {
           "board1": [
             ["hit","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown","unknown"],
@@ -279,7 +279,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 9
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(bob))) shouldBe expected("""
         {
           "scores": {"P1": 23, "P2": 41},
           "currentPlayer": "P2",
@@ -301,7 +301,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 31
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "scores": {"P1": 45, "P2": 100},
           "currentPlayer": "P2",
@@ -323,7 +323,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         winner = None
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(bob))) shouldBe expected("""
         {
           "guesses": [{"pegs": ["red","red","blue","blue"], "black": 1, "white": 1}],
           "currentPlayer": "codebreaker",
@@ -342,7 +342,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         winner = None
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "guesses": [],
           "secret": ["red","blue","green","yellow"],
@@ -363,7 +363,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         winner = Some(Codebreaker)
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(bob))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(bob))) shouldBe expected("""
         {
           "guesses": [{"pegs": ["red","blue","green","yellow"], "black": 4, "white": 0}],
           "secret": ["red","blue","green","yellow"],
@@ -388,7 +388,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 4
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "dice": [3,3,5],
           "diceCounts": {"P1": 3, "P2": 3},
@@ -421,7 +421,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 9
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "dice": [2,2,2],
           "diceCounts": {"P1": 3, "P2": 0},
@@ -465,7 +465,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 6
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "seats": [
             {"seat": "P1", "stack": 980, "committed": 40, "bet": 20, "folded": false, "allIn": false},
@@ -515,7 +515,7 @@ class GameStateWireSpec extends AnyWordSpec with Matchers {
         moveCount = 42
       )
 
-      wire(GameStateConverters.serializeGame(game, Some(alice))) shouldBe expected("""
+      wire(GameProjection.project(game, Some(alice))) shouldBe expected("""
         {
           "seats": [
             {"seat": "P1", "stack": 2000, "committed": 0, "bet": 0, "folded": false, "allIn": false},

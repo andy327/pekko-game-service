@@ -5,7 +5,7 @@ import io.circe.syntax._
 
 import com.andy327.actor.core.TurnBasedGameActor
 import com.andy327.actor.core.TurnBasedGameActor.TimeoutAction
-import com.andy327.actor.game.PigState
+import com.andy327.actor.game.PigView
 import com.andy327.model.pig.{Hold, Pig, PigMove, Roll}
 
 /** [[core.GameActor]] binding for Pig.
@@ -17,7 +17,7 @@ import com.andy327.model.pig.{Hold, Pig, PigMove, Roll}
   * idle seat simply passes its turn and the game keeps moving.
   */
 object PigActor
-    extends TurnBasedGameActor[Pig, PigMove, Int, PigState](
+    extends TurnBasedGameActor[Pig, PigMove, Int, PigView](
       players => Pig.newGame(players),
       Encoder.instance[PigMove] {
         case Roll(result) => Map("action" -> "roll", "result" -> result.toString).asJson

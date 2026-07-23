@@ -10,12 +10,18 @@ import com.andy327.model.mastermind.{Attempt, Codemaker, Mastermind, Peg, Role}
 import com.andy327.model.pig.Pig
 import com.andy327.model.tictactoe.TicTacToe
 
-/** Super-type for all serializable “view” representations of game state that can be sent to the client as part of an
-  * HTTP response.
+/** Super-type for every per-viewer projection of a game's state.
+  *
+  * A view is what one viewer is entitled to see of a game — a seated player their own hand, a spectator the public
+  * table — expressed in the model's own domain types, plus the moves that viewer may play right now. It is produced
+  * by a [[GameProjection]] and consumed in two ways: rendered to JSON by an encoder in the server's `JsonProtocol`
+  * for delivery to clients, and read directly by in-process consumers that reason about the position. Redaction
+  * happens here, at projection time, so a view structurally cannot leak what its viewer must not know; the encoders
+  * are write-only because a projection is lossy by design and cannot be inverted.
   */
-sealed trait GameState
+sealed trait GameView
 
-object GameState {
+object GameView {
 
   /** The moves the viewer occupying `viewerSeat` may play right now: their own move set while it is their turn, and
     * `whenNotToAct` otherwise, since a viewer waiting on an opponent — or a spectator, holding no seat at all — has no
@@ -41,15 +47,15 @@ object GameState {
   * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Carried
   *                   for consumers that choose or offer a move; not part of the wire format, so the encoder omits it.
   */
-case class GridGameState(
+case class GridGameView(
     board: Vector[Vector[Option[Mark]]],
     currentPlayer: Mark,
     winner: Option[Mark],
     draw: Boolean,
     legalMoves: List[MovePayload]
-) extends GameState
+) extends GameView
 
-object GridGameState {
+object GridGameView {
 
   /** Builds the view from any board of optional marks plus the game's current player, status, and the move set to
     * offer the viewer holding `viewerSeat`.
@@ -59,17 +65,17 @@ object GridGameState {
       currentPlayer: Mark,
       status: GameStatus[Mark],
       viewerSeat: Option[Mark]
-  )(legalMoves: => List[MovePayload]): GridGameState = {
+  )(legalMoves: => List[MovePayload]): GridGameView = {
     val winner = status match {
       case Won(mark) => Some(mark)
       case _         => None
     }
-    GridGameState(
+    GridGameView(
       board,
       currentPlayer,
       winner,
       status == Draw,
-      GameState.movesFor(viewerSeat, currentPlayer)(legalMoves)
+      GameView.movesFor(viewerSeat, currentPlayer)(legalMoves)
     )
   }
 }
@@ -86,24 +92,24 @@ object GridGameState {
   *                   Captures being mandatory, this lists only jumps whenever any exist. Not part of the wire format,
   *                   so the encoder omits it.
   */
-case class CheckersState(
+case class CheckersView(
     board: Vector[Vector[Option[Piece]]],
     currentPlayer: Color,
     winner: Option[Color],
     viewerSeat: Option[Color],
     legalMoves: List[MovePayload]
-) extends GameState
+) extends GameView
 
-object CheckersState {
+object CheckersView {
 
   /** Builds the view of `game` for the given viewer color (`None` = spectator). The board is identical for everyone. */
-  def of(game: Checkers, viewerSeat: Option[Color]): CheckersState =
-    CheckersState(
+  def of(game: Checkers, viewerSeat: Option[Color]): CheckersView =
+    CheckersView(
       board = game.board,
       currentPlayer = game.currentPlayer,
       winner = game.winner,
       viewerSeat = viewerSeat,
-      legalMoves = GameState.movesFor(viewerSeat, game.currentPlayer)(
+      legalMoves = GameView.movesFor(viewerSeat, game.currentPlayer)(
         game.legalMoves.map(move => MovePayload.CheckersMove(move.from, move.steps))
       )
     )
@@ -147,26 +153,26 @@ object BattleshipCell {
   * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Not
   *                   part of the wire format, so the encoder omits it.
   */
-case class BattleshipState(
+case class BattleshipView(
     board1: Vector[Vector[BattleshipCell]],
     board2: Vector[Vector[BattleshipCell]],
     currentPlayer: Seat,
     winner: Option[Seat],
     viewerSeat: Option[Seat],
     legalMoves: List[MovePayload]
-) extends GameState
+) extends GameView
 
-object BattleshipState {
+object BattleshipView {
 
   /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees both boards fogged). */
-  def of(game: Battleship, viewerSeat: Option[Seat]): BattleshipState =
-    BattleshipState(
+  def of(game: Battleship, viewerSeat: Option[Seat]): BattleshipView =
+    BattleshipView(
       board1 = project(game.board1, revealShips = viewerSeat.contains(Player1)),
       board2 = project(game.board2, revealShips = viewerSeat.contains(Player2)),
       currentPlayer = game.currentPlayer,
       winner = game.winner,
       viewerSeat = viewerSeat,
-      legalMoves = GameState.movesFor(viewerSeat, game.currentPlayer)(
+      legalMoves = GameView.movesFor(viewerSeat, game.currentPlayer)(
         game.legalMoves.map(fire => MovePayload.BattleshipMove(fire.target.row, fire.target.col))
       )
     )
@@ -196,7 +202,7 @@ object BattleshipState {
   * @param legalMoves the moves the viewer may play right now: their own move set on their turn, empty otherwise. Not
   *                   part of the wire format, so the encoder omits it.
   */
-case class PigState(
+case class PigView(
     scores: Vector[Int],
     currentPlayer: Int,
     turnScore: Int,
@@ -204,9 +210,9 @@ case class PigState(
     winner: Option[Int],
     viewerSeat: Option[Int],
     legalMoves: List[MovePayload]
-) extends GameState
+) extends GameView
 
-object PigState {
+object PigView {
 
   /** Pig's move set is the same on every turn: a player may always roll, and may always hold — banking nothing when
     * their turn score is zero is a legal pass. The die a `Roll` carries is supplied by `PigModule`, so these payloads
@@ -215,15 +221,15 @@ object PigState {
   private val TurnMoves: List[MovePayload] =
     List(MovePayload.PigAction("roll"), MovePayload.PigAction("hold"))
 
-  def of(game: Pig, viewerSeat: Option[Int]): PigState =
-    PigState(
+  def of(game: Pig, viewerSeat: Option[Int]): PigView =
+    PigView(
       scores = game.scores,
       currentPlayer = game.currentSeat,
       turnScore = game.turnScore,
       lastRoll = game.lastRoll,
       winner = game.winner,
       viewerSeat = viewerSeat,
-      legalMoves = GameState.movesFor(viewerSeat, game.currentSeat)(
+      legalMoves = GameView.movesFor(viewerSeat, game.currentSeat)(
         if (game.gameStatus == InProgress) TurnMoves else Nil
       )
     )
@@ -246,23 +252,23 @@ object PigState {
   * @param guessesRemaining guesses the codebreaker has left before the codemaker wins by default
   * @param viewerRole the viewer's role, or `None` for a spectator
   */
-case class MastermindState(
+case class MastermindView(
     guesses: List[Attempt],
     secret: Option[Vector[Peg]],
     currentPlayer: Role,
     winner: Option[Role],
     guessesRemaining: Int,
     viewerRole: Option[Role]
-) extends GameState
+) extends GameView
 
-object MastermindState {
+object MastermindView {
 
   /** Builds the view of `game` for the given viewer role (`None` = spectator). The secret is included only for the
     * codemaker or once the game has ended.
     */
-  def of(game: Mastermind, viewerRole: Option[Role]): MastermindState = {
+  def of(game: Mastermind, viewerRole: Option[Role]): MastermindView = {
     val reveal = game.winner.isDefined || viewerRole.contains(Codemaker)
-    MastermindState(
+    MastermindView(
       guesses = game.guesses,
       secret = if (reveal) game.secret else None,
       currentPlayer = game.currentPlayer,
@@ -288,7 +294,7 @@ object MastermindState {
   *                   every useful raise (see `LiarsDice.legalBids` for the quantity cap) plus the challenge whenever a
   *                   standing bid exists. Not part of the wire format, so the encoder omits it.
   */
-case class LiarsDiceState(
+case class LiarsDiceView(
     dice: Option[Vector[Int]],
     diceCounts: Vector[Int],
     currentBid: Option[Bid],
@@ -297,13 +303,13 @@ case class LiarsDiceState(
     viewerSeat: Option[Int],
     lastReveal: Option[Reveal],
     legalMoves: List[MovePayload]
-) extends GameState
+) extends GameView
 
-object LiarsDiceState {
+object LiarsDiceView {
 
   /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees dice counts but no hand). */
-  def of(game: LiarsDice, viewerSeat: Option[Int]): LiarsDiceState =
-    LiarsDiceState(
+  def of(game: LiarsDice, viewerSeat: Option[Int]): LiarsDiceView =
+    LiarsDiceView(
       dice = viewerSeat.map(game.dice),
       diceCounts = game.playerIds.indices.map(game.diceCount).toVector,
       currentBid = game.standing.map(_.bid),
@@ -311,7 +317,7 @@ object LiarsDiceState {
       winner = game.winner,
       viewerSeat = viewerSeat,
       lastReveal = game.lastReveal,
-      legalMoves = GameState.movesFor(viewerSeat, game.currentSeat) {
+      legalMoves = GameView.movesFor(viewerSeat, game.currentSeat) {
         // the challenge payload names the action alone: the fresh dice a challenge deals are rolled by the module
         val challenge =
           if (game.standing.isDefined) List(MovePayload.LiarsDiceAction("challenge", None, None)) else Nil
@@ -321,7 +327,7 @@ object LiarsDiceState {
 }
 
 /** One seat's public state in a Texas Hold 'Em view: its chips, what it has committed this hand and this street, and
-  * whether it has folded or is all-in. Hole cards are never here — a viewer sees only their own, in [[HoldEmState]].
+  * whether it has folded or is all-in. Hole cards are never here — a viewer sees only their own, in [[HoldEmView]].
   * The seat's index is its position in the view's seat list.
   */
 case class HoldEmSeat(stack: Int, committed: Int, bet: Int, folded: Boolean, allIn: Boolean)
@@ -357,7 +363,7 @@ case class BetSizing(action: String, min: Int, max: Int)
   * @param betSizing the sizings open to the viewer on their turn, `None` otherwise or when no sizing action is open —
   *                  see [[BetSizing]]. Not part of the wire format, so the encoder omits it.
   */
-case class HoldEmState(
+case class HoldEmView(
     seats: List[HoldEmSeat],
     holeCards: Option[List[Card]],
     board: List[Card],
@@ -373,13 +379,13 @@ case class HoldEmState(
     handResult: Option[HandResult],
     legalMoves: List[MovePayload],
     betSizing: Option[BetSizing]
-) extends GameState
+) extends GameView
 
-object HoldEmState {
+object HoldEmView {
 
   /** Builds the view of `game` for the given viewer seat (`None` = spectator, who sees no hole cards). */
-  def of(game: TexasHoldEm, viewerSeat: Option[Int]): HoldEmState =
-    HoldEmState(
+  def of(game: TexasHoldEm, viewerSeat: Option[Int]): HoldEmView =
+    HoldEmView(
       seats = game.playerIds.indices.toList.map { i =>
         HoldEmSeat(game.stacks(i), game.committed(i), game.streetContrib(i), game.folded(i), game.allIn(i))
       },
@@ -395,14 +401,14 @@ object HoldEmState {
       winner = game.winner,
       viewerSeat = viewerSeat,
       handResult = game.handResult,
-      legalMoves = GameState.movesFor(viewerSeat, game.toAct)(
+      legalMoves = GameView.movesFor(viewerSeat, game.toAct)(
         game.legalActions.collect {
           case Action.Fold  => MovePayload.HoldEmAction("fold", None)
           case Action.Check => MovePayload.HoldEmAction("check", None)
           case Action.Call  => MovePayload.HoldEmAction("call", None)
         }
       ),
-      betSizing = GameState.movesFor(viewerSeat, game.toAct, Option.empty[BetSizing])(
+      betSizing = GameView.movesFor(viewerSeat, game.toAct, Option.empty[BetSizing])(
         game.betBounds.map { case (min, max) =>
           BetSizing(if (game.currentBet == 0) "bet" else "raise", min, max)
         }
@@ -410,75 +416,69 @@ object HoldEmState {
     )
 }
 
-/** Type class for converting an internal game model into a serializable GameState.
+/** Type class projecting a game model into its per-viewer [[GameView]].
   *
-  * Instances live in the companion object, which is always in implicit scope for `GameStateView[G, S]` searches, so
+  * Instances live in the companion object, which is always in implicit scope for `GameProjection[G, V]` searches, so
   * call sites need no imports beyond the types themselves.
   *
-  * `viewer` identifies who the view is being rendered for: `Some(playerId)` for that player's own view, or `None` for a
-  * public/spectator view. Full-information games (TicTacToe, ConnectFour) show everyone the same board and ignore it;
-  * hidden-state games (e.g. Battleship) use it to reveal only what that viewer is allowed to see.
+  * `viewer` identifies who the view is rendered for: `Some(playerId)` for that player's own view, or `None` for a
+  * public/spectator view. Full-information games (TicTacToe, ConnectFour) show everyone the same board and consult it
+  * only to scope the view's legal moves; hidden-state games (e.g. Battleship) also use it to reveal only what that
+  * viewer is allowed to see.
   */
-trait GameStateView[G <: Game[_, _, _, _, _], S <: GameState] {
-  def fromGame(game: G, viewer: Option[PlayerId]): S
+trait GameProjection[G <: Game[_, _, _, _, _], V <: GameView] {
+  def fromGame(game: G, viewer: Option[PlayerId]): V
 }
 
-object GameStateView {
+object GameProjection {
 
-  /** Type class instance for serializing a TicTacToe game into a GridGameState (same board for every viewer). */
-  implicit val ticTacToeView: GameStateView[TicTacToe, GridGameState] =
+  /** Type class instance for projecting a TicTacToe game into a GridGameView (same board for every viewer). */
+  implicit val ticTacToeView: GameProjection[TicTacToe, GridGameView] =
     (game, viewer) =>
-      GridGameState.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
+      GridGameView.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
         game.legalMoves.map(loc => MovePayload.TicTacToeMove(loc.row, loc.col))
       )
 
-  /** Type class instance for serializing a ConnectFour game into a GridGameState (same board for every viewer). */
-  implicit val connectFourView: GameStateView[ConnectFour, GridGameState] =
+  /** Type class instance for projecting a ConnectFour game into a GridGameView (same board for every viewer). */
+  implicit val connectFourView: GameProjection[ConnectFour, GridGameView] =
     (game, viewer) =>
-      GridGameState.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
+      GridGameView.of(game.board, game.currentPlayer, game.gameStatus, viewer.flatMap(game.playerFor))(
         game.legalMoves.map(drop => MovePayload.ConnectFourMove(drop.col))
       )
 
-  /** Type class instance for serializing a Battleship game, projected per viewer (fog-of-war for hidden boards). */
-  implicit val battleshipView: GameStateView[Battleship, BattleshipState] =
-    (game, viewer) => BattleshipState.of(game, viewer.flatMap(game.playerFor))
+  /** Type class instance for projecting a Battleship game, projected per viewer (fog-of-war for hidden boards). */
+  implicit val battleshipView: GameProjection[Battleship, BattleshipView] =
+    (game, viewer) => BattleshipView.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Pig game (same state for every viewer; no hidden information). */
-  implicit val pigView: GameStateView[Pig, PigState] =
-    (game, viewer) => PigState.of(game, viewer.flatMap(game.playerFor))
+  /** Type class instance for projecting a Pig game (same state for every viewer; no hidden information). */
+  implicit val pigView: GameProjection[Pig, PigView] =
+    (game, viewer) => PigView.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Mastermind game, projected per viewer (the secret is hidden until reveal). */
-  implicit val mastermindView: GameStateView[Mastermind, MastermindState] =
-    (game, viewer) => MastermindState.of(game, viewer.flatMap(game.playerFor))
+  /** Type class instance for projecting a Mastermind game, projected per viewer (the secret is hidden until reveal). */
+  implicit val mastermindView: GameProjection[Mastermind, MastermindView] =
+    (game, viewer) => MastermindView.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Liar's Dice game, projected per viewer (only the viewer's own dice show). */
-  implicit val liarsDiceView: GameStateView[LiarsDice, LiarsDiceState] =
-    (game, viewer) => LiarsDiceState.of(game, viewer.flatMap(game.playerFor))
+  /** Type class instance for projecting a Liar's Dice game, projected per viewer (only the viewer's own dice show). */
+  implicit val liarsDiceView: GameProjection[LiarsDice, LiarsDiceView] =
+    (game, viewer) => LiarsDiceView.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Texas Hold 'Em game, projected per viewer (only the viewer's hole cards). */
-  implicit val texasHoldEmView: GameStateView[TexasHoldEm, HoldEmState] =
-    (game, viewer) => HoldEmState.of(game, viewer.flatMap(game.playerFor))
+  /** Type class instance for projecting a Texas Hold 'Em game, projected per viewer (only the viewer's hole cards). */
+  implicit val texasHoldEmView: GameProjection[TexasHoldEm, HoldEmView] =
+    (game, viewer) => HoldEmView.of(game, viewer.flatMap(game.playerFor))
 
-  /** Type class instance for serializing a Checkers game. The board is the same for every viewer; the view is tagged
+  /** Type class instance for projecting a Checkers game. The board is the same for every viewer; the view is tagged
     * with the viewer's own color so the client can show which side they are and whose turn it is.
     */
-  implicit val checkersView: GameStateView[Checkers, CheckersState] =
-    (game, viewer) => CheckersState.of(game, viewer.flatMap(game.playerFor))
-}
+  implicit val checkersView: GameProjection[Checkers, CheckersView] =
+    (game, viewer) => CheckersView.of(game, viewer.flatMap(game.playerFor))
 
-/** Utility for converting internal game models to HTTP-serializable GameState representations using the GameStateView
-  * type class.
-  */
-object GameStateConverters {
-
-  /** Converts a concrete game instance into a corresponding GameState, rendered for `viewer`.
+  /** Projects `game` into its view for `viewer`, resolved through the type class instance for `G`.
     *
-    * This uses a type class instance of GameStateView[G, S], which knows how to convert a specific game type G (e.g.,
-    * TicTacToe) into a specific GameState type S (e.g., GridGameState). `viewer` is `Some(playerId)` for that player's
-    * own view or `None` for a public/spectator view; full-information games ignore it.
+    * `viewer` is `Some(playerId)` for that player's own view or `None` for a public/spectator view; full-information
+    * games ignore it.
     */
-  def serializeGame[G <: Game[_, _, _, _, _], S <: GameState](game: G, viewer: Option[PlayerId])(implicit
-      view: GameStateView[G, S]
-  ): S =
-    view.fromGame(game, viewer)
+  def project[G <: Game[_, _, _, _, _], V <: GameView](game: G, viewer: Option[PlayerId])(implicit
+      projection: GameProjection[G, V]
+  ): V =
+    projection.fromGame(game, viewer)
 }

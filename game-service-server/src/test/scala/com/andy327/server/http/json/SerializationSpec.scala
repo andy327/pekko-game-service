@@ -13,14 +13,14 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.andy327.actor.core.GameManager.{LobbyCreated, LobbyJoined, LobbyLeft, MoveHistory, SubscribeAcknowledged}
 import com.andy327.actor.core.PlayerEvent
 import com.andy327.actor.game.{
-  BattleshipState,
-  GameState,
-  GameStateConverters,
+  BattleshipView,
+  GameProjection,
+  GameView,
   HoldEmSeat,
-  HoldEmState,
-  LiarsDiceState,
-  MastermindState,
-  PigState
+  HoldEmView,
+  LiarsDiceView,
+  MastermindView,
+  PigView
 }
 import com.andy327.actor.lobby._
 import com.andy327.model.battleship.Battleship
@@ -35,7 +35,7 @@ import com.andy327.persistence.db.MoveRecord
 import com.andy327.server.http.auth.TokenResponse
 import com.andy327.server.http.model.{ErrorResponse, MessageResponse}
 
-/** Covers the codecs JsonProtocol owns: the API response types, the GridGameState view, and the write-only PlayerEvent
+/** Covers the codecs JsonProtocol owns: the API response types, the GridGameView view, and the write-only PlayerEvent
   * encoder. The reused value codecs (Player, GameType, GameLifecycleStatus, LobbyMetadata) are tested at their source
   * in LobbyCodecsSpec and GameTypeCodecsSpec.
   */
@@ -125,38 +125,38 @@ class SerializationSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  // The grid view is write-only — see `gridGameStateEncoder` — so these cover the encoding direction only.
-  // GameStateWireSpec pins the whole document; these cover the symbol rendering and the null handling the transport
+  // The grid view is write-only — see `gridGameViewEncoder` — so these cover the encoding direction only.
+  // GameViewWireSpec pins the whole document; these cover the symbol rendering and the null handling the transport
   // depends on.
-  "GridGameState encoder" should {
+  "GridGameView encoder" should {
     "render marks by symbol, leaving unclaimed cells empty" in {
-      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
+      val view = GameProjection.project(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       val cells = view.asJson.hcursor.downField("board").as[Vector[Vector[String]]]
       cells shouldBe Right(Vector.fill(3)(Vector.fill(3)("")))
     }
 
     "render a ConnectFour view through the same shared encoder" in {
-      val view = GameStateConverters.serializeGame(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()), None)
+      val view = GameProjection.project(ConnectFour.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       view.asJson.hcursor.get[String]("currentPlayer") shouldBe Right("R")
     }
 
     "omit an absent winner rather than serializing it as null" in {
-      val view = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
+      val view = GameProjection.project(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       view.asJson.deepDropNullValues.asObject.flatMap(_("winner")) should not be defined
     }
   }
 
-  "the polymorphic GameState encoder" should {
-    "encode a BattleshipState branch (not just GridGameState)" in {
-      val state: GameState =
-        BattleshipState.of(Battleship.random(UUID.randomUUID(), UUID.randomUUID(), new Random(0)), None)
+  "the polymorphic GameView encoder" should {
+    "encode a BattleshipView branch (not just GridGameView)" in {
+      val state: GameView =
+        BattleshipView.of(Battleship.random(UUID.randomUUID(), UUID.randomUUID(), new Random(0)), None)
       val json = state.asJson
       json.hcursor.get[Option[String]]("viewerSeat") shouldBe Right(None)
       json.hcursor.downField("board1").focus should be(defined)
     }
 
-    "encode a PigState branch" in {
-      val state: GameState = PigState(
+    "encode a PigView branch" in {
+      val state: GameView = PigView(
         scores = Vector(0, 0),
         currentPlayer = 0,
         turnScore = 0,
@@ -170,8 +170,8 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.get[String]("currentPlayer") shouldBe Right("P1")
     }
 
-    "encode a MastermindState branch" in {
-      val state: GameState = MastermindState(
+    "encode a MastermindView branch" in {
+      val state: GameView = MastermindView(
         guesses = List(Attempt(Vector(Peg.Red, Peg.Green, Peg.Yellow, Peg.Blue), Feedback(black = 2, white = 1))),
         secret = None,
         currentPlayer = Codebreaker,
@@ -185,8 +185,8 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.get[String]("currentPlayer") shouldBe Right("codebreaker")
     }
 
-    "encode a LiarsDiceState branch, keeping the viewer's dice and a wild-ones bid's absent face" in {
-      val state: GameState = LiarsDiceState(
+    "encode a LiarsDiceView branch, keeping the viewer's dice and a wild-ones bid's absent face" in {
+      val state: GameView = LiarsDiceView(
         dice = Some(Vector(2, 3, 4, 5, 6)),
         diceCounts = Vector(5, 5),
         currentBid = Some(Bid(2, None)), // a wild "ones" bid: face is absent
@@ -202,8 +202,8 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       json.hcursor.downField("currentBid").get[Option[Int]]("face") shouldBe Right(None)
     }
 
-    "encode a HoldEmState branch, keeping the viewer's hole cards and the showdown reveal" in {
-      val state: GameState = HoldEmState(
+    "encode a HoldEmView branch, keeping the viewer's hole cards and the showdown reveal" in {
+      val state: GameView = HoldEmView(
         seats = List(
           HoldEmSeat(990, 10, 10, folded = false, allIn = false),
           HoldEmSeat(985, 15, 15, folded = false, allIn = false)
@@ -238,10 +238,10 @@ class SerializationSpec extends AnyWordSpec with Matchers {
       )
     }
 
-    "encode a CheckersState branch, carrying the board and the viewer's own seat" in {
+    "encode a CheckersView branch, carrying the board and the viewer's own seat" in {
       val red = UUID.randomUUID()
       val black = UUID.randomUUID()
-      val state: GameState = GameStateConverters.serializeGame(Checkers.empty(red, black), Some(red)) // for Red
+      val state: GameView = GameProjection.project(Checkers.empty(red, black), Some(red)) // for Red
       val json = state.asJson
       json.hcursor.get[String]("viewerSeat") shouldBe Right("R")
       json.hcursor.get[String]("currentPlayer") shouldBe Right("R")
@@ -268,7 +268,7 @@ class SerializationSpec extends AnyWordSpec with Matchers {
 
     "encode GameStateUpdated with a type discriminator, roomId, and state" in {
       val roomId = UUID.randomUUID()
-      val state = GameStateConverters.serializeGame(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
+      val state = GameProjection.project(TicTacToe.empty(UUID.randomUUID(), UUID.randomUUID()), None)
       val json = (PlayerEvent.GameStateUpdated(roomId, state, spectatorCount = 2): PlayerEvent).asJson
       json.hcursor.get[String]("type") shouldBe Right("GameStateUpdated")
       json.hcursor.get[UUID]("roomId") shouldBe Right(roomId)

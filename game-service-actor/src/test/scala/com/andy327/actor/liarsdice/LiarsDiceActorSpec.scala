@@ -9,14 +9,14 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, TurnBasedGameActor}
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.GameState
+import com.andy327.actor.game.GameView
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.liarsdice.{Bid, Challenge, MakeBid}
 
 /** Drives the shared turn-based actor with Liar's Dice moves to lock in the move-log encoder — in particular that a
   * challenge never records its server-rolled dice pool (the history endpoint is public) and that a wild "ones" bid
-  * records a null face. State projection and rules are covered by `LiarsDiceStateSpec` and `LiarsDiceSpec`.
+  * records a null face. State projection and rules are covered by `LiarsDiceViewSpec` and `LiarsDiceSpec`.
   */
 class LiarsDiceActorSpec extends AnyWordSpecLike with Matchers {
   private val testKit = ActorTestKit()
@@ -48,7 +48,7 @@ class LiarsDiceActorSpec extends AnyWordSpecLike with Matchers {
       player: PlayerId,
       move: com.andy327.model.liarsdice.LiarsDiceMove
   ): io.circe.Json = {
-    val replyProbe = createTestProbe[Either[GameError, GameState]]()
+    val replyProbe = createTestProbe[Either[GameError, GameView]]()
     actor ! TurnBasedGameActor.MakeMove(player, move, replyProbe.ref)
     replyProbe.receiveMessage()
     persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]

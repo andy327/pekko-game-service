@@ -17,7 +17,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{GameManager, PlayerActor, PlayerEvent, TurnBasedGameActor}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
-import com.andy327.actor.game.{GameState, GridGameState}
+import com.andy327.actor.game.{GameView, GridGameView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId}
@@ -80,11 +80,11 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
   "TicTacToeActor" should {
     "return an empty 3×3 board on GetState" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board, current, winner, draw, _)) = replyProbe.receiveMessage()
       board.flatten should contain only None
       current shouldBe X
       winner shouldBe None
@@ -116,10 +116,10 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       )
       val actor = spawn(behavior)
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
 
-      val Right(GridGameState(board, current, winner, draw, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board, current, winner, draw, _)) = replyProbe.receiveMessage()
       board(0)(0) shouldBe Some(X)
       board(1)(1) shouldBe Some(O)
       current shouldBe X
@@ -187,15 +187,15 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "apply a valid move and switch currentPlayer" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      val Right(GridGameState(board1, current1, _, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board1, current1, _, _, _)) = replyProbe.receiveMessage()
       board1(0)(0) shouldBe Some(X)
       current1 shouldBe O
 
       actor ! TurnBasedGameActor.MakeMove(bob, Location(1, 1), replyProbe.ref)
-      val Right(GridGameState(board2, current2, _, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board2, current2, _, _, _)) = replyProbe.receiveMessage()
       board2(0)(0) shouldBe Some(X)
       board2(1)(1) shouldBe Some(O)
       current2 shouldBe X
@@ -203,7 +203,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "append each applied move to history with an incrementing seq and the move payload" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
       replyProbe.receiveMessage()
@@ -224,7 +224,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a move when it is not the player's turn" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(bob, Location(0, 0), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidTurn)
@@ -233,7 +233,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "reject a move from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(eve, Location(0, 0), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
@@ -241,7 +241,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject an invalid move" in {
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 3), replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(OutOfBounds)
@@ -249,7 +249,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "log success and continue when SnapshotSaved succeeds" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       // Trigger a move, which will cause a SaveSnapshot to be sent
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
@@ -270,7 +270,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
       actor ! TurnBasedGameActor.SnapshotSaved(Left(ex))
 
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
       replyProbe.receiveMessage() shouldBe a[Right[_, _]]
     }
@@ -280,7 +280,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
-      actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
+      actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameView]]().ref)
 
       subscriberProbe.expectMessageType[PlayerActor.SendEvent].event shouldBe a[PlayerEvent.GameStateUpdated]
     }
@@ -289,7 +289,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref)
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
@@ -324,7 +324,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
       actor ! TurnBasedGameActor.Unsubscribe(subscriberProbe.ref)
-      actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameState]]().ref)
+      actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), createTestProbe[Either[GameError, GameView]]().ref)
 
       subscriberProbe.expectNoMessage()
     }
@@ -332,7 +332,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "drop a terminated subscriber without crashing" in {
       val (actor, _) = newActor()
       val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriber, alice)
       // the game actor watches the subscriber; stopping it must drop it via Terminated, not DeathPactException
@@ -345,7 +345,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "stop after receiving SnapshotSaved(Right) in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -359,7 +359,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "stop after receiving SnapshotSaved(Left) in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       val ex = new RuntimeException("snapshot failure") with NoStackTrace
 
       xWinsMoves.foreach { case (player, loc) =>
@@ -374,7 +374,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a GetState landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -393,7 +393,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a MakeMove landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -410,7 +410,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "reject a PlayerLeft landing in terminating state with GameOver instead of dropping it" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -427,7 +427,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "silently ignore Subscribe and Broadcast landing in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
 
       xWinsMoves.foreach { case (player, loc) =>
@@ -436,7 +436,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
         expectMovePersisted(persistProbe)
       }
 
-      // these have no GameError/GameState reply to give, so — unlike MakeMove/PlayerLeft/GetState — they are dropped
+      // these have no GameError/GameView reply to give, so — unlike MakeMove/PlayerLeft/GetState — they are dropped
       // exactly as before: no push to the would-be subscriber, and the actor stays alive awaiting SnapshotSaved
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       actor ! TurnBasedGameActor.Broadcast(
@@ -450,7 +450,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
 
     "not crash when a watched subscriber terminates while in terminating state" in {
       val (actor, persistProbe) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
       val subscriber = spawn(Behaviors.empty[PlayerActor.Command])
       val deathWatch = createTestProbe[Any]()
 
@@ -477,7 +477,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val gameManagerProbe = createTestProbe[GameManager.Command]()
       val matchId: MatchId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -497,14 +497,14 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val matchId: MatchId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(gmRef = gameManagerProbe.ref, matchId = matchId)
       val subscriberProbe = createTestProbe[PlayerActor.Command]()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       // Bob (O) leaves the in-progress game → Alice (X) wins by forfeit
       actor ! TurnBasedGameActor.PlayerLeft(bob, replyProbe.ref)
-      val Right(GridGameState(_, _, winner, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(_, _, winner, _, _)) = replyProbe.receiveMessage()
       winner shouldBe Some(X)
 
       // a forfeit saves a final snapshot and records each player's result with the forfeit flag, but — unlike a move —
@@ -534,7 +534,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "record a Win for the winner and a Loss for the loser when the game completes" in {
       val matchId: MatchId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(matchId = matchId)
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       xWinsMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -554,7 +554,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "record a Draw for both players when the game ends in a draw" in {
       val matchId: MatchId = UUID.randomUUID()
       val (actor, persistProbe) = newActor(matchId = matchId)
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       drawMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)
@@ -573,7 +573,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
     "reject a leave from a player not in the game" in {
       val eve: PlayerId = UUID.randomUUID()
       val (actor, _) = newActor()
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.PlayerLeft(eve, replyProbe.ref)
       replyProbe.receiveMessage() shouldBe Left(GameError.InvalidPlayer(eve))
@@ -589,7 +589,7 @@ class TicTacToeActorSpec extends AnyWordSpecLike with Matchers {
       val (_, behavior) =
         TicTacToeActor.create(matchId, matchId, Seq(alice, bob), persistProbe.ref, dummyGameManager, capturing)
       val actor = spawn(behavior)
-      val replyProbe = createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = createTestProbe[Either[GameError, GameView]]()
 
       drawMoves.foreach { case (player, loc) =>
         actor ! TurnBasedGameActor.MakeMove(player, loc, replyProbe.ref)

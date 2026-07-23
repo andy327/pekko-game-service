@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameRegistry, GameState, HoldEmState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameRegistry, GameView, HoldEmView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.actor.texasholdem.TexasHoldEmActor
 import com.andy327.model.core.{GameError, GameType}
@@ -36,7 +36,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a fold MakeMove to a Fold GameCommand carrying a full shuffled deck" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       TexasHoldEmModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.HoldEmAction("fold", None)),
@@ -54,7 +54,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a bet MakeMove to a Bet GameCommand with the amount" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       TexasHoldEmModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.HoldEmAction("bet", Some(75))),
@@ -67,7 +67,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert check, call, and raise actions to their moves" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       def action(payload: MovePayload.HoldEmAction): Action =
         TexasHoldEmModule.toGameCommand(GameOperation.MakeMove(alice.id, payload), replyProbe.ref) match {
           case Right(TurnBasedGameActor.MakeMove(_, HoldEmMove(a, _), _)) => a
@@ -80,7 +80,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "reject a bet with no amount" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = TexasHoldEmModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.HoldEmAction("bet", None)),
@@ -91,7 +91,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "return an error for an unknown action string" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = TexasHoldEmModule.toGameCommand(
         GameOperation.MakeMove(alice.id, MovePayload.HoldEmAction("bad", None)),
@@ -102,7 +102,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
 
     "return error when passing an unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val Left(err) = TexasHoldEmModule.toGameCommand(
         GameOperation.MakeMove(alice.id, null.asInstanceOf[MovePayload]),
@@ -112,7 +112,7 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       TexasHoldEmModule.toGameCommand(GameOperation.GetState, replyProbe.ref) shouldBe
         Right(TurnBasedGameActor.GetState(replyProbe.ref))
     }
@@ -124,11 +124,11 @@ class TexasHoldEmModuleSpec extends AnyWordSpecLike with Matchers {
         TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Texas Hold 'Em game to a HoldEmState for the requesting player" in {
+    "serialize a Texas Hold 'Em game to a HoldEmView for the requesting player" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = TexasHoldEm.newGame(Seq(alice.id, bob.id), Card.deck)
-      val state = TexasHoldEmModule.serialize(game, Some(alice.id)).asInstanceOf[HoldEmState]
+      val state = TexasHoldEmModule.project(game, Some(alice.id)).asInstanceOf[HoldEmView]
       state.viewerSeat shouldBe Some(0)
       state.holeCards.map(_.size) shouldBe Some(2)
       state.seats should have size 2

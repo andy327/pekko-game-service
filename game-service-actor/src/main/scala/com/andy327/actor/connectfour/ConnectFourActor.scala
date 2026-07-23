@@ -3,7 +3,7 @@ package com.andy327.actor.connectfour
 import io.circe.generic.semiauto.deriveEncoder
 
 import com.andy327.actor.core.TurnBasedGameActor
-import com.andy327.actor.game.GridGameState
+import com.andy327.actor.game.GridGameView
 import com.andy327.model.connectfour.{ConnectFour, Drop, Mark}
 
 /** [[core.GameActor]] binding for ConnectFour.
@@ -12,7 +12,7 @@ import com.andy327.model.connectfour.{ConnectFour, Drop, Mark}
   * order) live in `model.connectfour.ConnectFour`. Red is seated first and moves first, Yellow second.
   */
 object ConnectFourActor
-    extends TurnBasedGameActor[ConnectFour, Drop, Mark, GridGameState](
+    extends TurnBasedGameActor[ConnectFour, Drop, Mark, GridGameView](
       players => ConnectFour.empty(players(0), players(1)),
       deriveEncoder[Drop]
     )

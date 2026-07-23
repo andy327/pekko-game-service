@@ -12,7 +12,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.TurnBasedGameActor.TimeoutAction
 import com.andy327.actor.events.NoOpEventPublisher
-import com.andy327.actor.game.{GameState, GridGameState}
+import com.andy327.actor.game.{GameView, GridGameView}
 import com.andy327.actor.lobby.GameLifecycleStatus
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tictactoe.TicTacToeActor
@@ -55,7 +55,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
     * its success and its move-rejected guard) independently of any real game's rules.
     */
   private class AutoMovePolicyActor(move: Location)
-      extends TurnBasedGameActor[TicTacToe, Location, Mark, GridGameState](
+      extends TurnBasedGameActor[TicTacToe, Location, Mark, GridGameView](
         players => TicTacToe.empty(players(0), players(1)),
         deriveEncoder[Location]
       ) {
@@ -115,14 +115,14 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
       val gameManagerProbe = testKit.createTestProbe[GameManager.Command]()
       val (actor, persistProbe) = newActor(testKit, gameManagerProbe.ref)
       val subscriberProbe = testKit.createTestProbe[PlayerActor.Command]()
-      val replyProbe = testKit.createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = testKit.createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.Subscribe(subscriberProbe.ref, alice)
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // initial state push on subscribe
 
       // Alice actually moves before her clock would fire: moveCount advances 0 → 1 and it becomes Bob's turn
       actor ! TurnBasedGameActor.MakeMove(alice, Location(0, 0), replyProbe.ref)
-      replyProbe.expectMessageType[Right[GameError, GameState]]
+      replyProbe.expectMessageType[Right[GameError, GameView]]
       persistProbe.expectMessageType[PersistenceProtocol.SaveSnapshot]
       persistProbe.expectMessageType[PersistenceProtocol.AppendMove]
       subscriberProbe.expectMessageType[PlayerActor.SendEvent] // GameStateUpdated for the move
@@ -136,7 +136,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // the game is still in progress with Bob to move
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(_, current, winner, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(_, current, winner, _, _)) = replyProbe.receiveMessage()
       current shouldBe O
       winner shouldBe None
     }
@@ -155,7 +155,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
     "apply the auto-move and record it when the policy returns AutoMove" in {
       // policy auto-plays the empty top-left cell; Alice (X) is to move at turn 0
       val (actor, persistProbe) = newAutoMoveActor(Location(0, 0))
-      val replyProbe = testKit.createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = testKit.createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.TurnTimeout(alice, 0)
 
@@ -165,7 +165,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // the board advanced: X is placed and it is now O's turn
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(board, current, winner, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board, current, winner, _, _)) = replyProbe.receiveMessage()
       board(0)(0) shouldBe Some(X)
       current shouldBe O
       winner shouldBe None
@@ -174,7 +174,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
     "leave the game untouched when the policy's AutoMove is rejected by the model" in {
       // policy auto-plays an out-of-bounds cell, which TicTacToe.play rejects → the guard logs and no-ops
       val (actor, persistProbe) = newAutoMoveActor(Location(9, 9))
-      val replyProbe = testKit.createTestProbe[Either[GameError, GameState]]()
+      val replyProbe = testKit.createTestProbe[Either[GameError, GameView]]()
 
       actor ! TurnBasedGameActor.TurnTimeout(alice, 0)
 
@@ -182,7 +182,7 @@ class TurnBasedGameActorTimeoutSpec extends AnyWordSpecLike with Matchers {
 
       // still a fresh game with Alice (X) to move
       actor ! TurnBasedGameActor.GetState(replyProbe.ref)
-      val Right(GridGameState(board, current, winner, _, _)) = replyProbe.receiveMessage()
+      val Right(GridGameView(board, current, winner, _, _)) = replyProbe.receiveMessage()
       board.flatten should contain only None
       current shouldBe X
       winner shouldBe None

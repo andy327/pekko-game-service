@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{GameOperation, GameState, GridGameState, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameView, GridGameView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.actor.tictactoe.TicTacToeActor
 import com.andy327.model.core.GameError
@@ -31,7 +31,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a valid GameOperation.MakeMove to a GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.TicTacToeMove(0, 1)
 
       val result = TicTacToeModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
@@ -47,7 +47,7 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = TicTacToeModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
@@ -68,23 +68,23 @@ class TicTacToeModuleSpec extends AnyWordSpecLike with Matchers {
       val bob = Player("bob")
       val game = TicTacToe.empty(alice.id, bob.id) // X (alice) leads
 
-      val toAct = TicTacToeModule.serialize(game, Some(alice.id)).asInstanceOf[GridGameState]
+      val toAct = TicTacToeModule.project(game, Some(alice.id)).asInstanceOf[GridGameView]
       toAct.legalMoves should have size 9
 
-      TicTacToeModule.serialize(game, Some(bob.id)).asInstanceOf[GridGameState].legalMoves shouldBe empty
-      TicTacToeModule.serialize(game, None).asInstanceOf[GridGameState].legalMoves shouldBe empty // spectator
+      TicTacToeModule.project(game, Some(bob.id)).asInstanceOf[GridGameView].legalMoves shouldBe empty
+      TicTacToeModule.project(game, None).asInstanceOf[GridGameView].legalMoves shouldBe empty // spectator
     }
 
-    "serialize a TicTacToe game to GridGameState" in {
+    "serialize a TicTacToe game to GridGameView" in {
       val alice = Player("alice")
       val bob = Player("bob")
       val game = TicTacToe.empty(alice.id, bob.id)
-      TicTacToeModule.serialize(game, None) shouldBe a[GridGameState]
+      TicTacToeModule.project(game, None) shouldBe a[GridGameView]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val unsupportedMove = null.asInstanceOf[MovePayload] // simulate invalid move type
 
       val result = TicTacToeModule.toGameCommand(

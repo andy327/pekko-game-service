@@ -4,7 +4,7 @@ import io.circe.syntax._
 import io.circe.{Encoder, Json}
 
 import com.andy327.actor.core.TurnBasedGameActor
-import com.andy327.actor.game.CheckersState
+import com.andy327.actor.game.CheckersView
 import com.andy327.model.checkers.{Checkers, Color, Move, Square}
 
 /** [[core.GameActor]] binding for Checkers.
@@ -16,7 +16,7 @@ import com.andy327.model.checkers.{Checkers, Color, Move, Square}
   * shape the HTTP move endpoint accepts.
   */
 object CheckersActor
-    extends TurnBasedGameActor[Checkers, Move, Color, CheckersState](
+    extends TurnBasedGameActor[Checkers, Move, Color, CheckersView](
       players => Checkers.empty(players(0), players(1)),
       Encoder.instance[Move] { move =>
         def square(sq: Square): Json = Json.obj("row" -> sq.row.asJson, "col" -> sq.col.asJson)

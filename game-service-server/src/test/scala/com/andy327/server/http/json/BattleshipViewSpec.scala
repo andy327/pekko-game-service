@@ -6,11 +6,11 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.andy327.actor.game.MovePayload.BattleshipMove
-import com.andy327.actor.game.{BattleshipCell, BattleshipState}
+import com.andy327.actor.game.{BattleshipCell, BattleshipView}
 import com.andy327.model.battleship.{Battleship, Coord, Player1, Player2, PlayerBoard, Seat, Ship}
 import com.andy327.model.core.PlayerId
 
-class BattleshipStateSpec extends AnyWordSpec with Matchers {
+class BattleshipViewSpec extends AnyWordSpec with Matchers {
   val alice: PlayerId = UUID.randomUUID()
   val bob: PlayerId = UUID.randomUUID()
 
@@ -22,9 +22,9 @@ class BattleshipStateSpec extends AnyWordSpec with Matchers {
   private def game(currentPlayer: Seat = Player1, winner: Option[Seat] = None): Battleship =
     Battleship(alice, bob, board1, board2, currentPlayer, winner)
 
-  "BattleshipState.of for the owning player" should {
+  "BattleshipView.of for the owning player" should {
     "reveal that player's own board fully and fog the opponent's" in {
-      val view = BattleshipState.of(game(), Some(Player1))
+      val view = BattleshipView.of(game(), Some(Player1))
       view.viewerSeat shouldBe Some(Player1)
 
       // own board (board1) is fully revealed
@@ -41,7 +41,7 @@ class BattleshipStateSpec extends AnyWordSpec with Matchers {
     }
 
     "offer exactly the opponent cells still unknown to the viewer as their legal shots" in {
-      val view = BattleshipState.of(game(), Some(Player1)) // Player1 is to act
+      val view = BattleshipView.of(game(), Some(Player1)) // Player1 is to act
       val unknownCells = for {
         row <- 0 until Battleship.Size
         col <- 0 until Battleship.Size
@@ -54,9 +54,9 @@ class BattleshipStateSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "BattleshipState.of for a spectator" should {
+  "BattleshipView.of for a spectator" should {
     "fog both boards, hiding every un-hit ship" in {
-      val view = BattleshipState.of(game(), None)
+      val view = BattleshipView.of(game(), None)
       view.viewerSeat shouldBe None
 
       view.board1.flatten should not contain BattleshipCell.Ship
@@ -73,14 +73,14 @@ class BattleshipStateSpec extends AnyWordSpec with Matchers {
     }
 
     "offer no moves to a spectator or to the player waiting on their opponent" in {
-      BattleshipState.of(game(), None).legalMoves shouldBe empty
-      BattleshipState.of(game(), Some(Player2)).legalMoves shouldBe empty // Player1 is to act
+      BattleshipView.of(game(), None).legalMoves shouldBe empty
+      BattleshipView.of(game(), Some(Player2)).legalMoves shouldBe empty // Player1 is to act
     }
   }
 
-  "BattleshipState.of" should {
+  "BattleshipView.of" should {
     "report the current player and winner as seats" in {
-      val view = BattleshipState.of(game(currentPlayer = Player2, winner = Some(Player1)), Some(Player2))
+      val view = BattleshipView.of(game(currentPlayer = Player2, winner = Some(Player1)), Some(Player2))
       view.currentPlayer shouldBe Player2
       view.winner shouldBe Some(Player1)
       view.viewerSeat shouldBe Some(Player2)

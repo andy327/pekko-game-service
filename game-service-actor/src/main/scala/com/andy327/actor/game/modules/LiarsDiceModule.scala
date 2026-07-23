@@ -10,13 +10,13 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.LiarsDiceAction
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.liarsdice.{Bid, Challenge, LiarsDice, MakeBid}
 
 /** [[GameModule]] implementation for Liar's Dice.
   *
-  * Provides move decoding, operation-to-command mapping, and per-viewer serialization for Liar's Dice. Dice are rolled
+  * Provides move decoding, operation-to-command mapping, and per-viewer projection for Liar's Dice. Dice are rolled
   * server-side here — a challenge carries a fresh pool the pure model deals to the surviving hands for the next round —
   * so `LiarsDice.play` stays a pure function. Bid well-formedness (a positive quantity, a face of 2–6) is left to the
   * model, which rejects a malformed bid with its own `InvalidBid` error.
@@ -32,7 +32,7 @@ object LiarsDiceModule extends GameModule[LiarsDice] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, LiarsDiceAction(action, quantity, face)) =>
       action.toLowerCase match {
@@ -53,6 +53,6 @@ object LiarsDiceModule extends GameModule[LiarsDice] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: LiarsDice, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: LiarsDice, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }

@@ -11,7 +11,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import com.andy327.actor.battleship.BattleshipActor
 import com.andy327.actor.core.{PlayerActor, TurnBasedGameActor}
-import com.andy327.actor.game.{BattleshipState, GameOperation, GameState, MovePayload}
+import com.andy327.actor.game.{BattleshipView, GameOperation, GameView, MovePayload}
 import com.andy327.actor.lobby.Player
 import com.andy327.model.battleship.{Battleship, Coord, Fire}
 import com.andy327.model.core.GameError
@@ -33,7 +33,7 @@ class BattleshipModuleSpec extends AnyWordSpecLike with Matchers {
 
     "convert a valid GameOperation.MakeMove to a Fire GameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val move = MovePayload.BattleshipMove(3, 4)
 
       val result = BattleshipModule.toGameCommand(GameOperation.MakeMove(alice.id, move), replyProbe.ref)
@@ -49,7 +49,7 @@ class BattleshipModuleSpec extends AnyWordSpecLike with Matchers {
     }
 
     "convert GetState to a GetState GameCommand" in {
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
 
       val result = BattleshipModule.toGameCommand(GameOperation.GetState, replyProbe.ref)
 
@@ -65,14 +65,14 @@ class BattleshipModuleSpec extends AnyWordSpecLike with Matchers {
       result shouldBe TurnBasedGameActor.Subscribe(playerProbe.ref, playerId)
     }
 
-    "serialize a Battleship game to BattleshipState" in {
+    "serialize a Battleship game to BattleshipView" in {
       val game = Battleship.random(Player("alice").id, Player("bob").id, new Random(0))
-      BattleshipModule.serialize(game, None) shouldBe a[BattleshipState]
+      BattleshipModule.project(game, None) shouldBe a[BattleshipView]
     }
 
     "return error when passing unsupported MovePayload to toGameCommand" in {
       val alice = Player("alice")
-      val replyProbe = TestProbe[Either[GameError, GameState]]()
+      val replyProbe = TestProbe[Either[GameError, GameView]]()
       val unsupportedMove = null.asInstanceOf[MovePayload] // simulate invalid move type
 
       val result = BattleshipModule.toGameCommand(

@@ -10,14 +10,14 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.HoldEmAction
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.core.{GameError, PlayerId}
 import com.andy327.model.holdem.Action.{Bet, Call, Check, Fold, Raise}
 import com.andy327.model.holdem.{Action, Card, HoldEmMove, TexasHoldEm}
 
 /** [[GameModule]] implementation for Texas Hold 'Em.
   *
-  * Provides move decoding, operation-to-command mapping, and per-viewer serialization. Every action carries a freshly
+  * Provides move decoding, operation-to-command mapping, and per-viewer projection. Every action carries a freshly
   * shuffled deck produced here — server-side — because any action can end a hand and start the next one; the pure model
   * deals the next hand from it and ignores it otherwise, so `TexasHoldEm.play` stays a pure function. Bet and raise
   * sizing is validated by the model, which rejects an illegal amount with its own errors.
@@ -31,7 +31,7 @@ object TexasHoldEmModule extends GameModule[TexasHoldEm] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, HoldEmAction(action, amount)) =>
       def command(a: Action): Either[GameError, GameActor.GameCommand] =
@@ -60,6 +60,6 @@ object TexasHoldEmModule extends GameModule[TexasHoldEm] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: TexasHoldEm, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: TexasHoldEm, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }

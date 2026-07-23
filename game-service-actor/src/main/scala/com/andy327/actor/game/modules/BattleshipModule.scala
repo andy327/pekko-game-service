@@ -8,13 +8,13 @@ import org.apache.pekko.actor.typed.ActorRef
 
 import com.andy327.actor.core.{GameActor, TurnBasedGameActor}
 import com.andy327.actor.game.MovePayload.BattleshipMove
-import com.andy327.actor.game.{GameOperation, GameState, GameStateConverters, MovePayload}
+import com.andy327.actor.game.{GameOperation, GameProjection, GameView, MovePayload}
 import com.andy327.model.battleship.{Battleship, Coord, Fire}
 import com.andy327.model.core.{GameError, PlayerId}
 
 /** [[GameModule]] implementation for Battleship.
   *
-  * Provides move decoding, operation-to-command mapping, and per-viewer serialization for Battleship. Enables
+  * Provides move decoding, operation-to-command mapping, and per-viewer projection for Battleship. Enables
   * [[core.GameManager]] and the HTTP routes to handle Battleship games without any game-specific logic.
   */
 object BattleshipModule extends GameModule[Battleship] {
@@ -23,7 +23,7 @@ object BattleshipModule extends GameModule[Battleship] {
 
   override def toGameCommand(
       op: GameOperation,
-      replyTo: ActorRef[Either[GameError, GameState]]
+      replyTo: ActorRef[Either[GameError, GameView]]
   ): Either[GameError, GameActor.GameCommand] = op match {
     case GameOperation.MakeMove(playerId, MovePayload.BattleshipMove(row, col)) =>
       Right(TurnBasedGameActor.MakeMove(playerId, Fire(Coord(row, col)), replyTo))
@@ -36,6 +36,6 @@ object BattleshipModule extends GameModule[Battleship] {
       Right(TurnBasedGameActor.GetState(replyTo))
   }
 
-  override def serialize(game: Battleship, viewer: Option[PlayerId]): GameState =
-    GameStateConverters.serializeGame(game, viewer)
+  override def project(game: Battleship, viewer: Option[PlayerId]): GameView =
+    GameProjection.project(game, viewer)
 }
