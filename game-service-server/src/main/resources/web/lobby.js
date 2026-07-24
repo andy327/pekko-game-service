@@ -9,6 +9,12 @@ import { loadChatHistory } from "./chat.js";
 import { resetHoldemPreAction } from "./games/holdem.js";
 import { resetCopyLinkButton } from "./deeplinks.js";
 
+// Bot seats hold ids minted from a reserved namespace (see BotId on the server), so every bot id carries this prefix
+// and the client can spot one without the server tagging each player. Deliberately keyed on the id rather than the
+// display name: a guest is free to call themselves "Bot 1", but they cannot mint an id in this namespace.
+const BOT_ID_PREFIX = "b07b07b0-7b07-b07b-";
+const isBotId = (id) => id.startsWith(BOT_ID_PREFIX);
+
 export async function createGame(gameType) {
   setError("lobby-error", "");
   // Optional host-chosen lobby name; the server trims it and treats a blank value as unnamed.
@@ -109,6 +115,11 @@ function prepareGameView({ roomId, gameType, isHost, isSpectator = false, isLive
   setError("game-error", "");
   $("start-game").classList.add("hidden");
   $("start-game").disabled = true;
+  $("add-bot").classList.add("hidden"); // shown only for the host of a not-yet-full pre-game lobby (onLobbyUpdated)
+  $("bot-difficulty").classList.add("hidden"); // tracks the Add bot button's visibility
+  loadBotDifficulties(); // populate the selector (cached after the first room)
+  $("lobby-roster").classList.add("hidden"); // populated from the first LobbyUpdated push
+  $("lobby-roster").innerHTML = "";
   $("post-game-bar").classList.add("hidden");
   $("rematch-btn").classList.add("hidden");
   resetCopyLinkButton();
@@ -229,12 +240,18 @@ export function onLobbyUpdated(metadata) {
 
   if (metadata.status === "InProgress") {
     $("start-game").classList.add("hidden"); // the game is live; Start no longer applies
+    $("add-bot").classList.add("hidden"); // seats are locked once the match starts
+    $("bot-difficulty").classList.add("hidden");
+    $("lobby-roster").classList.add("hidden"); // the board takes over; the roster is a pre-game view
     $("join-as-player").classList.add("hidden"); // too late to join — the match already started
     $("post-game-bar").classList.add("hidden"); // a rematch just began; the next GameStateUpdated takes over
     $("rematch-btn").classList.add("hidden");
     return; // game state pushes take over from here
   }
   if (metadata.status === "Finished") {
+    $("add-bot").classList.add("hidden"); // a finished room's roster is fixed
+    $("bot-difficulty").classList.add("hidden");
+    $("lobby-roster").classList.add("hidden"); // the final board stays in view instead
     $("join-as-player").classList.add("hidden"); // a finished room's roster is fixed; no new seats to join
     onMatchFinished(metadata);
     return;
@@ -249,11 +266,20 @@ export function onLobbyUpdated(metadata) {
 
   const max = GAMES[session.game.gameType].maxPlayers;
   $("join-as-player").classList.toggle("hidden", !isSpectator || count >= max);
+  // only the host manages bot seats, and only while a seat is still open; the difficulty selector rides along with it
+  const canAddBot = youHost && count < max;
+  $("add-bot").classList.toggle("hidden", !canAddBot);
+  $("bot-difficulty").classList.toggle("hidden", !canAddBot);
+  renderRoster(metadata, youHost);
   if (youHost) {
     const ready = metadata.status === "ReadyToStart";
     $("start-game").classList.remove("hidden");
     $("start-game").disabled = !ready;
-    setStatus(ready ? "Opponent joined — press Start." : `You're hosting — waiting for an opponent… (${count}/${max})`);
+    setStatus(
+      ready
+        ? "Opponent seated — press Start, or add another."
+        : `You're hosting — add a bot or wait for a player… (${count}/${max})`
+    );
   } else if (isSpectator) {
     setStatus(`Hosted by ${hostName} — spectating (${count}/${max})`);
   } else {
@@ -300,6 +326,87 @@ export async function startGame() {
   const res = await api(`/lobby/${session.game.roomId}/start`, { method: "POST", body: {} });
   if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not start the game");
   // On success the game-state push arrives over the WebSocket and renders the board.
+}
+
+// Host-only: seat an AI player at the difficulty chosen in the selector. The resulting LobbyUpdated (fanned to every
+// subscriber) refreshes the roster and flips the room to ReadyToStart, which enables Start — so this only needs to
+// fire the request.
+export async function addBot() {
+  setError("game-error", "");
+  const difficulty = $("bot-difficulty").value;
+  const query = difficulty ? `?difficulty=${encodeURIComponent(difficulty)}` : "";
+  const res = await api(`/lobby/${session.game.roomId}/bots${query}`, { method: "POST", body: {} });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not add a bot");
+}
+
+// Fill the difficulty selector from the server's list, so the levels shown are exactly those the server accepts and a
+// level added server-side appears here with no client change. Fetched once and cached; the selector stays populated
+// for the session. A failure leaves it empty, and addBot simply omits the query param (the server then defaults).
+let difficultiesLoaded = false;
+async function loadBotDifficulties() {
+  if (difficultiesLoaded) return;
+  const res = await api("/lobby/bot-difficulties");
+  if (!res.ok || !Array.isArray(res.data)) return;
+  const select = $("bot-difficulty");
+  select.innerHTML = "";
+  for (const level of res.data) {
+    const option = document.createElement("option");
+    option.value = level;
+    option.textContent = level.charAt(0).toUpperCase() + level.slice(1); // "standard" → "Standard"
+    select.appendChild(option);
+  }
+  difficultiesLoaded = true;
+}
+
+// Host-only: free a bot's seat, so the host can drop a surplus bot or make room for a human. Like addBot, the
+// resulting LobbyUpdated re-renders the roster and recomputes whether Start is still available.
+async function removeBot(botId) {
+  setError("game-error", "");
+  const res = await api(`/lobby/${session.game.roomId}/bots/${botId}`, { method: "DELETE" });
+  if (!res.ok) flashError("game-error", res.data?.error || res.data || "Could not remove the bot");
+}
+
+// Draw the seated players for a pre-game room: who's here, which one is you, who hosts, and — for the host — a
+// Remove button on each bot. Rendered from metadata.players, the same source the (n/max) count comes from, so the
+// list and the count can never disagree.
+function renderRoster(metadata, youHost) {
+  const ul = $("lobby-roster");
+  ul.innerHTML = "";
+  // metadata.players is a map, so its order is arbitrary and can shuffle between pushes; sort for a stable list —
+  // the host leads, then everyone else by name (which orders bots by their ordinal)
+  const players = Object.values(metadata.players).sort((a, b) => {
+    if (a.id === metadata.hostId) return -1;
+    if (b.id === metadata.hostId) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const player of players) {
+    const li = document.createElement("li");
+    const isYou = Boolean(session.me) && player.id === session.me.id;
+    if (isYou) li.classList.add("you");
+
+    const tags = [];
+    if (player.id === metadata.hostId) tags.push("host");
+    if (isYou) tags.push("you");
+
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    // textContent, not innerHTML: a player-chosen display name renders as literal text and can't inject markup
+    meta.textContent = tags.length > 0 ? `${player.name} (${tags.join(", ")})` : player.name;
+    li.appendChild(meta);
+
+    // only the host manages bot seats, and only before the match starts
+    if (youHost && isBotId(player.id)) {
+      const remove = document.createElement("button");
+      remove.textContent = "Remove";
+      remove.onclick = () => removeBot(player.id);
+      li.appendChild(remove);
+    }
+
+    ul.appendChild(li);
+  }
+
+  ul.classList.remove("hidden");
 }
 
 export function onGameEnded(result) {

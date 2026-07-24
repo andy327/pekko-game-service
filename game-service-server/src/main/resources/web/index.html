@@ -89,6 +89,8 @@
   <section id="game" class="panel hidden">
     <h2 id="game-title"></h2>
     <p id="game-status" class="status"></p>
+    <!-- Who's seated, while the room is still pre-game. Bots carry a Remove button for the host. -->
+    <ul id="lobby-roster" class="hidden"></ul>
     <!-- Drop buttons for column-based games (Connect Four); empty (and hidden) for cell-click games. -->
     <div id="column-controls"></div>
     <div id="board"></div>
@@ -101,6 +103,8 @@
     <div class="row">
       <button id="back-to-lobby">← Lobby</button>
       <button id="start-game" class="hidden">Start game</button>
+      <select id="bot-difficulty" class="hidden" title="Bot difficulty"></select>
+      <button id="add-bot" class="hidden">Add bot</button>
       <button id="join-as-player" class="hidden">Join this game</button>
       <button id="copy-link">Copy invite link</button>
       <button id="leave-game">Leave</button>

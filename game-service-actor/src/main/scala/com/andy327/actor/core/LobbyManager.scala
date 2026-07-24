@@ -14,7 +14,8 @@ import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
-import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.bot.BotDifficulty
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.model.core.{GameType, PlayerId, RoomId}
 
 /** A child actor of GameManager that owns all lobby lifecycle state.
@@ -64,12 +65,36 @@ object LobbyManager {
   final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
 
-  /** Remove `player` from a lobby. If the host leaves, the host role migrates to a remaining member and the lobby
-    * survives; it is cancelled only when the host was the last player. Rejected with
+  /** Remove `player` from a lobby. If the host leaves, the host role migrates to a remaining human member and the
+    * lobby survives; it is cancelled when the host was the last human, since a bot can hold neither the host role nor
+    * the room. Rejected with
     * [[lobby.LobbyError.GameInProgress]] once the game has started.
     */
   final case class LeaveLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameManager.GameResponse])
       extends Command
+
+  /** Seat a bot in a pre-game lobby on behalf of its host. The bot is a full roster member — it counts toward the
+    * player limits and is dealt in on start — identified by a reserved [[lobby.BotId]] id, so no account or connection
+    * backs it. Replies with [[GameManager.LobbyJoined]] carrying the bot, or [[GameManager.LobbyErrorResponse]] if the
+    * caller is not the host, the lobby is full, no longer joinable, or unknown.
+    */
+  final case class AddBot(
+      roomId: RoomId,
+      requesterId: PlayerId,
+      difficulty: BotDifficulty,
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
+
+  /** Remove a bot seat from a pre-game lobby on behalf of its host. Replies with [[GameManager.LobbyLeft]], or
+    * [[GameManager.LobbyErrorResponse]] if the caller is not the host, `botId` is not a bot seated here, or the lobby
+    * is no longer pre-game or unknown.
+    */
+  final case class RemoveBot(
+      roomId: RoomId,
+      requesterId: PlayerId,
+      botId: PlayerId,
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
 
   /** Cancel a pre-game lobby on behalf of its host, moving it to the recently-ended cache and notifying subscribers.
     * Replies with [[GameManager.LobbyLeft]] on success, [[GameManager.LobbyErrorResponse]] if the caller is not the
@@ -311,6 +336,102 @@ object LobbyManager {
             Behaviors.same
         }
 
+      case AddBot(roomId, requesterId, difficulty, replyTo) =>
+        lobbies.get(roomId) match {
+          case Some(metadata) if !metadata.status.isJoinable =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotJoinable(roomId))
+            Behaviors.same
+
+          case Some(metadata) if metadata.hostId != requesterId =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(roomId))
+            Behaviors.same
+
+          case Some(metadata) if metadata.players.size >= metadata.gameType.maxPlayers =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyFull(roomId))
+            Behaviors.same
+
+          case Some(metadata) =>
+            val bot = BotId.nextFor(metadata.players.keySet)
+            context.log.info(s"Host seated ${bot.name} (${difficulty.label}) in lobby $roomId")
+            val updatedPlayers = metadata.players + (bot.id -> bot)
+            val updatedStatus =
+              if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
+              else GameLifecycleStatus.WaitingForPlayers
+            val updatedMetadata = metadata.copy(
+              players = updatedPlayers,
+              status = updatedStatus,
+              lastActivityAt = Instant.now(),
+              bots = metadata.bots + (bot.id -> difficulty)
+            )
+            replyTo ! GameManager.LobbyJoined(roomId, updatedMetadata, bot)
+            fanOut(
+              subscribers,
+              roomId,
+              PlayerEvent.LobbyUpdated(updatedMetadata, spectatorCount(subscribers, roomId, updatedMetadata))
+            )
+            persist(lobbyRepo.saveLobby(updatedMetadata))
+            running(
+              lobbies + (roomId -> updatedMetadata),
+              recentlyEnded,
+              subscribers,
+              gameManager,
+              lobbyRepo,
+              emptyRoomGrace
+            )
+
+          case None =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
+            Behaviors.same
+        }
+
+      case RemoveBot(roomId, requesterId, botId, replyTo) =>
+        lobbies.get(roomId) match {
+          case Some(metadata) if !metadata.status.isJoinable =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotJoinable(roomId))
+            Behaviors.same
+
+          case Some(metadata) if metadata.hostId != requesterId =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NotHostError(roomId))
+            Behaviors.same
+
+          case Some(metadata) if !BotId.isBot(botId) || !metadata.players.contains(botId) =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.NoSuchBot(roomId))
+            Behaviors.same
+
+          case Some(metadata) =>
+            val bot = metadata.players(botId)
+            context.log.info(s"Host removed ${bot.name} from lobby $roomId")
+            val updatedPlayers = metadata.players - botId
+            val updatedStatus =
+              if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
+              else GameLifecycleStatus.WaitingForPlayers
+            val updatedMetadata = metadata.copy(
+              players = updatedPlayers,
+              status = updatedStatus,
+              lastActivityAt = Instant.now(),
+              bots = metadata.bots - botId // the freed seat takes its difficulty with it
+            )
+            replyTo ! GameManager.LobbyLeft(roomId, s"${bot.name} removed from lobby $roomId")
+            fanOut(
+              subscribers,
+              roomId,
+              PlayerEvent.LobbyUpdated(updatedMetadata, spectatorCount(subscribers, roomId, updatedMetadata))
+            )
+            persist(lobbyRepo.saveLobby(updatedMetadata))
+            running(
+              lobbies + (roomId -> updatedMetadata),
+              recentlyEnded,
+              subscribers,
+              gameManager,
+              lobbyRepo,
+              emptyRoomGrace
+            )
+
+          case None =>
+            replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotFound(roomId))
+            Behaviors.same
+        }
+
       case LeaveLobby(roomId, player, replyTo) =>
         lobbies.get(roomId) match {
           // Leaving an in-progress game is a forfeit, handled by the game actor; GameManager routes those directly and
@@ -333,9 +454,11 @@ object LobbyManager {
               replyTo ! GameManager.LobbyLeft(roomId, s"${player.name} already absent from lobby $roomId")
               Behaviors.same
             } else if (player.id == metadata.hostId) {
-              updatedPlayers.headOption match {
+              // host powers only ever pass to a person: bots cannot start a game or cancel a room, so a lobby whose
+              // remaining members are all bots disbands exactly as an empty one does
+              updatedPlayers.find { case (id, _) => !BotId.isBot(id) } match {
                 case None =>
-                  // host was the last player remaining — disband the lobby
+                  // host was the last human remaining — disband the lobby
                   context.log.info(s"Host (${player.name}) left lobby $roomId with no players left. Cancelling game...")
                   val cancelled = newMetadata.copy(status = GameLifecycleStatus.Cancelled)
                   recentlyEnded.put(roomId, cancelled)
@@ -433,7 +556,8 @@ object LobbyManager {
               metadata.gameType,
               seatOrder(metadata),
               replyTo,
-              lobbySubscribers
+              lobbySubscribers,
+              metadata.bots
             )
             persist(lobbyRepo.saveLobby(updatedMetadata))
             running(

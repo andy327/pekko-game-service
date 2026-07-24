@@ -27,6 +27,7 @@ import {
   refreshMySessions,
   refreshLobbies,
   startGame,
+  addBot,
   joinAsPlayer,
   rematch,
   leaveGame
@@ -103,6 +104,7 @@ $("refresh-lobbies").addEventListener("click", () => {
 });
 $("lobby-filter").addEventListener("change", refreshLobbies);
 $("start-game").addEventListener("click", startGame);
+$("add-bot").addEventListener("click", addBot);
 $("join-as-player").addEventListener("click", joinAsPlayer);
 $("rematch-btn").addEventListener("click", rematch);
 $("back-to-lobby").addEventListener("click", enterLobby); // browse the lobby without leaving the current game

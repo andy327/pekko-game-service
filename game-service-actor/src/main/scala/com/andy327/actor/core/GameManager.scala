@@ -12,13 +12,14 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, StashBuff
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
+import com.andy327.actor.bot.{BotActor, BotConfig, BotDifficulty, BotPolicies}
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameView}
-import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
 import com.andy327.actor.tracing.{TraceCollector, TraceEvent, TracingConfig, TracingInterceptor}
-import com.andy327.model.core.{Game, GameError, GameType, MatchId, PlayerId, RoomId}
+import com.andy327.model.core.{Game, GameError, GameType, InProgress, MatchId, PlayerId, RoomId}
 import com.andy327.persistence.db.{GameRepository, MoveHistoryRepository, MoveRecord, NoOpMoveHistoryRepository}
 
 /** A supervisor actor responsible for game actor lifecycle and request routing.
@@ -53,8 +54,8 @@ object GameManager {
   /** Join an existing lobby; replies with [[LobbyJoined]] or a [[LobbyErrorResponse]]. */
   final case class JoinLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Leave a lobby. If the host leaves, the host role migrates to a remaining member and the lobby survives; it is
-    * cancelled only when the host was the last player. Rejected with
+  /** Leave a lobby. If the host leaves, the host role migrates to a remaining human member and the lobby survives; it
+    * is cancelled when the host was the last human. Rejected with
     * [[com.andy327.actor.lobby.LobbyError.GameInProgress]] once the game has started (leaving is then a forfeit).
     */
   final case class LeaveLobby(roomId: RoomId, player: Player, replyTo: ActorRef[GameResponse]) extends Command
@@ -63,6 +64,22 @@ object GameManager {
     * (not host, lobby not found). Rejected once the game has started — at that point leaving is a forfeit.
     */
   final case class CancelLobby(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+
+  /** Seat a bot playing at `difficulty` in a pre-game lobby the caller hosts; replies with [[LobbyJoined]] carrying
+    * the bot or a [[LobbyErrorResponse]] (not host, lobby full, not joinable, not found).
+    */
+  final case class AddBot(
+      roomId: RoomId,
+      requesterId: PlayerId,
+      difficulty: BotDifficulty,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
+
+  /** Remove a bot from a pre-game lobby the caller hosts; replies with [[LobbyLeft]] or a [[LobbyErrorResponse]]
+    * (not host, no such bot, not joinable, not found).
+    */
+  final case class RemoveBot(roomId: RoomId, requesterId: PlayerId, botId: PlayerId, replyTo: ActorRef[GameResponse])
+      extends Command
 
   /** Start a game in a lobby the caller hosts; replies with [[GameStarted]] or a [[LobbyErrorResponse]]. */
   final case class StartGame(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
@@ -185,6 +202,9 @@ object GameManager {
   /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. Carries the stable
     * `roomId`, the freshly-minted `matchId` for this playthrough, and the seated `players` in turn order (seat 0 moves
     * first); LobbyManager rotates that order across rematches.
+    *
+    * `bots` names the difficulty of each bot seat in `players`, so the spawner knows which policy to give each one; it
+    * is empty for an all-human roster.
     */
   final private[core] case class SpawnGame(
       roomId: RoomId,
@@ -192,7 +212,8 @@ object GameManager {
       gameType: GameType,
       players: Seq[PlayerId],
       replyTo: ActorRef[GameResponse],
-      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
+      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty,
+      bots: Map[PlayerId, BotDifficulty] = Map.empty
   ) extends Command
 
   /** Adapter wrapper — converts a game actor's `Either[GameError, GameView]` reply into a [[GameResponse]]. */
@@ -345,6 +366,37 @@ object GameManager {
   /** Timeout for internal `context.ask` calls used to look up player refs during subscribe flows. */
   private val subscribeAskTimeout: Timeout = Timeout(3.seconds)
 
+  /** Spawn a [[BotActor]] for each bot seat in `players` and subscribe it to `gameActor`, so a seated bot begins
+    * playing as soon as the game is live. Human seats are skipped — their sessions subscribe themselves. Each bot
+    * decides with the policy [[BotPolicies]] resolves for `gameType` and the difficulty `bots` recorded for its seat,
+    * and submits moves back through this GameManager, exactly as a human client does; the think delay comes from the
+    * actor system's [[BotConfig]]. A no-op when the roster holds no bots.
+    *
+    * A bot seat missing from `bots` falls back to the default difficulty — the case for a match restored without its
+    * lobby, where the recorded choice is no longer reachable.
+    */
+  private def spawnBots(
+      context: ActorContext[Command],
+      gameType: GameType,
+      matchId: MatchId,
+      roomId: RoomId,
+      players: Seq[PlayerId],
+      bots: Map[PlayerId, BotDifficulty],
+      gameActor: ActorRef[GameActor.GameCommand],
+      tracingConfig: TracingConfig,
+      traceEmit: TraceEvent => Unit
+  ): Unit = {
+    val actorPlugin = GameRegistry.forType(gameType).actor
+    val thinkDelay = BotConfig.fromConfig(context.system.settings.config).thinkDelay
+    players.filter(BotId.isBot).foreach { botId =>
+      val policy = BotPolicies.forGame(gameType, bots.getOrElse(botId, BotDifficulty.Default))
+      val behavior = BotActor(botId, roomId, policy, context.self, thinkDelay = thinkDelay) { session =>
+        gameActor ! actorPlugin.subscribeCommand(session, botId)
+      }
+      context.spawn(TracingInterceptor.wrap(behavior, tracingConfig, traceEmit), s"bot-$matchId-$botId")
+    }
+  }
+
   /** Look up the live PlayerActor for `playerId` and hand the result (`None` if not connected) to `onResolved`, which
     * builds the follow-up command sent back to self. Centralizes the spectate/auto-subscribe lookups so the ask wiring
     * — and its single ask-timeout fallback (mapped, like a miss, to `None`) — lives in one place.
@@ -476,6 +528,11 @@ object GameManager {
         val matchToRoom: Map[MatchId, RoomId] =
           lobbies.flatMap(m => m.currentMatchId.map(_ -> m.roomId)).toMap
 
+        // the difficulty each restored match's bot seats were created with, recovered from the room that recorded the
+        // match; an orphan match has none, and its bots fall back to the default
+        val matchToBots: Map[MatchId, Map[PlayerId, BotDifficulty]] =
+          lobbies.flatMap(m => m.currentMatchId.map(_ -> m.bots)).toMap
+
         // resolve each restored game to its room once, then derive the actor map and the player index from it
         val resolved = games.toList.map { case (matchId, (gameType, game)) =>
           val roomId = matchToRoom.getOrElse(matchId, matchId)
@@ -491,6 +548,20 @@ object GameManager {
             TracingInterceptor.wrap(behavior, tracingConfig, traceEmit),
             s"game-$matchId"
           ).unsafeUpcast[GameActor.GameCommand]
+          // a restored game keeps no live sessions, so its bots must be re-created to keep playing; a terminal
+          // snapshot's actor stops itself on restore, so only an in-progress game gets bots
+          if (game.gameStatus == InProgress)
+            spawnBots(
+              context,
+              gameType,
+              matchId,
+              roomId,
+              game.players,
+              matchToBots.getOrElse(matchId, Map.empty),
+              actorRef,
+              tracingConfig,
+              traceEmit
+            )
           roomId -> (gameType, matchId, actorRef)
         }.toMap
 
@@ -595,6 +666,17 @@ object GameManager {
             replyTo ! LobbyErrorResponse(LobbyError.GameInProgress(roomId))
           else
             lobbyManager ! LobbyManager.CancelLobby(roomId, playerId, replyTo)
+          Behaviors.same
+
+        case AddBot(roomId, requesterId, difficulty, replyTo) =>
+          // no auto-subscribe interception here: that wiring subscribes the caller's connected session to lobby
+          // pushes, and this caller — the host — was wired when the lobby was created, while the seated bot has no
+          // session to wire
+          lobbyManager ! LobbyManager.AddBot(roomId, requesterId, difficulty, replyTo)
+          Behaviors.same
+
+        case RemoveBot(roomId, requesterId, botId, replyTo) =>
+          lobbyManager ! LobbyManager.RemoveBot(roomId, requesterId, botId, replyTo)
           Behaviors.same
 
         case StartGame(roomId, playerId, replyTo) =>
@@ -743,7 +825,7 @@ object GameManager {
           replyTo ! context.child("trace-collector").map(_.unsafeUpcast[TraceCollector.Command])
           Behaviors.same
 
-        case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers) =>
+        case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers, bots) =>
           val n = players.size
           if (n < gameType.minPlayers || n > gameType.maxPlayers) {
             val expected =
@@ -762,6 +844,7 @@ object GameManager {
             ).unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
+            spawnBots(context, gameType, matchId, roomId, players, bots, actorRef, tracingConfig, traceEmit)
 
             persistActor ! PersistenceProtocol.SaveSnapshot(
               matchId,

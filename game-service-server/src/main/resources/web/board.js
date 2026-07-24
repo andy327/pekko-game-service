@@ -15,6 +15,11 @@ export function renderBoard(state) {
   // a board push means we're now (or still) watching a live game, however we got here
   if (session.game) session.game.isLive = true;
   $("start-game").classList.add("hidden");
+  // the seats are locked once play begins, and a board push — not a LobbyUpdated — is what the start flow delivers,
+  // so the pre-game roster and its bot controls retire here
+  $("add-bot").classList.add("hidden");
+  $("bot-difficulty").classList.add("hidden");
+  $("lobby-roster").classList.add("hidden");
   $("post-game-bar").classList.add("hidden");
   $("rematch-btn").classList.add("hidden");
   setError("game-error", "");

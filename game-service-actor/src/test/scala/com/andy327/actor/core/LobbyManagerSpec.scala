@@ -14,7 +14,8 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
+import com.andy327.actor.bot.BotDifficulty
+import com.andy327.actor.lobby.{BotId, GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.model.core.{GameType, RoomId}
 
 class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
@@ -726,6 +727,196 @@ class LobbyManagerSpec extends AnyWordSpecLike with Matchers {
       val error = responseProbe.expectMessageType[GameManager.LobbyErrorResponse]
       error.error shouldBe LobbyError.LobbyNotReady(roomId)
       gmProbe.expectNoMessage()
+    }
+  }
+
+  "LobbyManager bot seats" should {
+
+    /** Create a lobby hosted by alice and return its roomId. */
+    def createLobby(f: LobbyFixture, gameType: GameType = GameType.TicTacToe): RoomId = {
+      f.lm ! LobbyManager.CreateLobby(gameType, alice, None, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyCreated].roomId
+    }
+
+    "seat a bot for the host and count it toward readiness" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val joined = f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+      BotId.isBot(joined.joinedPlayer.id) shouldBe true
+      joined.joinedPlayer.name shouldBe "Bot 1"
+      joined.metadata.players should have size 2
+      joined.metadata.status shouldBe GameLifecycleStatus.ReadyToStart
+    }
+
+    "let a game start with a bot on the roster" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.StartGame(roomId, alice.id, f.responseProbe.ref)
+      val spawnMsg = f.gmProbe.expectMessageType[GameManager.SpawnGame]
+      spawnMsg.players should contain(bot.id)
+    }
+
+    "remove a bot, recomputing readiness, and reuse its name on a later add" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft].message should include("Bot 1")
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      val metadata = f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata
+      metadata.players.keySet shouldBe Set(alice.id)
+      metadata.status shouldBe GameLifecycleStatus.WaitingForPlayers
+
+      // the freed ordinal is reused, so the roster never shows a gap in bot names
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer.name shouldBe "Bot 1"
+    }
+
+    "reject AddBot from a non-host, on a full lobby, and on an unknown lobby" in {
+      val f = newLobby()
+      val (roomId, _) = createReadyLobby(f) // TicTacToe: alice + bob fills the room
+
+      f.lm ! LobbyManager.AddBot(roomId, bob.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.NotHostError(roomId)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.LobbyFull(roomId)
+
+      val bogus = UUID.randomUUID()
+      f.lm ! LobbyManager.AddBot(bogus, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.LobbyNotFound(bogus)
+    }
+
+    "reject AddBot once the game has started" in {
+      val f = newLobby()
+      val (roomId, _) = startGame(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe
+        LobbyError.LobbyNotJoinable(roomId)
+    }
+
+    "reject RemoveBot aimed at a human or an unseated id" in {
+      val f = newLobby()
+      val (roomId, _) = createReadyLobby(f)
+
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, bob.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.NoSuchBot(roomId)
+
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, BotId.forOrdinal(3), f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.NoSuchBot(roomId)
+    }
+
+    "reject RemoveBot from a non-host, once the game has started, and on an unknown lobby" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.RemoveBot(roomId, bob.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.NotHostError(roomId)
+
+      f.lm ! LobbyManager.StartGame(roomId, alice.id, f.responseProbe.ref)
+      f.gmProbe.expectMessageType[GameManager.SpawnGame]
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe
+        LobbyError.LobbyNotJoinable(roomId)
+
+      val bogus = UUID.randomUUID()
+      f.lm ! LobbyManager.RemoveBot(bogus, alice.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyErrorResponse].error shouldBe LobbyError.LobbyNotFound(bogus)
+    }
+
+    "keep a lobby ready when removing a bot still leaves enough players" in {
+      val f = newLobby()
+      val roomId = createLobby(f, GameType.Pig)
+      f.lm ! LobbyManager.JoinLobby(roomId, bob, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe
+        GameLifecycleStatus.ReadyToStart
+    }
+
+    "carry each bot's difficulty from its seat into the started game" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.StartGame(roomId, alice.id, f.responseProbe.ref)
+      f.gmProbe.expectMessageType[GameManager.SpawnGame].bots shouldBe Map(bot.id -> BotDifficulty.Standard)
+    }
+
+    "record the difficulty on the lobby, and drop it when the bot's seat is freed" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      val bot = f.responseProbe.expectMessageType[GameManager.LobbyJoined].joinedPlayer
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.bots shouldBe
+        Map(bot.id -> BotDifficulty.Standard)
+
+      f.lm ! LobbyManager.RemoveBot(roomId, alice.id, bot.id, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft]
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.bots shouldBe empty
+    }
+
+    "leave the bots map empty for an all-human roster" in {
+      val f = newLobby()
+      val (_, spawnMsg) = startGame(f)
+      spawnMsg.bots shouldBe empty
+    }
+
+    "migrate the host role to a human, never a bot" in {
+      val f = newLobby()
+      val roomId = createLobby(f, GameType.Pig) // up to 8 seats, so bot + human + host all fit
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+      f.lm ! LobbyManager.JoinLobby(roomId, bob, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      f.lm ! LobbyManager.LeaveLobby(roomId, alice, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft].message should include("host transferred to bob")
+
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.hostId shouldBe bob.id
+    }
+
+    "cancel the lobby when the departing host leaves only bots behind" in {
+      val f = newLobby()
+      val roomId = createLobby(f)
+
+      f.lm ! LobbyManager.AddBot(roomId, alice.id, BotDifficulty.Standard, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyJoined]
+
+      f.lm ! LobbyManager.LeaveLobby(roomId, alice, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyLeft].message should include("host left")
+
+      // the room is retired, not left running with an unattended bot
+      f.lm ! LobbyManager.GetLobbyInfo(roomId, f.responseProbe.ref)
+      f.responseProbe.expectMessageType[GameManager.LobbyInfo].metadata.status shouldBe GameLifecycleStatus.Cancelled
     }
   }
 }

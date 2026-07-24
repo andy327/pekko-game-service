@@ -3,6 +3,7 @@ package com.andy327.actor.lobby
 import java.time.Instant
 import java.util.UUID
 
+import com.andy327.actor.bot.BotDifficulty
 import com.andy327.model.core.{GameType, MatchId, PlayerId, RoomId}
 
 object LobbyMetadata {
@@ -52,6 +53,10 @@ object LobbyMetadata {
   *                       idle post-game (Finished) rooms
   * @param name optional host-chosen display name for the lobby, shown in the lobby list so friends can recognize the
   *             room; when absent, clients fall back to a default "{host}'s {game}" label
+  * @param bots the difficulty each seated bot plays at, keyed by its player id. Only bot seats appear here, so the map
+  *             is empty for an all-human room. It is persisted with the room because a bot is seated in the lobby but
+  *             only spawned when the match starts — and again on restore after a restart — so the choice has to
+  *             outlive both steps
   */
 case class LobbyMetadata(
     roomId: RoomId,
@@ -63,5 +68,6 @@ case class LobbyMetadata(
     currentMatchId: Option[MatchId] = None,
     matchCount: Int = 0,
     lastActivityAt: Instant = Instant.EPOCH,
-    name: Option[String] = None
+    name: Option[String] = None,
+    bots: Map[PlayerId, BotDifficulty] = Map.empty
 )

@@ -53,4 +53,9 @@ object LobbyError {
   case class GameInProgress(roomId: RoomId) extends LobbyError {
     def message: String = s"Cannot leave lobby $roomId - game is in progress"
   }
+
+  /** The referenced player is not a bot seated in this lobby. Maps to HTTP 404. */
+  case class NoSuchBot(roomId: RoomId) extends LobbyError {
+    def message: String = s"No such bot in lobby $roomId"
+  }
 }
