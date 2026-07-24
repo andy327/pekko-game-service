@@ -30,6 +30,7 @@ Although it runs as a single instance today, the system is **designed for horizo
 - ⏱️ Per-turn timeouts — an idle or disconnected player can't stall a match: when a seat's clock runs out the game applies a safe fallback (Texas Hold 'Em auto-checks or folds, Pig auto-holds) or forfeits the seat, so play always progresses. Opt-in per game type.
 - ⚡ Real-time state delivery to all participants over WebSockets
 - 🌫️ Per-viewer / fog-of-war state projection for hidden-information games and spectators
+- 🤖 AI bot players — the host can seat one or more bots to fill out a match; each bot plays its own seat autonomously through the same move-validation path as a human, and only ever sees its per-viewer projection, so it can't cheat. A pluggable per-game `AiPolicy` seam ships a random-legal baseline for every game type, with a per-seat difficulty selector in the lobby
 - 💬 In-match chat with persisted backscroll history
 - 📜 Move history retrieval per game
 - 🏅 Per-player game history — win/loss/draw records across completed matches, retrievable by the authenticated player
@@ -41,7 +42,8 @@ Although it runs as a single instance today, the system is **designed for horizo
 **Planned** (see [Roadmap](#roadmap))
 
 - 📈 Horizontal scaling via Pekko Cluster Sharding
-- 🕹️ Additional game types and an AI opponent
+- 🕹️ More game types
+- 🤖 Smarter AI opponents — additional difficulty levels and stronger per-game strategy beyond the random-legal baseline
 
 ## Requirements
 
@@ -202,6 +204,9 @@ The credential endpoints (`/auth/register`, `/auth/token`, `/auth/password`, `/a
 | `POST`   | `/lobby/{roomId}/join` | Join an open lobby |
 | `POST`   | `/lobby/{roomId}/leave` | Leave a lobby (or forfeit an in-progress game) |
 | `POST`   | `/lobby/{roomId}/start` | Start the match (host only); also doubles as the rematch call when the room is in its post-game `Finished` state |
+| `POST`   | `/lobby/{roomId}/bots` | Seat an AI bot in a pre-game lobby (host only); optional `?difficulty=` picks its level |
+| `DELETE` | `/lobby/{roomId}/bots/{botId}` | Remove a seated bot from a pre-game lobby (host only) |
+| `GET`    | `/lobby/bot-difficulties` | List the available bot difficulty labels (no auth; the web client populates its selector from this) |
 | `DELETE` | `/lobby/{roomId}` | Cancel a pre-game lobby (host only) |
 | `POST` / `DELETE` | `/lobby/{roomId}/subscribe` | Start / stop spectating a lobby's push events |
 
@@ -258,11 +263,12 @@ graph TD
     GM --> LM["LobbyManager<br/>lobby lifecycle + Redis store"]
     GM --> PM[PlayerManager]
     GM --> GA["game actors<br/>one per active match"]
+    GM --> BA["bot actors<br/>one per seated AI bot"]
     GM --> PG["PostgresActor<br/>snapshot + move-log writes"]
     PM --> PA["PlayerActor<br/>one per connected client"]
 ```
 
-Each game actor is the single source of truth for one match. Because an actor processes one message at a time, the moves within a game are serialized for free: two players submitting at once are simply handled in arrival order, and neither can observe a half-applied board.
+Each game actor is the single source of truth for one match. When a match with bot seats starts (or is restored), `GameManager` also spawns one `BotActor` per bot; each subscribes to its game like a human client, and on its own turn submits a move computed by a pure `AiPolicy` back through the same `RunGameOperation` path a human move takes — so a bot is just another subscriber that happens to answer for itself. Because an actor processes one message at a time, the moves within a game are serialized for free: two players submitting at once are simply handled in arrival order, and neither can observe a half-applied board.
 
 ### The move lifecycle
 
@@ -340,7 +346,7 @@ Then register the pair in `GameRegistry.forType`. That single `case` is the only
 
 - `game-service-model` — pure game logic: the `Game` trait and per-game implementations (no I/O).
 - `game-service-persistence` — the persistence layer: Doobie/PostgreSQL and Redis repositories, plus Circe codecs.
-- `game-service-actor` — the actor system and domain orchestration: `GameManager`, `LobbyManager`, `PlayerManager`, the per-game actors, the persistence actor, the game registry/modules, the lobby and chat domains, per-viewer state projection, and the game-event emit seam.
+- `game-service-actor` — the actor system and domain orchestration: `GameManager`, `LobbyManager`, `PlayerManager`, the per-game actors, the persistence actor, the game registry/modules, the lobby and chat domains, per-viewer state projection, AI bot players (a `BotActor` session driven by a pure `AiPolicy`), and the game-event emit seam.
 - `game-service-server` — the transport edge: Pekko HTTP routes, JWT auth (with Redis-backed token revocation and rate-limiting), the JSON protocol, WebSocket delivery, the bundled static web client, and the analytics consumer (Prometheus metrics).
 
 ## Testing
@@ -369,7 +375,7 @@ Planned work, in rough priority order:
 - **Block-until-verified accounts** — email verification ships non-blocking: an unverified account can still log in and play, with `verified` surfaced on `whoami`. A stricter mode that gates login until the address is verified is left as a later `auth.verification` toggle. (The rest of the auth-hardening arc — token revocation, rate-limiting and lockout, password reset, and verification itself — is already in place; see the [Auth](#auth) section.)
 - **OAuth / social login** — a second `IdentityProvider` (e.g. Google/GitHub) plus a callback route, resolving an external identity to the same `Account` and reusing token issuance and the account store unchanged. The `IdentityProvider` seam exists precisely so this is additive; the open design questions are account-linking policy (same email via password and OAuth) and how non-browser clients complete the redirect.
 - **More game types** — additional turn-based games beyond the current eight.
-- **AI opponent** — a bot player for single-player matches and testing.
+- **Smarter AI opponents** — bot players already ship: a host can seat one or more bots, each playing its seat autonomously through the human move path via a pluggable per-game `AiPolicy` (a random-legal baseline for every game). What's left is depth — additional difficulty rungs on the `BotDifficulty` ladder and stronger per-game strategy (heuristics, and classic search for the perfect-information games) plugged in behind the same seam without touching the framework.
 - **Load testing** — throughput/latency benchmarking, plus retention policies for snapshots and move logs.
 
 ## License
