@@ -9,6 +9,7 @@ import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.util.Timeout
 
+import com.andy327.actor.bot.BotDifficulty
 import com.andy327.actor.core.GameManager
 import com.andy327.actor.core.GameManager.{
   GameForfeited,
@@ -38,6 +39,7 @@ import com.andy327.server.http.routes.RouteDirectives._
   *
   * Route Summary:
   *   - POST /lobby/create/{gameType} - Create a new lobby for a specific game type
+  *   - GET /lobby/bot-difficulties - List the bot difficulty levels a host may choose
   *   - GET /lobby/list - List all available open lobbies
   *   - GET /lobby/{roomId} - Fetch metadata for a specific lobby
   *   - POST /lobby/{roomId}/join - Join an existing lobby
@@ -65,6 +67,17 @@ class LobbyRoutes(
 
   val routes: Route = pathPrefix("lobby") {
 
+    /** Lists the bot difficulty levels a host may choose from, weakest first, as their wire labels. The client
+      * populates its difficulty selector from this rather than hard-coding the levels, so a new level added on the
+      * server appears in the UI with no client change. No auth: it is static configuration.
+      *
+      * - 200: a JSON array of difficulty labels, e.g. `["standard"]`
+      */
+    path("bot-difficulties") {
+      get {
+        complete(BotDifficulty.all.map(_.label))
+      }
+    } ~
     /** Lists metadata for all joinable lobbies with optional filtering and pagination.
       *
       * - Query `gameType` (optional): filter by game type (e.g., `tictactoe`)
@@ -227,8 +240,9 @@ class LobbyRoutes(
           *
           * - Auth: Bearer token required
           * - Path: `roomId` — the UUID of the lobby to seat a bot in
+          * - Query `difficulty` (optional): how strong the bot plays, e.g. `standard`; defaults to the standard level
           * - 200: `LobbyJoined` with the seated bot and updated metadata
-          * - 400: invalid UUID format
+          * - 400: invalid UUID format, or unknown difficulty
           * - 401: missing or invalid token
           * - 403: requester is not the host
           * - 404: lobby not found
@@ -237,11 +251,20 @@ class LobbyRoutes(
           */
         path("bots") {
           post {
-            authenticator.authenticatePlayer { player =>
-              onSuccess(system.ask[GameResponse](replyTo => GameManager.AddBot(roomId, player.id, replyTo))) {
-                case joined: LobbyJoined       => complete(joined)
-                case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
-                case other => complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
+            parameter("difficulty".?) { difficultyParam =>
+              authenticator.authenticatePlayer { player =>
+                LobbyRoutes.parseDifficulty(difficultyParam) match {
+                  case Left(err)         => complete(StatusCodes.BadRequest -> ErrorResponse(err))
+                  case Right(difficulty) =>
+                    onSuccess(
+                      system.ask[GameResponse](replyTo => GameManager.AddBot(roomId, player.id, difficulty, replyTo))
+                    ) {
+                      case joined: LobbyJoined       => complete(joined)
+                      case LobbyErrorResponse(error) => complete(statusFor(error) -> ErrorResponse(error.message))
+                      case other                     =>
+                        complete(StatusCodes.InternalServerError -> ErrorResponse(s"Unexpected response: $other"))
+                    }
+                }
               }
             }
           }
@@ -358,5 +381,17 @@ object LobbyRoutes {
     name.map(_.trim).filter(_.nonEmpty) match {
       case Some(n) if n.length > MaxNameLength => Left(s"Lobby name must be at most $MaxNameLength characters")
       case cleaned                             => Right(cleaned)
+    }
+
+  /** Resolves an optional `difficulty` query value to the level a new bot should play at, defaulting when it is absent
+    * or blank. Returns an error message naming the accepted levels when the value is not one of them.
+    */
+  def parseDifficulty(value: Option[String]): Either[String, BotDifficulty] =
+    value.map(_.trim).filter(_.nonEmpty) match {
+      case None      => Right(BotDifficulty.Default)
+      case Some(raw) =>
+        BotDifficulty
+          .fromString(raw)
+          .toRight(s"Unknown difficulty: $raw (expected one of ${BotDifficulty.all.map(_.label).mkString(", ")})")
     }
 }

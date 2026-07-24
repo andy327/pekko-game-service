@@ -12,7 +12,7 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, StashBuff
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.util.Timeout
 
-import com.andy327.actor.bot.{BotActor, BotConfig, BotPolicies}
+import com.andy327.actor.bot.{BotActor, BotConfig, BotDifficulty, BotPolicies}
 import com.andy327.actor.chat.{ChatRepository, NoOpChatRepository}
 import com.andy327.actor.events.{EventPublisher, GameEvent, NoOpEventPublisher}
 import com.andy327.actor.game.{GameOperation, GameRegistry, GameView}
@@ -65,10 +65,15 @@ object GameManager {
     */
   final case class CancelLobby(roomId: RoomId, playerId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
 
-  /** Seat a bot in a pre-game lobby the caller hosts; replies with [[LobbyJoined]] carrying the bot or a
-    * [[LobbyErrorResponse]] (not host, lobby full, not joinable, not found).
+  /** Seat a bot playing at `difficulty` in a pre-game lobby the caller hosts; replies with [[LobbyJoined]] carrying
+    * the bot or a [[LobbyErrorResponse]] (not host, lobby full, not joinable, not found).
     */
-  final case class AddBot(roomId: RoomId, requesterId: PlayerId, replyTo: ActorRef[GameResponse]) extends Command
+  final case class AddBot(
+      roomId: RoomId,
+      requesterId: PlayerId,
+      difficulty: BotDifficulty,
+      replyTo: ActorRef[GameResponse]
+  ) extends Command
 
   /** Remove a bot from a pre-game lobby the caller hosts; replies with [[LobbyLeft]] or a [[LobbyErrorResponse]]
     * (not host, no such bot, not joinable, not found).
@@ -197,6 +202,9 @@ object GameManager {
   /** Sent by LobbyManager after validating a StartGame request; GameManager spawns the child actor. Carries the stable
     * `roomId`, the freshly-minted `matchId` for this playthrough, and the seated `players` in turn order (seat 0 moves
     * first); LobbyManager rotates that order across rematches.
+    *
+    * `bots` names the difficulty of each bot seat in `players`, so the spawner knows which policy to give each one; it
+    * is empty for an all-human roster.
     */
   final private[core] case class SpawnGame(
       roomId: RoomId,
@@ -204,7 +212,8 @@ object GameManager {
       gameType: GameType,
       players: Seq[PlayerId],
       replyTo: ActorRef[GameResponse],
-      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty
+      subscribers: Map[PlayerId, ActorRef[PlayerActor.Command]] = Map.empty,
+      bots: Map[PlayerId, BotDifficulty] = Map.empty
   ) extends Command
 
   /** Adapter wrapper — converts a game actor's `Either[GameError, GameView]` reply into a [[GameResponse]]. */
@@ -359,9 +368,12 @@ object GameManager {
 
   /** Spawn a [[BotActor]] for each bot seat in `players` and subscribe it to `gameActor`, so a seated bot begins
     * playing as soon as the game is live. Human seats are skipped — their sessions subscribe themselves. Each bot
-    * decides with the policy [[BotPolicies]] resolves for `gameType` and submits moves back through this GameManager,
-    * exactly as a human client does; the think delay comes from the actor system's [[BotConfig]]. A no-op when the
-    * roster holds no bots.
+    * decides with the policy [[BotPolicies]] resolves for `gameType` and the difficulty `bots` recorded for its seat,
+    * and submits moves back through this GameManager, exactly as a human client does; the think delay comes from the
+    * actor system's [[BotConfig]]. A no-op when the roster holds no bots.
+    *
+    * A bot seat missing from `bots` falls back to the default difficulty — the case for a match restored without its
+    * lobby, where the recorded choice is no longer reachable.
     */
   private def spawnBots(
       context: ActorContext[Command],
@@ -369,6 +381,7 @@ object GameManager {
       matchId: MatchId,
       roomId: RoomId,
       players: Seq[PlayerId],
+      bots: Map[PlayerId, BotDifficulty],
       gameActor: ActorRef[GameActor.GameCommand],
       tracingConfig: TracingConfig,
       traceEmit: TraceEvent => Unit
@@ -376,8 +389,9 @@ object GameManager {
     val actorPlugin = GameRegistry.forType(gameType).actor
     val thinkDelay = BotConfig.fromConfig(context.system.settings.config).thinkDelay
     players.filter(BotId.isBot).foreach { botId =>
-      val behavior = BotActor(botId, roomId, BotPolicies.forGame(gameType), context.self, thinkDelay = thinkDelay) {
-        session => gameActor ! actorPlugin.subscribeCommand(session, botId)
+      val policy = BotPolicies.forGame(gameType, bots.getOrElse(botId, BotDifficulty.Default))
+      val behavior = BotActor(botId, roomId, policy, context.self, thinkDelay = thinkDelay) { session =>
+        gameActor ! actorPlugin.subscribeCommand(session, botId)
       }
       context.spawn(TracingInterceptor.wrap(behavior, tracingConfig, traceEmit), s"bot-$matchId-$botId")
     }
@@ -514,6 +528,11 @@ object GameManager {
         val matchToRoom: Map[MatchId, RoomId] =
           lobbies.flatMap(m => m.currentMatchId.map(_ -> m.roomId)).toMap
 
+        // the difficulty each restored match's bot seats were created with, recovered from the room that recorded the
+        // match; an orphan match has none, and its bots fall back to the default
+        val matchToBots: Map[MatchId, Map[PlayerId, BotDifficulty]] =
+          lobbies.flatMap(m => m.currentMatchId.map(_ -> m.bots)).toMap
+
         // resolve each restored game to its room once, then derive the actor map and the player index from it
         val resolved = games.toList.map { case (matchId, (gameType, game)) =>
           val roomId = matchToRoom.getOrElse(matchId, matchId)
@@ -532,7 +551,17 @@ object GameManager {
           // a restored game keeps no live sessions, so its bots must be re-created to keep playing; a terminal
           // snapshot's actor stops itself on restore, so only an in-progress game gets bots
           if (game.gameStatus == InProgress)
-            spawnBots(context, gameType, matchId, roomId, game.players, actorRef, tracingConfig, traceEmit)
+            spawnBots(
+              context,
+              gameType,
+              matchId,
+              roomId,
+              game.players,
+              matchToBots.getOrElse(matchId, Map.empty),
+              actorRef,
+              tracingConfig,
+              traceEmit
+            )
           roomId -> (gameType, matchId, actorRef)
         }.toMap
 
@@ -639,11 +668,11 @@ object GameManager {
             lobbyManager ! LobbyManager.CancelLobby(roomId, playerId, replyTo)
           Behaviors.same
 
-        case AddBot(roomId, requesterId, replyTo) =>
+        case AddBot(roomId, requesterId, difficulty, replyTo) =>
           // no auto-subscribe interception here: that wiring subscribes the caller's connected session to lobby
           // pushes, and this caller — the host — was wired when the lobby was created, while the seated bot has no
           // session to wire
-          lobbyManager ! LobbyManager.AddBot(roomId, requesterId, replyTo)
+          lobbyManager ! LobbyManager.AddBot(roomId, requesterId, difficulty, replyTo)
           Behaviors.same
 
         case RemoveBot(roomId, requesterId, botId, replyTo) =>
@@ -796,7 +825,7 @@ object GameManager {
           replyTo ! context.child("trace-collector").map(_.unsafeUpcast[TraceCollector.Command])
           Behaviors.same
 
-        case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers) =>
+        case SpawnGame(roomId, matchId, gameType, players, replyTo, subscribers, bots) =>
           val n = players.size
           if (n < gameType.minPlayers || n > gameType.maxPlayers) {
             val expected =
@@ -815,7 +844,7 @@ object GameManager {
             ).unsafeUpcast[GameActor.GameCommand]
 
             subscribers.foreach { case (pid, ref) => actorRef ! bundle.actor.subscribeCommand(ref, pid) }
-            spawnBots(context, gameType, matchId, roomId, players, actorRef, tracingConfig, traceEmit)
+            spawnBots(context, gameType, matchId, roomId, players, bots, actorRef, tracingConfig, traceEmit)
 
             persistActor ! PersistenceProtocol.SaveSnapshot(
               matchId,

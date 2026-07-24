@@ -14,6 +14,7 @@ import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, Terminated}
 
+import com.andy327.actor.bot.BotDifficulty
 import com.andy327.actor.lobby.{BotId, GameLifecycleStatus, LobbyError, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.model.core.{GameType, PlayerId, RoomId}
 
@@ -77,8 +78,12 @@ object LobbyManager {
     * backs it. Replies with [[GameManager.LobbyJoined]] carrying the bot, or [[GameManager.LobbyErrorResponse]] if the
     * caller is not the host, the lobby is full, no longer joinable, or unknown.
     */
-  final case class AddBot(roomId: RoomId, requesterId: PlayerId, replyTo: ActorRef[GameManager.GameResponse])
-      extends Command
+  final case class AddBot(
+      roomId: RoomId,
+      requesterId: PlayerId,
+      difficulty: BotDifficulty,
+      replyTo: ActorRef[GameManager.GameResponse]
+  ) extends Command
 
   /** Remove a bot seat from a pre-game lobby on behalf of its host. Replies with [[GameManager.LobbyLeft]], or
     * [[GameManager.LobbyErrorResponse]] if the caller is not the host, `botId` is not a bot seated here, or the lobby
@@ -331,7 +336,7 @@ object LobbyManager {
             Behaviors.same
         }
 
-      case AddBot(roomId, requesterId, replyTo) =>
+      case AddBot(roomId, requesterId, difficulty, replyTo) =>
         lobbies.get(roomId) match {
           case Some(metadata) if !metadata.status.isJoinable =>
             replyTo ! GameManager.LobbyErrorResponse(LobbyError.LobbyNotJoinable(roomId))
@@ -347,13 +352,17 @@ object LobbyManager {
 
           case Some(metadata) =>
             val bot = BotId.nextFor(metadata.players.keySet)
-            context.log.info(s"Host seated ${bot.name} in lobby $roomId")
+            context.log.info(s"Host seated ${bot.name} (${difficulty.label}) in lobby $roomId")
             val updatedPlayers = metadata.players + (bot.id -> bot)
             val updatedStatus =
               if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
               else GameLifecycleStatus.WaitingForPlayers
-            val updatedMetadata =
-              metadata.copy(players = updatedPlayers, status = updatedStatus, lastActivityAt = Instant.now())
+            val updatedMetadata = metadata.copy(
+              players = updatedPlayers,
+              status = updatedStatus,
+              lastActivityAt = Instant.now(),
+              bots = metadata.bots + (bot.id -> difficulty)
+            )
             replyTo ! GameManager.LobbyJoined(roomId, updatedMetadata, bot)
             fanOut(
               subscribers,
@@ -396,8 +405,12 @@ object LobbyManager {
             val updatedStatus =
               if (updatedPlayers.size >= metadata.gameType.minPlayers) GameLifecycleStatus.ReadyToStart
               else GameLifecycleStatus.WaitingForPlayers
-            val updatedMetadata =
-              metadata.copy(players = updatedPlayers, status = updatedStatus, lastActivityAt = Instant.now())
+            val updatedMetadata = metadata.copy(
+              players = updatedPlayers,
+              status = updatedStatus,
+              lastActivityAt = Instant.now(),
+              bots = metadata.bots - botId // the freed seat takes its difficulty with it
+            )
             replyTo ! GameManager.LobbyLeft(roomId, s"${bot.name} removed from lobby $roomId")
             fanOut(
               subscribers,
@@ -543,7 +556,8 @@ object LobbyManager {
               metadata.gameType,
               seatOrder(metadata),
               replyTo,
-              lobbySubscribers
+              lobbySubscribers,
+              metadata.bots
             )
             persist(lobbyRepo.saveLobby(updatedMetadata))
             running(

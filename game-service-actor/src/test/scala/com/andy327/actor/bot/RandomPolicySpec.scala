@@ -167,6 +167,10 @@ class RandomPolicySpec extends AnyWordSpecLike with Matchers with OptionValues {
         GameType.Checkers
       )
       allTypes.foreach(gameType => BotPolicies.forGame(gameType, BotDifficulty.Standard) shouldBe RandomPolicy)
+      // every advertised rung resolves for every game, so a caller can ask for any level without a lookup failure
+      allTypes.foreach(gameType =>
+        BotDifficulty.all.foreach(level => BotPolicies.forGame(gameType, level) should not be null)
+      )
       BotPolicies.forGame(GameType.Pig) shouldBe RandomPolicy // Standard is the default difficulty
     }
   }

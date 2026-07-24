@@ -21,6 +21,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.prop.TableDrivenPropertyChecks._
 import org.scalatest.wordspec.AnyWordSpec
 
+import com.andy327.actor.bot.BotDifficulty
 import com.andy327.actor.core.{GameManager, InMemRepo, PlayerActor}
 import com.andy327.actor.lobby.{GameLifecycleStatus, LobbyMetadata, LobbyRepository, Player}
 import com.andy327.actor.persistence.PersistenceProtocol
@@ -151,6 +152,35 @@ class LobbyRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest 
 
       Post(s"/lobby/$roomId/start").withHeaders(aliceHeader) ~> routes ~> check {
         status shouldBe StatusCodes.OK
+      }
+    }
+
+    "list the bot difficulty levels for the selector" in
+      Get("/lobby/bot-difficulties") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] should include("standard") // the client populates its selector from this list
+      }
+
+    "seat a bot at an explicitly requested difficulty" in {
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+
+      Post(s"/lobby/$roomId/bots?difficulty=standard").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        val bot = responseAs[GameManager.LobbyJoined].joinedPlayer
+        responseAs[GameManager.LobbyJoined].metadata.bots.get(bot.id) shouldBe Some(BotDifficulty.Standard)
+      }
+    }
+
+    "reject an unknown bot difficulty" in {
+      val roomId = Post("/lobby/create/tictactoe").withHeaders(aliceHeader) ~> routes ~> check {
+        responseAs[GameManager.LobbyCreated].roomId
+      }
+
+      Post(s"/lobby/$roomId/bots?difficulty=godlike").withHeaders(aliceHeader) ~> routes ~> check {
+        status shouldBe StatusCodes.BadRequest
+        responseAs[String] should include("Unknown difficulty")
       }
     }
 

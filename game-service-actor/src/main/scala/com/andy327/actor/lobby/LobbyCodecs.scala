@@ -7,8 +7,9 @@ import scala.util.Try
 import io.circe.generic.semiauto.deriveCodec
 import io.circe.parser.decode
 import io.circe.syntax._
-import io.circe.{Codec, Decoder, Encoder, KeyDecoder, KeyEncoder}
+import io.circe.{Codec, Decoder, Encoder, Json, KeyDecoder, KeyEncoder}
 
+import com.andy327.actor.bot.BotDifficulty
 import com.andy327.persistence.db.schema.GameTypeCodecs.gameTypeCodec
 
 /** Circe codecs for lobby domain types, used by [[RedisLobbyRepository]] to serialize and deserialize
@@ -45,7 +46,29 @@ object LobbyCodecs {
     }
   )
 
-  implicit val lobbyMetadataCodec: Codec[LobbyMetadata] = deriveCodec[LobbyMetadata]
+  implicit val botDifficultyCodec: Codec[BotDifficulty] = Codec.from(
+    Decoder.decodeString.emap(s => BotDifficulty.fromString(s).toRight(s"Unknown BotDifficulty: $s")),
+    Encoder.encodeString.contramap[BotDifficulty](_.label)
+  )
+
+  private val derivedLobbyMetadataCodec: Codec[LobbyMetadata] = deriveCodec[LobbyMetadata]
+
+  /** Decoding fills in an absent `bots` field rather than failing on it.
+    *
+    * Circe's derived decoders do not consult a case class's default values, so a room persisted before bot seats
+    * existed would otherwise be unreadable — costing the room its name, host, and rematch on the first restart after
+    * an upgrade. An older record simply has no bots, which is exactly what the empty map says.
+    */
+  implicit val lobbyMetadataCodec: Codec[LobbyMetadata] = Codec.from(
+    Decoder.instance { cursor =>
+      val filled = cursor.value.asObject
+        .filterNot(_.contains("bots"))
+        .map(obj => Json.fromJsonObject(obj.add("bots", Json.obj())).hcursor)
+        .getOrElse(cursor)
+      derivedLobbyMetadataCodec(filled)
+    },
+    derivedLobbyMetadataCodec
+  )
 
   /** Serializes a [[LobbyMetadata]] instance to a compact JSON string. */
   def serialize(metadata: LobbyMetadata): String = metadata.asJson.noSpaces
