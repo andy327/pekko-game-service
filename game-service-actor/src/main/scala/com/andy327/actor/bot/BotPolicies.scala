@@ -10,8 +10,8 @@ import com.andy327.model.core.GameType
   * per game is only which policy each rung resolves to, and a game that has not implemented a rung yet falls back to
   * the closest one it has (see [[BotPolicies]]).
   *
-  * One rung exists today. Adding another is a new case object here plus its per-game entries in [[BotPolicies]] —
-  * nothing else in the bot machinery changes.
+  * Adding a rung is a new case object here plus its per-game entries in [[BotPolicies]] — nothing else in the bot
+  * machinery changes.
   */
 sealed trait BotDifficulty {
 
@@ -21,11 +21,14 @@ sealed trait BotDifficulty {
 
 object BotDifficulty {
 
-  /** The strength every bot currently plays at. */
+  /** The baseline strength: legal moves chosen at random, with no strategy. */
   case object Standard extends BotDifficulty { val label = "standard" }
 
+  /** A strong opponent that plays each game as well as its per-game policy allows (optimally, where one exists). */
+  case object Hard extends BotDifficulty { val label = "hard" }
+
   /** Every level a caller may ask for, in ascending order of strength. */
-  val all: List[BotDifficulty] = List(Standard)
+  val all: List[BotDifficulty] = List(Standard, Hard)
 
   /** The level a bot takes when none is requested. */
   val Default: BotDifficulty = Standard
@@ -38,14 +41,17 @@ object BotDifficulty {
 
 /** Resolves the [[AiPolicy]] a bot plays, given its game type and the difficulty its seat was created with.
   *
-  * Every pairing currently resolves to [[RandomPolicy]]. A per-game heuristic replaces one entry here without touching
-  * the bot machinery or the other games, and a game with no entry for a level keeps the random baseline rather than
-  * failing — so a new rung can be rolled out one game at a time.
+  * `Standard` resolves to [[RandomPolicy]] for every game. `Hard` resolves to a per-game policy where one exists —
+  * [[TicTacToePolicy]] for Tic-Tac-Toe — and falls back to the random baseline for a game that has no Hard policy yet,
+  * rather than failing. A per-game heuristic replaces one entry here without touching the bot machinery or the other
+  * games, so a new rung can be rolled out one game at a time.
   */
 object BotPolicies {
 
   def forGame(gameType: GameType, difficulty: BotDifficulty = BotDifficulty.Default): AiPolicy =
     (gameType, difficulty) match {
-      case (_, BotDifficulty.Standard) => RandomPolicy
+      case (GameType.TicTacToe, BotDifficulty.Hard) => TicTacToePolicy
+      case (_, BotDifficulty.Hard)                  => RandomPolicy
+      case (_, BotDifficulty.Standard)              => RandomPolicy
     }
 }
